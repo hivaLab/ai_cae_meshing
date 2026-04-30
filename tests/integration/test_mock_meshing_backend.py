@@ -37,6 +37,7 @@ def test_ansa_command_construction(tmp_path: Path):
     stage = backend.stage_input(request)
     config = backend.write_config(request, stage)
     config_payload = json.loads(config.read_text(encoding="utf-8"))
+    plan_payload = json.loads((stage / "ansa_recipe_plan.json").read_text(encoding="utf-8"))
     command = backend.build_command(config)
     assert "-nogui" in command
     assert any(part.startswith("load_script:") for part in command)
@@ -47,3 +48,7 @@ def test_ansa_command_construction(tmp_path: Path):
     assert (stage / "ansa_quality_criteria.json").exists()
     assert Path(config_payload["ansa_recipe_plan_json"]).exists()
     assert config_payload["geometry_mode"] == "PROCEDURAL_DESCRIPTOR"
+    assert plan_payload["native_entity_generation"]["solid_tetra"]["entity_type"] == "SOLID"
+    assert plan_payload["native_entity_generation"]["connector"]["entity_type"] == "CBUSH"
+    assert plan_payload["native_entity_generation"]["mass"]["entity_type"] == "CONM2"
+    assert plan_payload["fallback_enabled"] is False

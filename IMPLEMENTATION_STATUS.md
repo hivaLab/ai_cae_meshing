@@ -95,6 +95,18 @@ Source of truth: `CAE_MESH_AUTOMATION_IMPLEMENTATION_PLAN.md`
 - ANSA quality repair status: passed_no_repair_required
 - ANSA QA repair loop records: 3
 
+## ANSA Production Regression
+- Command: `python scripts/run_ansa_regression.py --sample-count 10`
+- Regression report: `ANSA_REGRESSION_REPORT.md`
+- Sample count: 10
+- Passed samples: 10
+- Failed samples: 0
+- Native CTETRA total: 50 / expected 50
+- Native CBUSH total: 80 / expected 80
+- Native CONM2 total: 10 / expected 10
+- Total runtime seconds: 136.662
+- Regression acceptance: ACCEPTED
+
 ## Known Limitations
 - Generated assemblies are deterministic synthetic CAD solids exported through CadQuery/OCP, not OEM production CAD.
 - ANSA backend is explicit and does not fall back to local meshing.

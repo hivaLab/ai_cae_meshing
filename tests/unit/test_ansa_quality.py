@@ -3,6 +3,7 @@ from __future__ import annotations
 from ai_mesh_generator.meshing.ansa_quality import (
     count_quality_issue_words,
     normalize_write_statistics_status,
+    parse_quality_report,
     summarize_ansa_quality_statistics,
 )
 
@@ -44,3 +45,27 @@ def test_quality_statistics_trusts_ansa_success_status_over_static_report_words(
 
     assert summary["passed"] is True
     assert summary["file_issue_word_count"] == 0
+
+
+def test_quality_statistics_missing_report_is_explicit_failure(tmp_path):
+    missing = tmp_path / "missing_statistics.html"
+
+    summary = summarize_ansa_quality_statistics(
+        [{"part_uid": "part_a", "status": "ran", "write_statistics_status": 2, "statistics_report_file": str(missing)}]
+    )
+
+    assert summary["passed"] is False
+    assert summary["issue_record_count"] == 1
+    assert summary["issue_records"][0]["report_error"] == "quality statistics report file is missing"
+
+
+def test_quality_report_parser_extracts_issue_terms_for_failed_status(tmp_path):
+    report = tmp_path / "bad_statistics.html"
+    report.write_text("Fatal error: unmeshed macro and quality violation remain", encoding="utf-8")
+
+    parsed = parse_quality_report(report, scan_issue_terms=True)
+
+    assert parsed["exists"] is True
+    assert parsed["parsed"] is True
+    assert parsed["issue_count"] > 0
+    assert parsed["issue_terms"]["fatal"] == 1

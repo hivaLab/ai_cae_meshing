@@ -1,6 +1,6 @@
 # Final Delivery Report
 
-Generated at: 2026-04-30T11:19:11.765261+00:00
+Generated at: 2026-04-30T11:54:25.515332+00:00
 
 ## Workflow Commands
 - validate_all_repository_schemas
@@ -82,6 +82,18 @@ Generated at: 2026-04-30T11:19:11.765261+00:00
 - Native CONM2 masses generated: 1
 - ANSA quality repair status: passed_no_repair_required
 - ANSA QA repair loop records: 3
+
+## ANSA Production Regression
+- Command: `python scripts/run_ansa_regression.py --sample-count 10`
+- Regression report: `ANSA_REGRESSION_REPORT.md`
+- Sample count: 10
+- Passed samples: 10
+- Failed samples: 0
+- Native CTETRA total: 50 / expected 50
+- Native CBUSH total: 80 / expected 80
+- Native CONM2 total: 10 / expected 10
+- Total runtime seconds: 136.662
+- Regression acceptance: ACCEPTED
 
 ## Known Limitations
 - Generated assemblies are deterministic synthetic CAD solids exported through CadQuery/OCP, not OEM production CAD.

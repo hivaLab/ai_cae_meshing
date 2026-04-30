@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Mesh recipe",
+  "type": "object",
+  "required": ["recipe_id", "sample_id", "backend", "part_strategies", "size_fields", "connections", "guard"],
+  "properties": {
+    "recipe_id": {"type": "string"},
+    "sample_id": {"type": "string"},
+    "backend": {"enum": ["LOCAL_PROCEDURAL", "ANSA_BATCH"]},
+    "part_strategies": {"type": "array"},
+    "size_fields": {"type": "array"},
+    "connections": {"type": "array"},
+    "guard": {"type": "object"}
+  },
+  "additionalProperties": true
+}

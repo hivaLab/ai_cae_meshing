@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Mesh profile",
+  "type": "object",
+  "required": ["profile_id", "units", "target_solver", "shell", "solid", "quality"],
+  "properties": {
+    "profile_id": {"type": "string"},
+    "units": {"const": "mm"},
+    "target_solver": {"const": "nastran"},
+    "shell": {
+      "type": "object",
+      "required": ["nominal_size", "min_size", "max_size"],
+      "properties": {
+        "nominal_size": {"type": "number", "exclusiveMinimum": 0},
+        "min_size": {"type": "number", "exclusiveMinimum": 0},
+        "max_size": {"type": "number", "exclusiveMinimum": 0}
+      }
+    },
+    "solid": {
+      "type": "object",
+      "required": ["nominal_size", "min_size", "max_size"],
+      "properties": {
+        "nominal_size": {"type": "number", "exclusiveMinimum": 0},
+        "min_size": {"type": "number", "exclusiveMinimum": 0},
+        "max_size": {"type": "number", "exclusiveMinimum": 0}
+      }
+    },
+    "quality": {"type": "object"}
+  },
+  "additionalProperties": true
+}

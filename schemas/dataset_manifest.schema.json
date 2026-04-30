@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Dataset manifest",
+  "type": "object",
+  "required": ["dataset_id", "schema_version", "seed", "accepted_count", "splits"],
+  "properties": {
+    "dataset_id": {"type": "string"},
+    "schema_version": {"type": "string"},
+    "seed": {"type": "integer"},
+    "accepted_count": {"type": "integer", "minimum": 0},
+    "rejected_count": {"type": "integer", "minimum": 0},
+    "splits": {
+      "type": "object",
+      "required": ["train", "val", "test"],
+      "properties": {
+        "train": {"type": "integer", "minimum": 0},
+        "val": {"type": "integer", "minimum": 0},
+        "test": {"type": "integer", "minimum": 0}
+      }
+    }
+  },
+  "additionalProperties": true
+}

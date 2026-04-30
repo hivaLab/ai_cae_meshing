@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "QA metrics",
+  "type": "object",
+  "required": ["sample_id", "accepted", "bdf_parse_success", "missing_property_count", "missing_material_count", "duplicate_id_count"],
+  "properties": {
+    "sample_id": {"type": "string"},
+    "accepted": {"type": "boolean"},
+    "bdf_parse_success": {"type": "boolean"},
+    "missing_property_count": {"type": "integer", "minimum": 0},
+    "missing_material_count": {"type": "integer", "minimum": 0},
+    "duplicate_id_count": {"type": "integer", "minimum": 0},
+    "shell_element_count": {"type": "integer", "minimum": 0},
+    "solid_element_count": {"type": "integer", "minimum": 0},
+    "connector_count": {"type": "integer", "minimum": 0}
+  },
+  "additionalProperties": true
+}

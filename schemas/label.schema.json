@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Training labels",
+  "type": "object",
+  "required": ["sample_id", "part_labels", "face_labels", "edge_labels", "size_field_labels", "failure_risks", "repair_actions"],
+  "properties": {
+    "sample_id": {"type": "string"},
+    "part_labels": {"type": "array"},
+    "face_labels": {"type": "array"},
+    "edge_labels": {"type": "array"},
+    "size_field_labels": {"type": "array"},
+    "failure_risks": {"type": "array"},
+    "repair_actions": {"type": "array"}
+  },
+  "additionalProperties": true
+}

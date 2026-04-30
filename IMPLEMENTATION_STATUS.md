@@ -82,15 +82,18 @@ Source of truth: `CAE_MESH_AUTOMATION_IMPLEMENTATION_PLAN.md`
 - Batch Meshing Manager invoked: True
 - Batch Meshing Manager note: ANSA batchmesh sessions applied AI mesh recipe parameters per part and ran Batch Mesh Manager
 - ANSA import counts: {'ANSAPART': 12, 'CBUSH': 0, 'CONM2': 0, 'FACE': 72, 'GRID': 0, 'MAT1': 1, 'PBUSH': 0, 'PSHELL': 12, 'PSOLID': 0, 'RBE2': 0, 'RBE3': 0, 'SHELL': 0, 'SOLID': 0, '__ELEMENTS__': 0}
-- ANSA batch counts: {'ANSAPART': 12, 'CBUSH': 0, 'CONM2': 0, 'FACE': 72, 'GRID': 12638, 'MAT1': 4, 'PBUSH': 0, 'PSHELL': 12, 'PSOLID': 0, 'RBE2': 0, 'RBE3': 0, 'SHELL': 12616, 'SOLID': 0, '__ELEMENTS__': 12616}
+- ANSA batch counts: {'ANSAPART': 12, 'CBUSH': 8, 'CONM2': 1, 'FACE': 72, 'GRID': 12675, 'MAT1': 4, 'PBUSH': 1, 'PSHELL': 12, 'PSOLID': 5, 'RBE2': 0, 'RBE3': 0, 'SHELL': 12616, 'SOLID': 5, '__ELEMENTS__': 12630}
 - AI recipe batch sessions: 11
 - Per-part size fields planned: 12
 - BMM size-field sessions applied: 11
 - Materials written to deck: 4
 - PSHELL properties updated: 11
-- AI connector elements written: 8
-- Mass-only elements written: 1
-- ANSA QA repair loop records: 2
+- Solver-deck element fallback enabled: False
+- Native CTETRA solids generated: 5
+- Native CBUSH connectors generated: 8
+- Native CONM2 masses generated: 1
+- ANSA quality repair status: passed_no_repair_required
+- ANSA QA repair loop records: 3
 
 ## Known Limitations
 - Generated assemblies are deterministic synthetic CAD solids exported through CadQuery/OCP, not OEM production CAD.

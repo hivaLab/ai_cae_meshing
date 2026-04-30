@@ -93,6 +93,8 @@ def main() -> int:
                 "ansa_batch_counts": ansa_manifest.get("ansa_batch_counts", {}),
                 "ansa_recipe_application": ansa_manifest.get("ansa_recipe_application", {}),
                 "solver_deck_recipe_application": ansa_manifest.get("solver_deck_recipe_application", {}),
+                "native_entity_generation": ansa_manifest.get("native_entity_generation", {}),
+                "ansa_quality_repair_loop": ansa_manifest.get("ansa_quality_repair_loop", {}),
             }
             command_log.append("amg run-mesh --backend ANSA_BATCH")
             command_log.append("amg validate-result --backend ANSA_BATCH")
@@ -142,7 +144,12 @@ def main() -> int:
         and ansa_probe["passed"]
         and ansa_probe.get("batch_meshing_manager_invoked", False)
         and bool(ansa_probe.get("ansa_recipe_application", {}).get("batch_mesh_sessions", {}).get("session_count", 0))
-        and int(ansa_probe.get("solver_deck_recipe_application", {}).get("connector_elements_written", 0)) > 0
+        and int(ansa_probe.get("ansa_batch_counts", {}).get("SOLID", 0)) > 0
+        and int(ansa_probe.get("ansa_batch_counts", {}).get("CBUSH", 0)) > 0
+        and int(ansa_probe.get("ansa_batch_counts", {}).get("CONM2", 0)) > 0
+        and int(ansa_probe.get("native_entity_generation", {}).get("solid_tetra", {}).get("created_count", 0)) > 0
+        and int(ansa_probe.get("native_entity_generation", {}).get("connectors", {}).get("created_count", 0)) > 0
+        and int(ansa_probe.get("native_entity_generation", {}).get("masses", {}).get("created_count", 0)) > 0
         else "failed",
     }
     final_report = ROOT / "FINAL_DELIVERY_REPORT.md"
@@ -240,6 +247,8 @@ def render_report(report: dict) -> str:
     ansa_probe = report["ansa_execution_probe"]
     recipe_application = ansa_probe.get("ansa_recipe_application", {})
     deck_application = ansa_probe.get("solver_deck_recipe_application", {})
+    native_generation = ansa_probe.get("native_entity_generation", {})
+    quality_repair_loop = ansa_probe.get("ansa_quality_repair_loop", {})
     batch_sessions = recipe_application.get("batch_mesh_sessions", {})
     recipe_summary = recipe_application.get("summary", {})
     ansa_metrics = ansa_probe.get("summary", {}).get("mesh_result", {}).get("metrics", {})
@@ -312,8 +321,11 @@ def render_report(report: dict) -> str:
             f"- BMM size-field sessions applied: {batch_sessions.get('session_count', 0)}",
             f"- Materials written to deck: {deck_application.get('material_cards_written', 0)}",
             f"- PSHELL properties updated: {deck_application.get('pshell_cards_updated', 0)}",
-            f"- AI connector elements written: {deck_application.get('connector_elements_written', 0)}",
-            f"- Mass-only elements written: {deck_application.get('mass_elements_written', 0)}",
+            f"- Solver-deck element fallback enabled: {deck_application.get('element_creation_enabled', False)}",
+            f"- Native CTETRA solids generated: {native_generation.get('solid_tetra', {}).get('created_count', 0)}",
+            f"- Native CBUSH connectors generated: {native_generation.get('connectors', {}).get('created_count', 0)}",
+            f"- Native CONM2 masses generated: {native_generation.get('masses', {}).get('created_count', 0)}",
+            f"- ANSA quality repair status: {quality_repair_loop.get('status', '')}",
             f"- ANSA QA repair loop records: {ansa_metrics.get('repair_iteration_count', 0)}",
             "",
             "## Known Limitations",
@@ -333,6 +345,8 @@ def update_status(report: dict) -> None:
     ansa_probe = report["ansa_execution_probe"]
     recipe_application = ansa_probe.get("ansa_recipe_application", {})
     deck_application = ansa_probe.get("solver_deck_recipe_application", {})
+    native_generation = ansa_probe.get("native_entity_generation", {})
+    quality_repair_loop = ansa_probe.get("ansa_quality_repair_loop", {})
     batch_sessions = recipe_application.get("batch_mesh_sessions", {})
     recipe_summary = recipe_application.get("summary", {})
     ansa_metrics = ansa_probe.get("summary", {}).get("mesh_result", {}).get("metrics", {})
@@ -416,8 +430,11 @@ def update_status(report: dict) -> None:
             f"- BMM size-field sessions applied: {batch_sessions.get('session_count', 0)}",
             f"- Materials written to deck: {deck_application.get('material_cards_written', 0)}",
             f"- PSHELL properties updated: {deck_application.get('pshell_cards_updated', 0)}",
-            f"- AI connector elements written: {deck_application.get('connector_elements_written', 0)}",
-            f"- Mass-only elements written: {deck_application.get('mass_elements_written', 0)}",
+            f"- Solver-deck element fallback enabled: {deck_application.get('element_creation_enabled', False)}",
+            f"- Native CTETRA solids generated: {native_generation.get('solid_tetra', {}).get('created_count', 0)}",
+            f"- Native CBUSH connectors generated: {native_generation.get('connectors', {}).get('created_count', 0)}",
+            f"- Native CONM2 masses generated: {native_generation.get('masses', {}).get('created_count', 0)}",
+            f"- ANSA quality repair status: {quality_repair_loop.get('status', '')}",
             f"- ANSA QA repair loop records: {ansa_metrics.get('repair_iteration_count', 0)}",
             "",
             "## Known Limitations",

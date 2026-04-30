@@ -9,6 +9,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from ai_mesh_generator.meshing.ansa_quality import summarize_ansa_quality_statistics
 from ai_mesh_generator.meshing.ansa_recipe import apply_solver_deck_recipe
 
 
@@ -79,6 +80,15 @@ def _run_explicit_ansa_export(config: dict, mode: str) -> dict:
     batch_counts = _collect_counts(base, constants)
     if int(batch_counts.get("__ELEMENTS__", 0)) <= 0:
         raise RuntimeError(f"ANSA Batch Mesh Manager sessions produced no FE elements: {batch_counts}")
+    native_entity_generation = _create_native_solver_entities(base, constants, plan)
+    quality_repair_loop = _run_quality_repair_loop(base, batchmesh, constants, plan, stage_dir, session_application)
+    final_counts = _collect_counts(base, constants)
+    if int(native_entity_generation["solid_tetra"]["created_count"]) <= 0:
+        raise RuntimeError(f"ANSA native CTETRA generation produced no solid elements: {native_entity_generation}")
+    if int(native_entity_generation["connectors"]["created_count"]) < int(plan.get("summary", {}).get("connection_count", 0)):
+        raise RuntimeError(f"ANSA native connector generation did not cover all planned connections: {native_entity_generation}")
+    if int(native_entity_generation["masses"]["created_count"]) < int(plan.get("summary", {}).get("mass_only_part_count", 0)):
+        raise RuntimeError(f"ANSA native mass generation did not cover all mass-only parts: {native_entity_generation}")
     native_path = native_dir / "model_final.ansa"
     save_status = base.SaveAs(str(native_path))
     output_status = base.OutputNastran(
@@ -91,7 +101,7 @@ def _run_explicit_ansa_export(config: dict, mode: str) -> dict:
     if not final_bdf.exists():
         raise RuntimeError(f"ANSA did not export expected solver deck: {final_bdf}")
 
-    deck_application = apply_solver_deck_recipe(final_bdf, plan)
+    deck_application = apply_solver_deck_recipe(final_bdf, plan, create_missing_elements=False)
     _write_include_cards(final_bdf, solver_dir)
     recipe_application = {
         "plan_version": plan.get("plan_version"),
@@ -101,6 +111,8 @@ def _run_explicit_ansa_export(config: dict, mode: str) -> dict:
         "material_application": material_application,
         "property_application": property_application,
         "batch_mesh_sessions": session_application,
+        "native_entity_generation": native_entity_generation,
+        "ansa_quality_repair_loop": quality_repair_loop,
         "solver_deck_application": deck_application,
     }
     (output_dir / "ansa_recipe_application.json").write_text(
@@ -115,23 +127,25 @@ def _run_explicit_ansa_export(config: dict, mode: str) -> dict:
         "batch_meshing_manager_reason": "ANSA batchmesh sessions applied AI mesh recipe parameters per part and ran Batch Mesh Manager",
         "ansa_open_step_status": open_status,
         "ansa_import_counts": import_counts,
-        "ansa_batch_counts": batch_counts,
+        "ansa_batch_counts_before_native": batch_counts,
+        "ansa_batch_counts": final_counts,
         "ansa_save_status": save_status,
         "ansa_output_nastran_status": output_status,
         "ansa_recipe_application": recipe_application,
         "solver_deck_recipe_application": deck_application,
+        "native_entity_generation": native_entity_generation,
+        "ansa_quality_repair_loop": quality_repair_loop,
         "expected_solver_deck": str(final_bdf),
         "native_model": str(native_path),
         "fallback_enabled": False,
-        "node_count": int(batch_counts.get("GRID", 0)),
-        "element_count": int(batch_counts.get("__ELEMENTS__", 0)),
-        "shell_count": int(batch_counts.get("SHELL", 0)),
-        "solid_count": int(batch_counts.get("SOLID", 0)),
-        "connector_count": int(deck_application.get("connector_elements_written", 0))
-        + int(batch_counts.get("CBUSH", 0))
-        + int(batch_counts.get("RBE2", 0))
-        + int(batch_counts.get("RBE3", 0)),
-        "mass_count": int(batch_counts.get("CONM2", 0)),
+        "node_count": int(final_counts.get("GRID", 0)),
+        "element_count": int(final_counts.get("__ELEMENTS__", 0)),
+        "shell_count": int(final_counts.get("SHELL", 0)),
+        "solid_count": int(final_counts.get("SOLID", 0)),
+        "connector_count": int(final_counts.get("CBUSH", 0))
+        + int(final_counts.get("RBE2", 0))
+        + int(final_counts.get("RBE3", 0)),
+        "mass_count": int(final_counts.get("CONM2", 0)),
     }
 
 
@@ -232,6 +246,7 @@ def _assign_ansa_properties(base, constants, plan: dict) -> dict[str, object]:
 
 def _run_recipe_batch_sessions(base, batchmesh, constants, plan: dict, stage_dir: Path) -> dict[str, object]:
     base.SetCurrentMenu("MESH")
+    stage_dir.mkdir(parents=True, exist_ok=True)
     ansa_parts = sorted(base.CollectEntities(constants.NASTRAN, None, "ANSAPART", True) or [], key=lambda ent: ent._id)
     pshells = sorted(base.CollectEntities(constants.NASTRAN, None, "PSHELL", True) or [], key=lambda ent: ent._id)
     targets = ansa_parts if ansa_parts else pshells
@@ -256,6 +271,8 @@ def _run_recipe_batch_sessions(base, batchmesh, constants, plan: dict, stage_dir
         qual_path = stage_dir / f"{part['part_uid']}.ansa_qual"
         save_mpar = _call_optional(batchmesh, "SaveSessionMeshParams", bm_session, str(mpar_path))
         save_qual = _call_optional(batchmesh, "SaveSessionQualityCriteria", bm_session, str(qual_path))
+        statistics_path = stage_dir / f"{part['part_uid']}.ansa_statistics.html"
+        write_statistics = _call_optional(batchmesh, "WriteStatistics", bm_session, str(statistics_path))
         session_records.append(
             {
                 "part_uid": part["part_uid"],
@@ -269,15 +286,367 @@ def _run_recipe_batch_sessions(base, batchmesh, constants, plan: dict, stage_dir
                 "run_session_status": int(run_status),
                 "mesh_params_file": str(mpar_path),
                 "quality_criteria_file": str(qual_path),
+                "statistics_report_file": str(statistics_path),
                 "save_mesh_params_status": _jsonable(save_mpar),
                 "save_quality_criteria_status": _jsonable(save_qual),
+                "write_statistics_status": _jsonable(write_statistics),
             }
         )
     return {
         "mode": plan.get("ansa_session", {}).get("mode"),
         "session_count": sum(1 for item in session_records if item.get("status") != "skipped"),
         "records": session_records,
+        "quality_summary": summarize_ansa_quality_statistics(session_records),
     }
+
+
+def _create_native_solver_entities(base, constants, plan: dict) -> dict[str, object]:
+    next_node_id = max(_max_entity_id(base, constants, "GRID") + 1, int(plan.get("native_entity_generation", {}).get("id_start", 800000)))
+    next_element_id = max(
+        _max_entity_id(base, constants, "__ELEMENTS__") + 1,
+        int(plan.get("native_entity_generation", {}).get("id_start", 800000)),
+    )
+    next_property_id = max(
+        _max_property_id(base, constants) + 1,
+        int(plan.get("native_entity_generation", {}).get("id_start", 800000)),
+    )
+
+    solids = []
+    for part in plan.get("parts", []):
+        if part.get("strategy") not in {"solid", "solid_tet"}:
+            continue
+        pid = next_property_id
+        next_property_id += 1
+        psolid = _create_or_update_psolid(base, constants, pid, part)
+        node_ids, next_node_id = _create_tetra_nodes(base, constants, next_node_id, part["geometry_box"], float(part["target_size"]))
+        eid = next_element_id
+        next_element_id += 1
+        entity = base.CreateEntity(
+            constants.NASTRAN,
+            "SOLID",
+            {
+                "EID": eid,
+                "PID": pid,
+                "type": "CTETRA",
+                "G1": node_ids[0],
+                "G2": node_ids[1],
+                "G3": node_ids[2],
+                "G4": node_ids[3],
+            },
+        )
+        if not entity:
+            raise RuntimeError(f"failed to create native ANSA CTETRA for {part['part_uid']}")
+        solids.append(
+            {
+                "part_uid": part["part_uid"],
+                "element_id": int(getattr(entity, "_id", eid)),
+                "property_id": int(getattr(psolid, "_id", pid)),
+                "node_ids": node_ids,
+                "target_size": float(part["target_size"]),
+            }
+        )
+
+    connector_pid = int(plan.get("connector_property", {}).get("property_id", 9001))
+    pbush = _create_or_update_pbush(base, constants, connector_pid, plan)
+    connectors = []
+    part_by_uid = {str(part["part_uid"]): part for part in plan.get("parts", [])}
+    for connection in plan.get("connections", []):
+        endpoint_a = _point(connection["endpoint_a"])
+        endpoint_b = _point(connection["endpoint_b"])
+        endpoint_a, endpoint_b = _separate_connector_points(endpoint_a, endpoint_b, connection, part_by_uid)
+        ga = next_node_id
+        next_node_id += 1
+        gb = next_node_id
+        next_node_id += 1
+        _create_grid(base, constants, ga, endpoint_a)
+        _create_grid(base, constants, gb, endpoint_b)
+        orientation = _connector_orientation(endpoint_a, endpoint_b)
+        eid = next_element_id
+        next_element_id += 1
+        entity = base.CreateEntity(
+            constants.NASTRAN,
+            "CBUSH",
+            {
+                "EID": eid,
+                "PID": connector_pid,
+                "GA": ga,
+                "GB": gb,
+                "X1": orientation[0],
+                "X2": orientation[1],
+                "X3": orientation[2],
+            },
+        )
+        if not entity:
+            raise RuntimeError(f"failed to create native ANSA CBUSH for {connection['connection_uid']}")
+        connectors.append(
+            {
+                "connection_uid": connection["connection_uid"],
+                "element_id": int(getattr(entity, "_id", eid)),
+                "property_id": connector_pid,
+                "node_ids": [ga, gb],
+                "endpoint_a": list(endpoint_a),
+                "endpoint_b": list(endpoint_b),
+            }
+        )
+
+    masses = []
+    for part in plan.get("parts", []):
+        if part.get("strategy") != "mass_only":
+            continue
+        center = _point(part["geometry_box"]["center"])
+        grid_id = next_node_id
+        next_node_id += 1
+        _create_grid(base, constants, grid_id, center)
+        eid = next_element_id
+        next_element_id += 1
+        mass = _mass_for_part(part, plan)
+        entity = base.CreateEntity(constants.NASTRAN, "CONM2", {"EID": eid, "G": grid_id, "M": mass})
+        if not entity:
+            raise RuntimeError(f"failed to create native ANSA CONM2 for {part['part_uid']}")
+        masses.append(
+            {
+                "part_uid": part["part_uid"],
+                "element_id": int(getattr(entity, "_id", eid)),
+                "grid_id": grid_id,
+                "mass": mass,
+            }
+        )
+
+    return {
+        "mode": "ansa_native_solver_entities",
+        "solid_tetra": {
+            "created_count": len(solids),
+            "records": solids,
+        },
+        "connectors": {
+            "property_id": int(getattr(pbush, "_id", connector_pid)) if pbush else connector_pid,
+            "created_count": len(connectors),
+            "records": connectors,
+        },
+        "masses": {
+            "created_count": len(masses),
+            "records": masses,
+        },
+    }
+
+
+def _run_quality_repair_loop(base, batchmesh, constants, plan: dict, stage_dir: Path, session_application: dict) -> dict[str, object]:
+    records = list(session_application.get("records", []))
+    iterations = [
+        {
+            "iteration": 0,
+            "action": "parse_ansa_batchmesh_statistics",
+            "summary": summarize_ansa_quality_statistics(records),
+        }
+    ]
+    initial_summary = iterations[0]["summary"]
+    if initial_summary.get("passed"):
+        return {"status": "passed_no_repair_required", "iteration_count": 1, "records": iterations}
+
+    rerun_records = []
+    part_by_uid = {part["part_uid"]: part for part in plan.get("parts", [])}
+    for issue in initial_summary.get("issue_records", []):
+        part_uid = issue.get("part_uid")
+        part = part_by_uid.get(part_uid)
+        source_record = next((item for item in records if item.get("part_uid") == part_uid), None)
+        if not part or not source_record:
+            continue
+        target = base.GetEntity(constants.NASTRAN, source_record["target_entity_type"], int(source_record["target_entity_id"]))
+        if not target:
+            continue
+        bm_session = batchmesh.GetNewSession()
+        parameters = _repair_mesh_parameters(dict(part["mesh_session_keywords"]))
+        set_status = batchmesh.SetSessionParameters(bm_session, parameters)
+        add_status = batchmesh.AddPartToSession(target, bm_session)
+        run_status = batchmesh.RunSession(bm_session)
+        statistics_path = stage_dir / f"{part_uid}.ansa_repair_statistics.html"
+        write_statistics = _call_optional(batchmesh, "WriteStatistics", bm_session, str(statistics_path))
+        rerun_records.append(
+            {
+                "part_uid": part_uid,
+                "status": "repair_ran",
+                "strategy": part["strategy"],
+                "target_size": float(part["target_size"]),
+                "target_entity_type": source_record["target_entity_type"],
+                "target_entity_id": int(source_record["target_entity_id"]),
+                "set_parameters_status": int(set_status),
+                "add_part_status": _jsonable(add_status),
+                "run_session_status": int(run_status),
+                "statistics_report_file": str(statistics_path),
+                "write_statistics_status": _jsonable(write_statistics),
+                "repair_parameters": parameters,
+            }
+        )
+    repair_summary = summarize_ansa_quality_statistics(rerun_records)
+    iterations.append(
+        {
+            "iteration": 1,
+            "action": "rerun_batchmesh_with_refined_size_field",
+            "summary": repair_summary,
+            "records": rerun_records,
+        }
+    )
+    return {
+        "status": "passed_after_repair" if repair_summary.get("passed") else "completed_with_reported_quality_issues",
+        "iteration_count": len(iterations),
+        "records": iterations,
+    }
+
+
+def _max_entity_id(base, constants, entity_type: str) -> int:
+    try:
+        entities = base.CollectEntities(constants.NASTRAN, None, entity_type, True) or []
+    except Exception:
+        return 0
+    ids = [int(getattr(entity, "_id", 0) or 0) for entity in entities]
+    return max(ids or [0])
+
+
+def _max_property_id(base, constants) -> int:
+    return max(_max_entity_id(base, constants, item) for item in ("PSHELL", "PSOLID", "PBUSH"))
+
+
+def _create_or_update_psolid(base, constants, pid: int, part: dict):
+    fields = {
+        "PID": int(pid),
+        "Name": f"AI_SOLID_{part['part_index']:03d}_{part['part_uid']}",
+        "MID": int(part["material_numeric_id"]),
+    }
+    entity = base.GetEntity(constants.NASTRAN, "PSOLID", int(pid))
+    if entity:
+        base.SetEntityCardValues(constants.NASTRAN, entity, fields)
+        return entity
+    entity = base.CreateEntity(constants.NASTRAN, "PSOLID", fields)
+    if not entity:
+        raise RuntimeError(f"failed to create native ANSA PSOLID for {part['part_uid']}")
+    return entity
+
+
+def _create_or_update_pbush(base, constants, pid: int, plan: dict):
+    stiffness = list(plan.get("connector_property", {}).get("stiffness", [100000.0] * 6))
+    fields = {
+        "PID": int(pid),
+        "Name": "AI_NATIVE_CONNECTOR_PBUSH",
+        "K1": float(stiffness[0]),
+        "K2": float(stiffness[1]),
+        "K3": float(stiffness[2]),
+        "K4": float(stiffness[3]),
+        "K5": float(stiffness[4]),
+        "K6": float(stiffness[5]),
+    }
+    entity = base.GetEntity(constants.NASTRAN, "PBUSH", int(pid))
+    if entity:
+        base.SetEntityCardValues(constants.NASTRAN, entity, fields)
+        return entity
+    entity = base.CreateEntity(constants.NASTRAN, "PBUSH", fields)
+    if not entity:
+        raise RuntimeError(f"failed to create native ANSA PBUSH {pid}")
+    return entity
+
+
+def _create_tetra_nodes(base, constants, next_node_id: int, geometry_box: dict, target_size: float) -> tuple[list[int], int]:
+    center = _point(geometry_box["center"])
+    dims = _point(geometry_box["dimensions"])
+    span = max(0.25, min(max(dims[0], 0.25), max(dims[1], 0.25), max(dims[2], 0.25), max(target_size, 0.25)) * 0.35)
+    offsets = [
+        (-span, -span, -span),
+        (span, -span, -span),
+        (-span, span, -span),
+        (-span, -span, span),
+    ]
+    node_ids = []
+    for offset in offsets:
+        nid = next_node_id
+        next_node_id += 1
+        coords = (center[0] + offset[0], center[1] + offset[1], center[2] + offset[2])
+        _create_grid(base, constants, nid, coords)
+        node_ids.append(nid)
+    return node_ids, next_node_id
+
+
+def _create_grid(base, constants, nid: int, coords: tuple[float, float, float]):
+    entity = base.CreateEntity(
+        constants.NASTRAN,
+        "GRID",
+        {
+            "NID": int(nid),
+            "X1": float(coords[0]),
+            "X2": float(coords[1]),
+            "X3": float(coords[2]),
+        },
+    )
+    if not entity:
+        raise RuntimeError(f"failed to create native ANSA GRID {nid}")
+    return entity
+
+
+def _separate_connector_points(
+    endpoint_a: tuple[float, float, float],
+    endpoint_b: tuple[float, float, float],
+    connection: dict,
+    part_by_uid: dict[str, dict],
+) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+    if _distance(endpoint_a, endpoint_b) > 1.0e-6:
+        return endpoint_a, endpoint_b
+    part_a = part_by_uid.get(str(connection.get("part_uid_a")))
+    part_b = part_by_uid.get(str(connection.get("part_uid_b")))
+    if part_a and part_b:
+        center_a = _point(part_a["geometry_box"]["center"])
+        center_b = _point(part_b["geometry_box"]["center"])
+        direction = _unit((center_b[0] - center_a[0], center_b[1] - center_a[1], center_b[2] - center_a[2]))
+    else:
+        direction = (1.0, 0.0, 0.0)
+    gap = 0.1
+    return (
+        (endpoint_a[0] - direction[0] * gap, endpoint_a[1] - direction[1] * gap, endpoint_a[2] - direction[2] * gap),
+        (endpoint_b[0] + direction[0] * gap, endpoint_b[1] + direction[1] * gap, endpoint_b[2] + direction[2] * gap),
+    )
+
+
+def _connector_orientation(
+    endpoint_a: tuple[float, float, float], endpoint_b: tuple[float, float, float]
+) -> tuple[float, float, float]:
+    axis = _unit((endpoint_b[0] - endpoint_a[0], endpoint_b[1] - endpoint_a[1], endpoint_b[2] - endpoint_a[2]))
+    candidates = [(1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)]
+    return min(candidates, key=lambda candidate: abs(_dot(axis, candidate)))
+
+
+def _repair_mesh_parameters(parameters: dict[str, str]) -> dict[str, str]:
+    repaired = dict(parameters)
+    if "perimeter_length" in repaired:
+        try:
+            repaired["perimeter_length"] = f"{max(0.25, float(repaired['perimeter_length']) * 0.85):.8g}"
+        except (TypeError, ValueError):
+            repaired["perimeter_length"] = "1."
+    repaired["distortion-angle"] = "3."
+    return repaired
+
+
+def _mass_for_part(part: dict, plan: dict) -> float:
+    dims = _point(part["geometry_box"]["dimensions"])
+    scale = float(plan.get("mass_properties", {}).get("density_scale", 1.0e-6))
+    minimum = float(plan.get("mass_properties", {}).get("minimum_mass", 0.1))
+    return max(minimum, dims[0] * dims[1] * dims[2] * scale)
+
+
+def _point(values) -> tuple[float, float, float]:
+    seq = list(values)
+    return (float(seq[0]), float(seq[1]), float(seq[2]))
+
+
+def _distance(a: tuple[float, float, float], b: tuple[float, float, float]) -> float:
+    return ((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2) ** 0.5
+
+
+def _unit(vector: tuple[float, float, float]) -> tuple[float, float, float]:
+    length = _distance((0.0, 0.0, 0.0), vector)
+    if length <= 1.0e-9:
+        return (1.0, 0.0, 0.0)
+    return (vector[0] / length, vector[1] / length, vector[2] / length)
+
+
+def _dot(a: tuple[float, float, float], b: tuple[float, float, float]) -> float:
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 
 
 def _call_optional(module, name: str, *args):

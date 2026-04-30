@@ -179,7 +179,7 @@ class AnsaCommandBackend:
             )
         else:
             before = validation.to_dict()
-            deck_application = apply_solver_deck_recipe(bdf_path, plan)
+            deck_application = apply_solver_deck_recipe(bdf_path, plan, create_missing_elements=True)
             validation = validate_bdf(bdf_path)
             repair_history.append(
                 {
@@ -214,6 +214,8 @@ class AnsaCommandBackend:
         (metadata_dir / "repair_history.json").write_text(
             json.dumps(repair_history, indent=2, sort_keys=True), encoding="utf-8"
         )
+        ansa_quality_repair_loop = manifest_details.get("ansa_quality_repair_loop", {})
+        native_entity_generation = manifest_details.get("native_entity_generation", {})
         metrics = {
             "sample_id": request.sample_id,
             "accepted": validation.passed,
@@ -222,7 +224,10 @@ class AnsaCommandBackend:
             "expected_connector_count": expected_connector_count,
             "ansa_recipe_summary": plan.get("summary", {}),
             "ansa_recipe_application": manifest_details.get("ansa_recipe_application", {}),
-            "repair_iteration_count": len(repair_history),
+            "native_entity_generation": native_entity_generation,
+            "ansa_quality_repair_loop": ansa_quality_repair_loop,
+            "repair_iteration_count": len(repair_history)
+            + int(ansa_quality_repair_loop.get("iteration_count", 0)),
         }
         metrics["ansa_manifest"] = manifest_details
         mesh_meta = {
@@ -305,6 +310,8 @@ def _element_records_from_model(assembly: dict[str, Any], model: Any) -> list[di
         etype = str(element["type"])
         if etype in {"CBUSH", "RBE2", "RBE3"}:
             part_uid = "connector"
+        elif etype == "CONM2":
+            part_uid = "mass"
         else:
             part_uid = part_uids[non_connector_index % len(part_uids)] if part_uids else "unknown_part"
             non_connector_index += 1

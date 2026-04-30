@@ -81,6 +81,24 @@ def build_ansa_recipe_plan(assembly: dict[str, Any], recipe: dict[str, Any]) -> 
             "density_scale": 1.0e-6,
             "minimum_mass": 0.1,
         },
+        "native_entity_generation": {
+            "solid_tetra": {
+                "enabled": True,
+                "entity_type": "SOLID",
+                "element_type": "CTETRA",
+                "property_type": "PSOLID",
+            },
+            "connector": {
+                "enabled": True,
+                "entity_type": "CBUSH",
+                "property_type": "PBUSH",
+            },
+            "mass": {
+                "enabled": True,
+                "entity_type": "CONM2",
+            },
+            "id_start": 800000,
+        },
         "ansa_session": {
             "mode": "per_part_batch_mesh_session",
             "global_keywords": _mesh_session_keywords(base_size),
@@ -139,7 +157,9 @@ def write_ansa_control_files(plan: dict[str, Any], stage_dir: Path | str) -> dic
     return {"mesh_parameters_json": str(parameter_path.resolve()), "quality_criteria_json": str(quality_path.resolve())}
 
 
-def apply_solver_deck_recipe(bdf_path: Path | str, plan: dict[str, Any]) -> dict[str, Any]:
+def apply_solver_deck_recipe(
+    bdf_path: Path | str, plan: dict[str, Any], create_missing_elements: bool = True
+) -> dict[str, Any]:
     """Apply recipe material, property, mass, and connector cards to a Nastran deck.
 
     ANSA owns CAD import and Batch Mesh Manager element generation. This function
@@ -149,58 +169,62 @@ def apply_solver_deck_recipe(bdf_path: Path | str, plan: dict[str, Any]) -> dict
 
     path = Path(bdf_path)
     original_lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    original_property_ids = set(_property_ids(original_lines))
     lines = _remove_previous_recipe_cards(original_lines, plan)
-    existing_nodes = _parse_nodes(lines)
-    max_node_id = max(existing_nodes) if existing_nodes else 0
-    max_element_id = _max_element_id(lines)
     max_property_id = max(_property_ids(lines) or [0])
 
     material_cards = _material_cards(plan)
     updated_lines, pshell_stats = _update_pshell_cards(lines, plan)
     connector_pid = int(plan.get("connector_property", {}).get("property_id", 9001))
-    if connector_pid <= max_property_id:
+    if connector_pid <= max_property_id and connector_pid not in original_property_ids:
         connector_pid = max_property_id + 1
     pbush_card = _pbush_card(connector_pid, plan)
 
-    next_node_id = max_node_id + 1
-    next_element_id = max_element_id + 1
     generated_cards: list[str] = []
     mass_cards = []
-    for part in plan.get("parts", []):
-        if part.get("strategy") != "mass_only":
-            continue
-        center = _as_point(part["geometry_box"]["center"])
-        mass = _mass_for_part(part, plan)
-        grid = f"GRID,{next_node_id},,{_fmt(center[0])},{_fmt(center[1])},{_fmt(center[2])} $ {RECIPE_MARKER}_MASS_GRID {part['part_uid']}"
-        conm2 = f"CONM2,{next_element_id},{next_node_id},,{_fmt(mass)} $ {RECIPE_MARKER}_MASS_ELEMENT {part['part_uid']}"
-        mass_cards.extend([grid, conm2])
-        existing_nodes[next_node_id] = center
-        next_node_id += 1
-        next_element_id += 1
-
     connector_cards = []
     connector_skipped = 0
-    if plan.get("connections"):
-        if not existing_nodes:
-            connector_skipped = len(plan["connections"])
-        else:
-            for connection in plan["connections"]:
-                node_a = _nearest_node(existing_nodes, _as_point(connection["endpoint_a"]))
-                node_b = _nearest_node(existing_nodes, _as_point(connection["endpoint_b"]), exclude={node_a})
-                if node_a is None or node_b is None or node_a == node_b:
-                    connector_skipped += 1
-                    continue
-                connector_cards.append(
-                    "CBUSH,{eid},{pid},{ga},{gb} $ {marker}_CONNECTOR {uid}".format(
-                        eid=next_element_id,
-                        pid=connector_pid,
-                        ga=node_a,
-                        gb=node_b,
-                        marker=RECIPE_MARKER,
-                        uid=connection["connection_uid"],
+    if create_missing_elements:
+        existing_nodes = _parse_nodes(lines)
+        max_node_id = max(existing_nodes) if existing_nodes else 0
+        max_element_id = _max_element_id(lines)
+        next_node_id = max_node_id + 1
+        next_element_id = max_element_id + 1
+        for part in plan.get("parts", []):
+            if part.get("strategy") != "mass_only":
+                continue
+            center = _as_point(part["geometry_box"]["center"])
+            mass = _mass_for_part(part, plan)
+            grid = f"GRID,{next_node_id},,{_fmt(center[0])},{_fmt(center[1])},{_fmt(center[2])} $ {RECIPE_MARKER}_MASS_GRID {part['part_uid']}"
+            conm2 = f"CONM2,{next_element_id},{next_node_id},,{_fmt(mass)} $ {RECIPE_MARKER}_MASS_ELEMENT {part['part_uid']}"
+            mass_cards.extend([grid, conm2])
+            existing_nodes[next_node_id] = center
+            next_node_id += 1
+            next_element_id += 1
+
+        if plan.get("connections"):
+            if not existing_nodes:
+                connector_skipped = len(plan["connections"])
+            else:
+                for connection in plan["connections"]:
+                    node_a = _nearest_node(existing_nodes, _as_point(connection["endpoint_a"]))
+                    node_b = _nearest_node(existing_nodes, _as_point(connection["endpoint_b"]), exclude={node_a})
+                    if node_a is None or node_b is None or node_a == node_b:
+                        connector_skipped += 1
+                        continue
+                    connector_cards.append(
+                        "CBUSH,{eid},{pid},{ga},{gb} $ {marker}_CONNECTOR {uid}".format(
+                            eid=next_element_id,
+                            pid=connector_pid,
+                            ga=node_a,
+                            gb=node_b,
+                            marker=RECIPE_MARKER,
+                            uid=connection["connection_uid"],
+                        )
                     )
-                )
-                next_element_id += 1
+                    next_element_id += 1
+    elif plan.get("connections"):
+        connector_skipped = 0
 
     generated_cards.extend(material_cards)
     generated_cards.append(pbush_card)
@@ -216,6 +240,7 @@ def apply_solver_deck_recipe(bdf_path: Path | str, plan: dict[str, Any]) -> dict
         "mass_elements_written": len(mass_cards) // 2,
         "connector_elements_written": len(connector_cards),
         "connector_elements_skipped": connector_skipped,
+        "element_creation_enabled": bool(create_missing_elements),
         "connector_property_id": connector_pid,
         "property_assignment_rate": 1.0 if pshell_stats["seen"] else 0.0,
         "material_assignment_rate": 1.0 if material_cards else 0.0,
@@ -350,14 +375,22 @@ def _remove_previous_recipe_cards(lines: list[str], plan: dict[str, Any]) -> lis
     material_mids = {int(material["mid"]) for material in plan.get("materials", [])}
     connector_pid = int(plan.get("connector_property", {}).get("property_id", 9001))
     result = []
+    skip_continuation = False
     for line in lines:
-        if RECIPE_MARKER in line:
-            continue
         name = _card_name(line)
-        fields = _fields(line)
-        if name == "MAT1" and len(fields) > 1 and _int_or_none(fields[1]) in material_mids:
+        if skip_continuation and name == "+":
             continue
+        skip_continuation = False
+        fields = _fields(line)
+        remove_line = False
+        if RECIPE_MARKER in line and name != "PSHELL":
+            remove_line = True
+        if name == "MAT1" and len(fields) > 1 and _int_or_none(fields[1]) in material_mids:
+            remove_line = True
         if name == "PBUSH" and len(fields) > 1 and _int_or_none(fields[1]) == connector_pid:
+            remove_line = True
+        if remove_line:
+            skip_continuation = True
             continue
         result.append(line)
     return result

@@ -5,7 +5,12 @@ def apply_recipe_guard(prediction: dict, assembly: dict, min_confidence: float =
     manual_review = []
     named_parts = set()
     for values in assembly.get("boundary_named_sets", {}).values():
-        named_parts.update(values)
+        for value in values:
+            if isinstance(value, dict):
+                named_parts.add(value.get("part_uid", ""))
+            else:
+                named_parts.add(value)
+    named_parts.discard("")
     guarded_part_strategies = []
     for item in prediction["part_strategies"]:
         item = dict(item)

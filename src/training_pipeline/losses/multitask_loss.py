@@ -10,6 +10,6 @@ def multitask_loss(outputs: dict[str, torch.Tensor], targets: dict[str, torch.Te
     if "failure_risk" in targets:
         loss = loss + torch.nn.functional.mse_loss(outputs["failure_risk"].squeeze(-1), targets["failure_risk"])
     for key in ["part_strategy", "face_semantic", "edge_semantic", "connection_candidate", "repair_action"]:
-        if key in targets:
+        if key in targets and len(targets[key]) > 0:
             loss = loss + torch.nn.functional.cross_entropy(outputs[key], targets[key])
     return loss

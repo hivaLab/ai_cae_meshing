@@ -14,6 +14,14 @@ def build_mesh_recipe(sample_id: str, prediction: dict, guarded: dict, backend: 
         "size_fields": guarded["size_fields"],
         "connections": guarded["connections"],
         "guard": guarded["guard"],
+        "ai_prediction": prediction,
+        "repair_history": [
+            {
+                "iteration": 0,
+                "action": "initial_ai_recipe_guarded",
+                "status": "accepted_for_meshing",
+            }
+        ],
     }
 
 

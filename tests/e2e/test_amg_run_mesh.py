@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import zipfile
 
 from ai_mesh_generator.workflow.run_mesh_job import run_mesh_job
 from cae_dataset_factory.dataset.dataset_indexer import read_dataset_index
@@ -19,3 +20,9 @@ def test_amg_run_mesh_e2e(tmp_path: Path):
     assert output.exists()
     assert summary["result_validation"]["passed"]
     assert summary["mesh_result"]["metrics"]["bdf_parse_success"]
+    with zipfile.ZipFile(output, "r") as archive:
+        names = set(archive.namelist())
+    assert "solver_deck/model_final.bdf" in names
+    assert "report/qa_metrics_global.json" in names
+    assert "metadata/engineering_guard_log.json" in names
+    assert "viewer/mesh_preview.vtk" in names

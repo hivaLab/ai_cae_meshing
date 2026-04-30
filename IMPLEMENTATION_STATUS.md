@@ -8,9 +8,9 @@ Source of truth: `CAE_MESH_AUTOMATION_IMPLEMENTATION_PLAN.md`
 - Task 02 - BDF validation module: completed
 - Task 03 - CDF part template base: completed
 - Task 04 - CDF assembly grammar: completed
-- Task 05 - Face ID mapper: completed
-- Task 06 - Graph builder: completed
-- Task 07 - BRepAssemblyNet: completed
+- Task 05 - Face ID mapper and AP242 B-Rep STEP export: completed
+- Task 06 - Graph builder: completed; tensor B-Rep/assembly graph artifacts validated
+- Task 07 - BRepAssemblyNet: completed; heterogeneous graph neural network artifact exported
 - Task 08 - AMG recipe guard: completed
 - Task 09 - ANSA backend interface: completed
 - Task 10 - AMG E2E workflow: completed
@@ -18,26 +18,32 @@ Source of truth: `CAE_MESH_AUTOMATION_IMPLEMENTATION_PLAN.md`
 - Full delivery script/report: completed
 
 ## Commands Executed
-- python -m pytest tests/unit --basetemp=pytest_tmp2
-- python -m pytest tests/unit tests/integration --basetemp=pytest_tmp2
-- python -m pytest tests/e2e --basetemp=pytest_tmp2
-- python -m pytest
-- python scripts/run_full_delivery.py
 - validate_all_repository_schemas
+- cad kernel status
 - cdf generate --num-samples 1000
 - cdf validate-dataset
 - cdf build-graphs
 - train-brep-assembly-net
 - evaluate-brep-assembly-net --split test
+- export-amg-model
 - amg run-mesh
 - amg validate-result
+- ansa backend status
+- amg run-mesh --backend ANSA_BATCH
+- amg validate-result --backend ANSA_BATCH
 
 ## Validation Results
-- Unit tests: 13 passed
-- Unit + integration tests: 15 passed
-- E2E tests: 2 passed
-- Full test suite: 17 passed
+- CAD kernel: CadQuery/OCP(OpenCascade)
+- AP242 B-Rep export available: True
 - Dataset validation passed: True
+- Schema failures: 0
+- Missing artifacts: 0
+- STEP AP242 B-Rep failures: 0
+- Split mismatches: 0
+- Graph artifact validation passed: True
+- graph.pt files: 1000
+- brep_graph.json files: 1000
+- assembly_graph.json files: 1000
 - AMG result validation passed: True
 
 ## Generated Dataset Counts
@@ -47,10 +53,19 @@ Source of truth: `CAE_MESH_AUTOMATION_IMPLEMENTATION_PLAN.md`
 - Acceptance rate: 1.0000
 
 ## Model Metrics
-- Train MAE: 0.029639
-- Val MAE: 0.029139
-- Test MAE: 0.029281
-- Test RMSE: 0.038217
+- Model type: hetero_brep_assembly_net
+- Exported model path: C:\Users\r0801\Desktop\code\06_ai_cae_meshing\runs\full_delivery\artifacts\models\amg_deployment_model.pt
+- Train MAE: 0.701734
+- Val MAE: 0.705501
+- Test MAE: 0.720296
+- Test RMSE: 0.768061
+- Size MAE percent: 0.075206
+- PartStrategy macro F1: 1.000000
+- FaceSemantic mean IoU: 1.000000
+- EdgeSemantic macro F1: 1.000000
+- Connection recall: 1.000000
+- Failure risk recall: 0.941240
+- Repair top-1 accuracy: 0.637500
 
 ## AMG Result Metrics
 - Test sample: sample_000900
@@ -58,9 +73,28 @@ Source of truth: `CAE_MESH_AUTOMATION_IMPLEMENTATION_PLAN.md`
 - Missing property count: 0
 - Missing material count: 0
 
+## ANSA Backend
+- Available: True
+- Executable: C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat
+- Fallback enabled: False
+- Execution probe attempted: True
+- Execution probe passed: True
+- Batch Meshing Manager invoked: True
+- Batch Meshing Manager note: ANSA batchmesh sessions applied AI mesh recipe parameters per part and ran Batch Mesh Manager
+- ANSA import counts: {'ANSAPART': 12, 'CBUSH': 0, 'CONM2': 0, 'FACE': 72, 'GRID': 0, 'MAT1': 1, 'PBUSH': 0, 'PSHELL': 12, 'PSOLID': 0, 'RBE2': 0, 'RBE3': 0, 'SHELL': 0, 'SOLID': 0, '__ELEMENTS__': 0}
+- ANSA batch counts: {'ANSAPART': 12, 'CBUSH': 0, 'CONM2': 0, 'FACE': 72, 'GRID': 12638, 'MAT1': 4, 'PBUSH': 0, 'PSHELL': 12, 'PSOLID': 0, 'RBE2': 0, 'RBE3': 0, 'SHELL': 12616, 'SOLID': 0, '__ELEMENTS__': 12616}
+- AI recipe batch sessions: 11
+- Per-part size fields planned: 12
+- BMM size-field sessions applied: 11
+- Materials written to deck: 4
+- PSHELL properties updated: 11
+- AI connector elements written: 8
+- Mass-only elements written: 1
+- ANSA QA repair loop records: 2
+
 ## Known Limitations
-- Full delivery uses deterministic procedural geometry instead of a heavy CAD kernel.
-- ANSA backend is a production command adapter and is not used as the executable delivery backend.
+- Generated assemblies are deterministic synthetic CAD solids exported through CadQuery/OCP, not OEM production CAD.
+- ANSA backend is explicit and does not fall back to local meshing.
 
 ## Final Acceptance Status
 

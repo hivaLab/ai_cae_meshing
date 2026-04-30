@@ -86,7 +86,16 @@ def write_sample(assembly: dict[str, Any], dataset_dir: Path | str, mesh_profile
     manifest = {
         "job_id": sample_id,
         "schema_version": "0.1.0",
+        "unit": "mm",
         "units": "mm",
+        "solver": "NASTRAN",
+        "analysis_type": ["linear_static", "modal", "frequency_response"],
+        "geometry_file": "geometry/assembly.step",
+        "mesh_profile": "metadata/mesh_profile.yaml",
+        "product_tree_file": "metadata/product_tree.json",
+        "part_attribute_file": "metadata/part_attributes.csv",
+        "connection_file": "metadata/connections.csv",
+        "boundary_named_set_file": "metadata/boundary_named_sets.json",
         "geometry": {"assembly_step": "geometry/assembly.step"},
         "metadata": {
             "product_tree": "metadata/product_tree.json",
@@ -105,24 +114,73 @@ def write_sample(assembly: dict[str, Any], dataset_dir: Path | str, mesh_profile
     (sample_dir / "assembly.json").write_text(json.dumps(assembly, indent=2, sort_keys=True), encoding="utf-8")
 
     with (metadata_dir / "part_attributes.csv").open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=["part_uid", "name", "material_id", "nominal_thickness", "representation_hint"])
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=[
+                "part_uid",
+                "name",
+                "part_name",
+                "material_id",
+                "manufacturing_process",
+                "nominal_thickness",
+                "nominal_thickness_mm",
+                "min_thickness_mm",
+                "max_thickness_mm",
+                "component_role",
+                "mass_handling",
+                "mesh_priority",
+                "representation_hint",
+            ],
+        )
         writer.writeheader()
         for part in assembly["parts"]:
+            mass_handling = "mass_only" if part["strategy"] == "mass_only" else "mesh"
             writer.writerow(
                 {
                     "part_uid": part["part_uid"],
                     "name": part["name"],
+                    "part_name": part["name"],
                     "material_id": part["material_id"],
+                    "manufacturing_process": _manufacturing_process(part),
                     "nominal_thickness": part["nominal_thickness"],
+                    "nominal_thickness_mm": part["nominal_thickness"],
+                    "min_thickness_mm": max(0.0, float(part["nominal_thickness"]) * 0.85),
+                    "max_thickness_mm": float(part["nominal_thickness"]) * 1.15,
+                    "component_role": _component_role(part),
+                    "mass_handling": mass_handling,
+                    "mesh_priority": "high" if part["strategy"] in {"solid", "mass_only"} else "normal",
                     "representation_hint": part["strategy"],
                 }
             )
 
     with (metadata_dir / "connections.csv").open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=["connection_uid", "type", "part_uid_a", "part_uid_b", "preserve_hole", "confidence"])
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=[
+                "connection_uid",
+                "type",
+                "part_uid_a",
+                "part_uid_b",
+                "master_part_uid",
+                "slave_part_uid",
+                "feature_hint",
+                "diameter_mm",
+                "stiffness_profile",
+                "washer_radius_mm",
+                "preserve_hole",
+                "confidence",
+            ],
+        )
         writer.writeheader()
         for connection in assembly.get("connections", []):
-            writer.writerow(connection)
+            row = dict(connection)
+            row.setdefault("master_part_uid", connection["part_uid_a"])
+            row.setdefault("slave_part_uid", connection["part_uid_b"])
+            row.setdefault("feature_hint", "hole_pair_auto")
+            row.setdefault("diameter_mm", 3.0)
+            row.setdefault("stiffness_profile", "M3_default")
+            row.setdefault("washer_radius_mm", 5.0)
+            writer.writerow(row)
 
     labels = build_oracle_labels(assembly)
     recipe = build_oracle_recipe(assembly, labels)
@@ -144,6 +202,9 @@ def write_sample(assembly: dict[str, Any], dataset_dir: Path | str, mesh_profile
         "bdf_path": str(mesh_result.bdf_path),
         "graph_path": str(graph_path),
         "label_path": str(label_path),
+        "label_json_path": str(labels_dir / "labels.json"),
+        "recipe_path": str(recipe_path),
+        "qa_metrics_path": str(mesh_result.qa_metrics_path),
         "accepted": mesh_result.accepted,
         "oracle_base_size": recipe["base_size"],
         "part_count": len(assembly["parts"]),
@@ -163,3 +224,24 @@ def _flatten_labels(labels: dict[str, Any], recipe: dict[str, Any]) -> dict[str,
         "oracle_base_size": recipe["base_size"],
         "labels_json": json.dumps(labels, sort_keys=True),
     }
+
+
+def _manufacturing_process(part: dict[str, Any]) -> str:
+    name = str(part.get("name", ""))
+    if "plastic" in name or "cover" in name:
+        return "injection_plastic"
+    if "pcb" in name:
+        return "electronic_module"
+    if "screw" in name:
+        return "purchased_fastener"
+    return "sheet_metal"
+
+
+def _component_role(part: dict[str, Any]) -> str:
+    name = str(part.get("name", ""))
+    for role in ["base", "cover", "bracket", "fastener", "motor"]:
+        if role in name:
+            return role
+    if "pcb" in name:
+        return "electronic_module"
+    return "unknown"

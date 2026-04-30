@@ -2,7 +2,11 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 pytest_tmp*/
+pytest*tmp*/
+tmp_pytest*/
+tmp_env*/
 pytest-cache-files*/
 runs/
 artifacts/
+ANSA_Input.log
 *.egg-info/

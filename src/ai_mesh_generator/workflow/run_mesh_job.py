@@ -40,7 +40,7 @@ def run_mesh_job(job: Path | str, model: Path | str, output: Path | str, backend
     write_recipe(recipe, workdir / "mesh_recipe_predicted.json")
     mesh_output = workdir / "result"
     if backend == "ANSA_BATCH":
-        backend_impl = AnsaCommandBackend(AnsaBackendConfig(dry_run=True))
+        backend_impl = AnsaCommandBackend(AnsaBackendConfig())
     else:
         backend_impl = LocalProceduralMeshingBackend()
     mesh_result = backend_impl.run(MeshRequest(assembly["sample_id"], assembly, recipe, mesh_output, backend=backend))

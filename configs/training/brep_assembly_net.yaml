@@ -1,6 +1,8 @@
 seed: 20260430
-epochs: 20
-learning_rate: 0.01
+epochs: 120
+learning_rate: 0.005
+hidden_dim: 32
+num_layers: 2
 model_id: brep_assembly_net_v001
 target:
   mesh_size_column: oracle_base_size

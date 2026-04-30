@@ -1,1 +1,1 @@
-"""Lightweight CAD abstractions used by the procedural implementation."""
+"""CAD helpers for deterministic AP242 B-Rep assembly export."""

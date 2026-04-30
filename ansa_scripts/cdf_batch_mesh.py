@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-from common_ansa_utils import load_config, write_result_manifest
+from common_ansa_utils import run_ansa_batch_adapter
 
 
 def run_batch_mesh(config_path: str) -> int:
-    config = load_config(config_path)
-    write_result_manifest(config["output_dir"], True, {"mode": "cdf_batch_mesh_adapter"})
-    return 0
+    return run_ansa_batch_adapter(config_path, "cdf_batch_mesh_adapter")

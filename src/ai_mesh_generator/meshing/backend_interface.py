@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
@@ -169,7 +170,12 @@ class LocalProceduralMeshingBackend:
 
         for material in materials:
             mid = material_ids[material["material_id"]]
-            card = f"MAT1,{mid},{material['young_modulus']},,{material['poisson_ratio']},{material['density']}"
+            card = "MAT1,{mid},{e},,{nu},{rho}".format(
+                mid=mid,
+                e=_bdf_float(float(material["young_modulus"])),
+                nu=_bdf_float(float(material["poisson_ratio"])),
+                rho=_bdf_float(float(material["density"])),
+            )
             material_lines.append(card)
             lines.append(card)
 
@@ -203,11 +209,11 @@ class LocalProceduralMeshingBackend:
                 for nid, coords in zip(ids, nodes):
                     lines.append(f"GRID,{nid},,{coords[0]:.4f},{coords[1]:.4f},{coords[2]:.4f}")
                 prop_card = f"PSOLID,{prop_id},{mid}"
-                elem_card = f"CTETRA10,{elem_id},{prop_id}," + ",".join(str(nid) for nid in ids)
+                elem_card = f"CTETRA,{elem_id},{prop_id}," + ",".join(str(nid) for nid in ids)
                 property_lines.append(prop_card)
                 lines.append(prop_card)
                 lines.append(elem_card)
-                element_records.append(_element_record(assembly["sample_id"], part, elem_id, "CTETRA10", prop_id, ids))
+                element_records.append(_element_record(assembly["sample_id"], part, elem_id, "CTETRA", prop_id, ids))
                 cad_to_mesh.append(_mapping_record(part, elem_id, prop_id, ids))
                 part_node_anchor[part["part_uid"]] = ids[0]
                 node_id += len(nodes)
@@ -239,7 +245,7 @@ class LocalProceduralMeshingBackend:
                 elem_id += 1
                 prop_id += 1
 
-        connector_property_card = f"PBUSH,{prop_id},{next(iter(material_ids.values()))}"
+        connector_property_card = f"PBUSH,{prop_id},K,100000.,100000.,100000.,1000.,1000.,1000."
         property_lines.append(connector_property_card)
         lines.append(connector_property_card)
         connector_pid = prop_id
@@ -301,6 +307,11 @@ def _normalize_strategy(strategy: str) -> str:
 
 def _join_cards(cards: list[str]) -> str:
     return "\n".join(cards) + ("\n" if cards else "")
+
+
+def _bdf_float(value: float) -> str:
+    text = f"{value:.8g}"
+    return f"{text}.0" if re.fullmatch(r"[+-]?\d+", text) else text
 
 
 def _element_record(

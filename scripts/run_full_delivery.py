@@ -12,6 +12,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from ai_mesh_generator.output.result_packager import validate_result_package
+from ai_mesh_generator.validation.step_ingestion_regression import run_step_ingestion_regression
 from ai_mesh_generator.workflow.run_mesh_job import run_mesh_job
 from ai_mesh_generator.meshing.ansa_runner import AnsaCommandBackend
 from cae_mesh_common.cad.step_io import cad_kernel_status
@@ -35,6 +36,8 @@ def main() -> int:
     command_log.append("validate_all_repository_schemas")
     cad_status = cad_kernel_status()
     command_log.append("cad kernel status")
+    step_regression = run_step_ingestion_regression(output_root / "step_ingestion_regression", sample_count=3)
+    command_log.append("python scripts/run_step_ingestion_regression.py --sample-count 3")
 
     dataset_dir = output_root / "CAE_MESH_DATASET_V001"
     dataset_result = build_dataset(
@@ -111,6 +114,7 @@ def main() -> int:
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "schema_validation": schema_results,
         "cad_kernel": cad_status,
+        "step_ingestion_regression": step_regression,
         "commands": command_log,
         "dataset": {
             "manifest": dataset_result["manifest"],
@@ -140,6 +144,7 @@ def main() -> int:
         and graph_validation["passed"]
         and amg_validation["passed"]
         and cad_status["step_ap242_brep_export"]
+        and step_regression["accepted"]
         and ansa_probe["attempted"]
         and ansa_probe["passed"]
         and ansa_probe.get("batch_meshing_manager_invoked", False)
@@ -253,6 +258,7 @@ def render_report(report: dict) -> str:
     recipe_summary = recipe_application.get("summary", {})
     ansa_metrics = ansa_probe.get("summary", {}).get("mesh_result", {}).get("metrics", {})
     cad_kernel = report["cad_kernel"]
+    step_regression = report["step_ingestion_regression"]
     return "\n".join(
         [
             "# Final Delivery Report",
@@ -276,6 +282,13 @@ def render_report(report: dict) -> str:
             f"- graph.pt files: {graph_artifacts['graph_pt_count']}",
             f"- brep_graph.json files: {graph_artifacts['brep_graph_json_count']}",
             f"- assembly_graph.json files: {graph_artifacts['assembly_graph_json_count']}",
+            "",
+            "## STEP Ingestion Regression",
+            f"- Golden AP242 B-Rep samples: {step_regression['sample_count']}",
+            f"- Passed: {step_regression['passed_count']}",
+            f"- Failed: {step_regression['failed_count']}",
+            f"- Accepted: {step_regression['accepted']}",
+            f"- Limitation: {step_regression['limitation']}",
             "",
             "## Model",
             f"- Model type: {report['model']['artifact']['model_type']}",
@@ -342,6 +355,7 @@ def update_status(report: dict) -> None:
     validation = report["dataset"]["validation"]
     graph_artifacts = report["dataset"]["graph_artifacts"]
     cad_kernel = report["cad_kernel"]
+    step_regression = report["step_ingestion_regression"]
     ansa_probe = report["ansa_execution_probe"]
     recipe_application = ansa_probe.get("ansa_recipe_application", {})
     deck_application = ansa_probe.get("solver_deck_recipe_application", {})
@@ -381,6 +395,8 @@ def update_status(report: dict) -> None:
             f"- Schema failures: {validation['schema_failures']}",
             f"- Missing artifacts: {validation['missing_artifacts']}",
             f"- STEP AP242 B-Rep failures: {validation['step_brep_failures']}",
+            f"- STEP ingestion regression accepted: {step_regression['accepted']}",
+            f"- STEP ingestion regression samples: {step_regression['passed_count']} / {step_regression['sample_count']}",
             f"- Split mismatches: {validation['split_mismatch_count']}",
             f"- Graph artifact validation passed: {graph_artifacts['passed']}",
             f"- graph.pt files: {graph_artifacts['graph_pt_count']}",

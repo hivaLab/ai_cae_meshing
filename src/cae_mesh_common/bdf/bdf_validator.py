@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .bdf_reader import BDFModel, read_bdf
+from .bdf_reader import BDFModel, _duplicate_ids, read_bdf
 
 
 @dataclass
@@ -51,7 +51,7 @@ def validate_model(model: BDFModel) -> BDFValidationResult:
     missing_nodes = 0
     messages: list[str] = []
     shell_types = {"CQUAD4", "CTRIA3"}
-    solid_types = {"CTETRA", "CTETRA10"}
+    solid_types = {"CTETRA", "CTETRA10", "CHEXA", "CPENTA", "CPYRA"}
     connector_types = {"RBE2", "RBE3", "CBUSH", "CONM2"}
 
     for eid, element in model.elements.items():
@@ -87,18 +87,21 @@ def validate_model(model: BDFModel) -> BDFValidationResult:
 
 
 def validate_bdf(path: Path | str) -> BDFValidationResult:
+    duplicate_ids = []
     try:
+        text = Path(path).read_text(encoding="utf-8")
+        duplicate_ids = _duplicate_ids(text.splitlines())
         return validate_model(read_bdf(path))
     except Exception as exc:
         return BDFValidationResult(
             parse_success=False,
             missing_property_count=0,
             missing_material_count=0,
-            duplicate_id_count=0,
+            duplicate_id_count=len(duplicate_ids),
             missing_nodes_count=0,
             element_count=0,
             shell_element_count=0,
             solid_element_count=0,
             connector_count=0,
-            messages=[str(exc)],
+            messages=[str(exc), *[f"duplicate {kind} id {value}" for kind, value in duplicate_ids]],
         )

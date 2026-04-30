@@ -74,6 +74,34 @@ def test_regression_rejects_solver_deck_element_fallback():
     assert "solver-deck element fallback was enabled" in sample_failure_reasons(result)
 
 
+def test_regression_rejects_numeric_quality_threshold_violation():
+    quality = {
+        "status": "completed_with_reported_quality_issues",
+        "iteration_count": 1,
+        "records": [
+            {
+                "summary": {
+                    "passed": False,
+                    "issue_record_count": 1,
+                    "status_counts": {"completed_with_quality_issues": 1},
+                    "parsed_reports": [
+                        {
+                            "numeric_metrics": {"session_part_record_count": 1, "session_unmeshed_total": 2.0},
+                            "threshold_violations": [{"metric": "session_unmeshed_total"}],
+                        }
+                    ],
+                }
+            }
+        ],
+    }
+
+    result = extract_sample_result("sample_000902", _summary(quality=quality), _validation(), 1.0, "")
+
+    assert result["accepted"] is False
+    assert result["quality_threshold_violation_count"] == 1
+    assert "ANSA numeric quality thresholds were violated" in sample_failure_reasons(result)
+
+
 def test_regression_aggregates_sample_results():
     good = extract_sample_result("sample_000900", _summary(), _validation(), 10.0, "")
     bad = extract_sample_result("sample_000901", _summary(deck={"element_creation_enabled": True}), _validation(), 20.0, "")

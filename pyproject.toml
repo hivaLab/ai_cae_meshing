@@ -15,6 +15,7 @@ dependencies = [
   "PyYAML>=6",
   "torch>=2",
   "cadquery>=2.7",
+  "pyNastran>=1.4",
 ]
 
 [project.scripts]

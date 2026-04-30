@@ -10,7 +10,6 @@ from cae_mesh_common.cad.step_io import assembly_part_boxes
 
 
 RECIPE_MARKER = "AI_CAE_RECIPE"
-_NASTRAN_FLOAT_RE = re.compile(r"^([+-]?(?:\d+(?:\.\d*)?|\.\d+))([+-]\d+)$")
 
 
 def build_ansa_recipe_plan(assembly: dict[str, Any], recipe: dict[str, Any]) -> dict[str, Any]:
@@ -87,6 +86,8 @@ def build_ansa_recipe_plan(assembly: dict[str, Any], recipe: dict[str, Any]) -> 
                 "entity_type": "SOLID",
                 "element_type": "CTETRA",
                 "property_type": "PSOLID",
+                "method": "batchmesh_volume_scenario",
+                "session_type": "ANSA_VOLUME_SESSION",
             },
             "connector": {
                 "enabled": True,
@@ -158,26 +159,22 @@ def write_ansa_control_files(plan: dict[str, Any], stage_dir: Path | str) -> dic
 
 
 def apply_solver_deck_recipe(
-    bdf_path: Path | str, plan: dict[str, Any], create_missing_elements: bool = True
+    bdf_path: Path | str, plan: dict[str, Any], create_missing_elements: bool = False
 ) -> dict[str, Any]:
-    """Apply recipe material, property, mass, and connector cards to a Nastran deck.
+    """Apply recipe material and property cards to a Nastran deck.
 
-    ANSA owns CAD import and Batch Mesh Manager element generation. This function
-    performs the deterministic solver-deck build-up required by the guarded AI
-    recipe so BDF validation can verify material/property/connector reflection.
+    ANSA owns CAD import, Batch Mesh Manager element generation, native connector
+    entities, and native mass entities. This function is intentionally limited to
+    material/property reflection and rejects solver-deck element creation.
     """
 
     path = Path(bdf_path)
     original_lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    original_property_ids = set(_property_ids(original_lines))
     lines = _remove_previous_recipe_cards(original_lines, plan)
-    max_property_id = max(_property_ids(lines) or [0])
 
     material_cards = _material_cards(plan)
     updated_lines, pshell_stats = _update_pshell_cards(lines, plan)
     connector_pid = int(plan.get("connector_property", {}).get("property_id", 9001))
-    if connector_pid <= max_property_id and connector_pid not in original_property_ids:
-        connector_pid = max_property_id + 1
     pbush_card = _pbush_card(connector_pid, plan)
 
     generated_cards: list[str] = []
@@ -185,46 +182,9 @@ def apply_solver_deck_recipe(
     connector_cards = []
     connector_skipped = 0
     if create_missing_elements:
-        existing_nodes = _parse_nodes(lines)
-        max_node_id = max(existing_nodes) if existing_nodes else 0
-        max_element_id = _max_element_id(lines)
-        next_node_id = max_node_id + 1
-        next_element_id = max_element_id + 1
-        for part in plan.get("parts", []):
-            if part.get("strategy") != "mass_only":
-                continue
-            center = _as_point(part["geometry_box"]["center"])
-            mass = _mass_for_part(part, plan)
-            grid = f"GRID,{next_node_id},,{_fmt(center[0])},{_fmt(center[1])},{_fmt(center[2])} $ {RECIPE_MARKER}_MASS_GRID {part['part_uid']}"
-            conm2 = f"CONM2,{next_element_id},{next_node_id},,{_fmt(mass)} $ {RECIPE_MARKER}_MASS_ELEMENT {part['part_uid']}"
-            mass_cards.extend([grid, conm2])
-            existing_nodes[next_node_id] = center
-            next_node_id += 1
-            next_element_id += 1
-
-        if plan.get("connections"):
-            if not existing_nodes:
-                connector_skipped = len(plan["connections"])
-            else:
-                for connection in plan["connections"]:
-                    node_a = _nearest_node(existing_nodes, _as_point(connection["endpoint_a"]))
-                    node_b = _nearest_node(existing_nodes, _as_point(connection["endpoint_b"]), exclude={node_a})
-                    if node_a is None or node_b is None or node_a == node_b:
-                        connector_skipped += 1
-                        continue
-                    connector_cards.append(
-                        "CBUSH,{eid},{pid},{ga},{gb} $ {marker}_CONNECTOR {uid}".format(
-                            eid=next_element_id,
-                            pid=connector_pid,
-                            ga=node_a,
-                            gb=node_b,
-                            marker=RECIPE_MARKER,
-                            uid=connection["connection_uid"],
-                        )
-                    )
-                    next_element_id += 1
+        raise RuntimeError("solver-deck element creation fallback is disabled for production ANSA integration")
     elif plan.get("connections"):
-        connector_skipped = 0
+        connector_skipped = len(plan.get("connections", []))
 
     generated_cards.extend(material_cards)
     generated_cards.append(pbush_card)
@@ -339,7 +299,7 @@ def _material_cards(plan: dict[str, Any]) -> list[str]:
 def _pbush_card(pid: int, plan: dict[str, Any]) -> str:
     stiffness = plan.get("connector_property", {}).get("stiffness", [100000.0] * 6)
     values = ",".join(_fmt(float(value)) for value in stiffness[:6])
-    return f"PBUSH,{pid},0,K,{values} $ {RECIPE_MARKER}_CONNECTOR_PROPERTY"
+    return f"PBUSH,{pid},K,{values} $ {RECIPE_MARKER}_CONNECTOR_PROPERTY"
 
 
 def _update_pshell_cards(lines: list[str], plan: dict[str, Any]) -> tuple[list[str], dict[str, int]]:
@@ -378,11 +338,14 @@ def _remove_previous_recipe_cards(lines: list[str], plan: dict[str, Any]) -> lis
     skip_continuation = False
     for line in lines:
         name = _card_name(line)
-        if skip_continuation and name == "+":
+        if skip_continuation and _is_continuation_name(name):
             continue
-        skip_continuation = False
+        if skip_continuation:
+            skip_continuation = False
         fields = _fields(line)
         remove_line = False
+        if "AI_NATIVE_CONNECTOR_PBUSH" in line:
+            remove_line = True
         if RECIPE_MARKER in line and name != "PSHELL":
             remove_line = True
         if name == "MAT1" and len(fields) > 1 and _int_or_none(fields[1]) in material_mids:
@@ -412,54 +375,10 @@ def _insert_cards_after_begin_bulk(lines: list[str], cards: list[str]) -> list[s
     return result
 
 
-def _parse_nodes(lines: list[str]) -> dict[int, tuple[float, float, float]]:
-    nodes: dict[int, tuple[float, float, float]] = {}
-    for line in lines:
-        if _card_name(line) != "GRID":
-            continue
-        fields = _fields(line)
-        if len(fields) < 6:
-            continue
-        try:
-            nodes[int(fields[1])] = (_parse_float(fields[3]), _parse_float(fields[4]), _parse_float(fields[5]))
-        except ValueError:
-            continue
-    return nodes
-
-
-def _max_element_id(lines: list[str]) -> int:
-    element_names = {"CQUAD4", "CTRIA3", "CTETRA", "CTETRA10", "CBUSH", "RBE2", "RBE3", "CONM2"}
-    ids = [_int_or_none(_fields(line)[1]) for line in lines if _card_name(line) in element_names and len(_fields(line)) > 1]
-    return max([value for value in ids if value is not None] or [0])
-
-
 def _property_ids(lines: list[str]) -> list[int]:
     prop_names = {"PSHELL", "PSOLID", "PBUSH"}
     ids = [_int_or_none(_fields(line)[1]) for line in lines if _card_name(line) in prop_names and len(_fields(line)) > 1]
     return [value for value in ids if value is not None]
-
-
-def _nearest_node(
-    nodes: dict[int, tuple[float, float, float]], point: tuple[float, float, float], exclude: set[int] | None = None
-) -> int | None:
-    exclude = exclude or set()
-    best_id: int | None = None
-    best_dist = float("inf")
-    for nid, coords in nodes.items():
-        if nid in exclude:
-            continue
-        dist = sum((coords[axis] - point[axis]) ** 2 for axis in range(3))
-        if dist < best_dist:
-            best_dist = dist
-            best_id = nid
-    return best_id
-
-
-def _mass_for_part(part: dict[str, Any], plan: dict[str, Any]) -> float:
-    dims = _as_point(part["geometry_box"]["dimensions"])
-    scale = float(plan.get("mass_properties", {}).get("density_scale", 1.0e-6))
-    minimum = float(plan.get("mass_properties", {}).get("minimum_mass", 0.1))
-    return max(minimum, dims[0] * dims[1] * dims[2] * scale)
 
 
 def _card_name(line: str) -> str:
@@ -467,6 +386,10 @@ def _card_name(line: str) -> str:
     if not clean:
         return ""
     return clean.split(",", 1)[0].split()[0].upper()
+
+
+def _is_continuation_name(name: str) -> bool:
+    return name.startswith("+") or name.startswith("*")
 
 
 def _fields(line: str) -> list[str]:
@@ -519,24 +442,14 @@ def _positive_float(value: Any, default: float) -> float:
     return parsed if parsed > 0 else default
 
 
-def _parse_float(value: str) -> float:
-    normalized = value.strip().replace("D", "E").replace("d", "E")
-    try:
-        return float(normalized)
-    except ValueError:
-        match = _NASTRAN_FLOAT_RE.match(normalized)
-        if match:
-            return float(f"{match.group(1)}E{match.group(2)}")
-        raise
-
-
 def _as_point(values: Any) -> tuple[float, float, float]:
     seq = list(values)
     return (float(seq[0]), float(seq[1]), float(seq[2]))
 
 
 def _fmt(value: float) -> str:
-    return f"{value:.8g}"
+    text = f"{value:.8g}"
+    return f"{text}.0" if re.fullmatch(r"[+-]?\d+", text) else text
 
 
 def _safe_name(value: str) -> str:

@@ -147,6 +147,14 @@ def _metrics(
     }
     for key in ["part_strategy", "face_semantic", "edge_semantic", "connection_candidate", "repair_action"]:
         result[f"{prefix}_{key}_accuracy"] = _accuracy(outputs[key], targets[key])
+    result[f"{prefix}_part_strategy_macro_f1"] = _macro_f1(outputs["part_strategy"], targets["part_strategy"])
+    result[f"{prefix}_face_semantic_mean_iou"] = _mean_iou(outputs["face_semantic"], targets["face_semantic"])
+    result[f"{prefix}_edge_semantic_macro_f1"] = _macro_f1(outputs["edge_semantic"], targets["edge_semantic"])
+    result[f"{prefix}_connection_candidate_recall"] = _recall(
+        outputs["connection_candidate"], targets["connection_candidate"], positive_class=CONNECTION_CLASSES.index("keep")
+    )
+    result[f"{prefix}_failure_risk_recall"] = _threshold_recall(outputs["failure_risk"].squeeze(-1), targets["failure_risk"])
+    result[f"{prefix}_repair_action_top1_accuracy"] = result[f"{prefix}_repair_action_accuracy"]
     return result
 
 
@@ -154,6 +162,60 @@ def _accuracy(logits: torch.Tensor, target: torch.Tensor) -> float:
     if len(target) == 0:
         return 0.0
     return float((torch.argmax(logits, dim=1) == target).float().mean().item())
+
+
+def _macro_f1(logits: torch.Tensor, target: torch.Tensor, class_count: int | None = None) -> float:
+    if len(target) == 0:
+        return 0.0
+    pred = torch.argmax(logits, dim=1)
+    classes = range(int(class_count or logits.shape[1]))
+    scores = []
+    for class_index in classes:
+        cls = torch.as_tensor(class_index, device=target.device)
+        tp = torch.logical_and(pred == cls, target == cls).sum().float()
+        fp = torch.logical_and(pred == cls, target != cls).sum().float()
+        fn = torch.logical_and(pred != cls, target == cls).sum().float()
+        denominator = 2.0 * tp + fp + fn
+        scores.append(torch.tensor(0.0, device=target.device) if denominator.item() == 0.0 else (2.0 * tp / denominator))
+    return float(torch.stack(scores).mean().item()) if scores else 0.0
+
+
+def _mean_iou(logits: torch.Tensor, target: torch.Tensor, class_count: int | None = None) -> float:
+    if len(target) == 0:
+        return 0.0
+    pred = torch.argmax(logits, dim=1)
+    scores = []
+    for class_index in range(int(class_count or logits.shape[1])):
+        cls = torch.as_tensor(class_index, device=target.device)
+        intersection = torch.logical_and(pred == cls, target == cls).sum().float()
+        union = torch.logical_or(pred == cls, target == cls).sum().float()
+        if union.item() > 0.0:
+            scores.append(intersection / union)
+    return float(torch.stack(scores).mean().item()) if scores else 0.0
+
+
+def _recall(logits: torch.Tensor, target: torch.Tensor, positive_class: int = 1) -> float:
+    if len(target) == 0:
+        return 0.0
+    pred = torch.argmax(logits, dim=1)
+    positive = target == int(positive_class)
+    total_positive = positive.sum().float()
+    if total_positive.item() == 0.0:
+        return 1.0 if (pred == int(positive_class)).sum().item() == 0 else 0.0
+    true_positive = torch.logical_and(pred == int(positive_class), positive).sum().float()
+    return float((true_positive / total_positive).item())
+
+
+def _threshold_recall(pred_scores: torch.Tensor, target_scores: torch.Tensor, threshold: float = 0.5) -> float:
+    if len(target_scores) == 0:
+        return 0.0
+    target_positive = target_scores >= threshold
+    total_positive = target_positive.sum().float()
+    pred_positive = pred_scores >= threshold
+    if total_positive.item() == 0.0:
+        return 1.0 if pred_positive.sum().item() == 0 else 0.0
+    true_positive = torch.logical_and(pred_positive, target_positive).sum().float()
+    return float((true_positive / total_positive).item())
 
 
 def _confidence_from_metrics(metrics: dict[str, float]) -> float:

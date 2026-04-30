@@ -64,7 +64,7 @@ def _run_explicit_ansa_export(config: dict, mode: str) -> dict:
     if not step_file.exists():
         raise FileNotFoundError(f"STEP file is missing: {step_file}")
 
-    from ansa import base, batchmesh, constants, session
+    from ansa import base, batchmesh, constants, mesh, session
 
     session.New("discard")
     base.SetCurrentDeck(constants.NASTRAN)
@@ -80,7 +80,11 @@ def _run_explicit_ansa_export(config: dict, mode: str) -> dict:
     batch_counts = _collect_counts(base, constants)
     if int(batch_counts.get("__ELEMENTS__", 0)) <= 0:
         raise RuntimeError(f"ANSA Batch Mesh Manager sessions produced no FE elements: {batch_counts}")
-    native_entity_generation = _create_native_solver_entities(base, constants, plan)
+    native_solid_generation = _run_native_solid_tetra_meshing(base, batchmesh, constants, mesh, plan, stage_dir)
+    native_solid_generation["solver_card_assignment"] = _assign_native_solid_solver_cards(
+        base, constants, plan, native_solid_generation
+    )
+    native_entity_generation = _create_native_solver_entities(base, constants, plan, native_solid_generation)
     quality_repair_loop = _run_quality_repair_loop(base, batchmesh, constants, plan, stage_dir, session_application)
     final_counts = _collect_counts(base, constants)
     if int(native_entity_generation["solid_tetra"]["created_count"]) <= 0:
@@ -95,7 +99,12 @@ def _run_explicit_ansa_export(config: dict, mode: str) -> dict:
         filename=str(final_bdf),
         mode="all",
         format="free",
+        continuation_lines="on",
+        enddata="on",
+        split_pyramid="on",
         disregard_includes="on",
+        beginbulk="on",
+        second_as_first_solids="on",
         write_comments="off",
     )
     if not final_bdf.exists():
@@ -300,51 +309,220 @@ def _run_recipe_batch_sessions(base, batchmesh, constants, plan: dict, stage_dir
     }
 
 
-def _create_native_solver_entities(base, constants, plan: dict) -> dict[str, object]:
+def _run_native_solid_tetra_meshing(base, batchmesh, constants, mesh, plan: dict, stage_dir: Path) -> dict[str, object]:
+    solid_part_count = sum(1 for part in plan.get("parts", []) if part.get("strategy") in {"solid", "solid_tet"})
+    if solid_part_count == 0:
+        return {
+            "enabled": True,
+            "method": "batchmesh_volume_scenario",
+            "created_count": 0,
+            "expected_solid_part_count": 0,
+            "run_status": 0,
+        }
+
+    before_counts = _collect_counts(base, constants)
+    before_solid_count = int(before_counts.get("SOLID", 0))
+    target_size = _solid_target_size(plan)
+    scenario_name = f"AI_SOLID_VOLUME_SCENARIO_{plan['sample_id']}"
+    session_name = f"AI_TETRA_VOLUME_SESSION_{plan['sample_id']}"
+    volume_scenario = batchmesh.GetNewVolumeScenario(
+        name=scenario_name,
+        auto_detect=True,
+        parts="one_part_for_volume",
+        include_facets=False,
+    )
+    if not volume_scenario:
+        raise RuntimeError("ANSA failed to create a native volume meshing scenario")
+    volume_session = batchmesh.GetNewVolumeSession(session_name)
+    if not volume_session:
+        raise RuntimeError("ANSA failed to create a native volume meshing session")
+
+    parameter_status = _configure_volume_tetra_session(base, batchmesh, mesh, volume_session, target_size, stage_dir)
+    add_session_status = batchmesh.AddSessionToMeshingScenario([volume_session], volume_scenario)
+    if int(add_session_status) != 1:
+        raise RuntimeError(f"ANSA failed to add volume tetra session to scenario: status={add_session_status}")
+
+    volumes_before = base.CollectEntities(constants.NASTRAN, None, "VOLUME", True) or []
+    run_status = batchmesh.RunMeshingScenario(volume_scenario, 60)
+    normalized_run_status = int(run_status.get("return", 0)) if isinstance(run_status, dict) else int(run_status)
+    if normalized_run_status != 1:
+        raise RuntimeError(f"ANSA native volume tetra meshing scenario did not run: status={run_status}")
+
+    volumes_after = base.CollectEntities(constants.NASTRAN, None, "VOLUME", True) or []
+    after_counts = _collect_counts(base, constants)
+    created_count = int(after_counts.get("SOLID", 0)) - before_solid_count
+    statistics_path = stage_dir / "ansa_native_volume_tetra_statistics.html"
+    write_statistics = _call_optional(batchmesh, "WriteStatistics", volume_session, str(statistics_path))
+    if created_count < solid_part_count:
+        raise RuntimeError(
+            "ANSA native volume tetra meshing did not create enough solid elements: "
+            f"created={created_count}, expected>={solid_part_count}, counts={after_counts}"
+        )
+    return {
+        "enabled": True,
+        "method": "batchmesh_volume_scenario",
+        "scenario_name": scenario_name,
+        "session_name": session_name,
+        "expected_solid_part_count": solid_part_count,
+        "created_count": created_count,
+        "run_status": normalized_run_status,
+        "parameter_status": int(parameter_status),
+        "add_session_status": int(add_session_status),
+        "target_size": float(target_size),
+        "volume_count_before": len(volumes_before),
+        "volume_count_after": len(volumes_after),
+        "counts_before": before_counts,
+        "counts_after": after_counts,
+        "statistics_report_file": str(statistics_path),
+        "write_statistics_status": _jsonable(write_statistics),
+    }
+
+
+def _configure_volume_tetra_session(base, batchmesh, mesh, volume_session, target_size: float, stage_dir: Path) -> int:
+    base.BCSettingsSetValues(
+        {
+            "tetras_algorithm": "Tetra Rapid",
+            "tetras_max_elem_length": float(target_size),
+            "tetras_max_growth_rate": 1.35,
+        }
+    )
+    mpar_path = stage_dir / "ai_native_volume_tetra.ansa_mpar"
+    mesh.SaveMeshParams(str(mpar_path))
+    if not mpar_path.exists():
+        raise RuntimeError(f"ANSA did not write native volume tetra mesh parameters: {mpar_path}")
+    read_status = batchmesh.ReadSessionMeshParams(volume_session, str(mpar_path))
+    if int(read_status) != 1:
+        raise RuntimeError(f"ANSA rejected native volume tetra mesh parameter file: status={read_status}")
+    set_status = batchmesh.SetSessionParameters(
+        volume_session,
+        {
+            "tetras_algorithm": "Tetra Rapid",
+            "tetras_max_elem_length": float(target_size),
+            "tetras_max_growth_rate": "1.35",
+        },
+    )
+    if int(set_status) != 0:
+        raise RuntimeError(f"ANSA rejected native volume tetra session parameters: status={set_status}")
+    return 1
+
+
+def _solid_target_size(plan: dict) -> float:
+    sizes = [
+        float(part.get("target_size", plan.get("base_size", 8.0)))
+        for part in plan.get("parts", [])
+        if part.get("strategy") in {"solid", "solid_tet"}
+    ]
+    return max(0.5, min(sizes) if sizes else float(plan.get("base_size", 8.0)))
+
+
+def _assign_native_solid_solver_cards(base, constants, plan: dict, solid_tetra_generation: dict[str, object]) -> dict[str, object]:
+    expected_solid_count = int(solid_tetra_generation.get("expected_solid_part_count", 0))
+    if expected_solid_count <= 0:
+        return {
+            "enabled": True,
+            "assigned_count": 0,
+            "created_property_count": 0,
+            "expected_solid_part_count": 0,
+            "records": [],
+        }
+
+    solids = sorted(base.CollectEntities(constants.NASTRAN, None, "SOLID", True) or [], key=lambda ent: ent._id)
+    if not solids:
+        raise RuntimeError("ANSA native volume meshing reported solids, but no SOLID entities are available for solver card assignment")
+
+    solid_part_plans = [part for part in plan.get("parts", []) if part.get("strategy") in {"solid", "solid_tet"}]
+    if not solid_part_plans:
+        raise RuntimeError("native SOLID entities exist, but the recipe contains no solid part plans")
+
+    before_samples = _sample_entity_card_values(base, constants, solids, ("EID", "PID", "type"))
+    groups: dict[int, list[object]] = {}
+    for solid in solids:
+        values = _get_entity_card_values(base, constants, solid, ("PID",))
+        old_pid = _safe_int(values.get("PID"), 0)
+        groups.setdefault(old_pid, []).append(solid)
+
+    property_base = max(
+        _max_entity_id(base, constants, "PSOLID") + 1,
+        int(plan.get("native_entity_generation", {}).get("id_start", 800000)) + 1000,
+    )
+    records = []
+    assigned_count = 0
+    failed_count = 0
+    for group_index, old_pid in enumerate(sorted(groups)):
+        group_solids = groups[old_pid]
+        part = solid_part_plans[group_index % len(solid_part_plans)]
+        new_pid = property_base + group_index
+        psolid = _create_or_update_psolid(base, constants, new_pid, int(part["material_numeric_id"]), str(part["property_name"]))
+        group_failed = 0
+        type_counts: dict[str, int] = {}
+        for solid in group_solids:
+            values = _get_entity_card_values(base, constants, solid, ("type",))
+            solid_type = str(values.get("type") or "").upper()
+            fields = {"PID": new_pid}
+            if not solid_type:
+                fields["type"] = "CTETRA"
+                solid_type = "CTETRA"
+            type_counts[solid_type] = type_counts.get(solid_type, 0) + 1
+            try:
+                base.SetEntityCardValues(constants.NASTRAN, solid, fields)
+                assigned_count += 1
+            except Exception:
+                group_failed += 1
+                failed_count += 1
+        records.append(
+            {
+                "old_property_id": old_pid,
+                "new_property_id": int(getattr(psolid, "_id", new_pid)),
+                "part_uid": part["part_uid"],
+                "material_numeric_id": int(part["material_numeric_id"]),
+                "solid_count": len(group_solids),
+                "failed_assignment_count": group_failed,
+                "solid_type_counts": type_counts,
+            }
+        )
+
+    after_samples = _sample_entity_card_values(base, constants, solids, ("EID", "PID", "type"))
+    if assigned_count < expected_solid_count or failed_count:
+        raise RuntimeError(
+            "ANSA native SOLID solver card assignment did not cover enough native solids: "
+            f"assigned={assigned_count}, failed={failed_count}, expected>={expected_solid_count}"
+        )
+    return {
+        "enabled": True,
+        "method": "assign_solver_cards_to_native_volume_solids",
+        "assigned_count": assigned_count,
+        "failed_assignment_count": failed_count,
+        "created_property_count": len(records),
+        "expected_solid_part_count": expected_solid_count,
+        "solid_entity_count": len(solids),
+        "before_samples": before_samples,
+        "after_samples": after_samples,
+        "records": records,
+    }
+
+
+def _create_or_update_psolid(base, constants, pid: int, mid: int, name: str):
+    fields = {
+        "PID": int(pid),
+        "Name": name,
+        "MID": int(mid),
+    }
+    entity = base.GetEntity(constants.NASTRAN, "PSOLID", int(pid))
+    if entity:
+        base.SetEntityCardValues(constants.NASTRAN, entity, fields)
+        return entity
+    entity = base.CreateEntity(constants.NASTRAN, "PSOLID", fields)
+    if not entity:
+        raise RuntimeError(f"failed to create/update native ANSA PSOLID {pid}")
+    return entity
+
+
+def _create_native_solver_entities(base, constants, plan: dict, solid_tetra_generation: dict[str, object]) -> dict[str, object]:
     next_node_id = max(_max_entity_id(base, constants, "GRID") + 1, int(plan.get("native_entity_generation", {}).get("id_start", 800000)))
     next_element_id = max(
         _max_entity_id(base, constants, "__ELEMENTS__") + 1,
         int(plan.get("native_entity_generation", {}).get("id_start", 800000)),
     )
-    next_property_id = max(
-        _max_property_id(base, constants) + 1,
-        int(plan.get("native_entity_generation", {}).get("id_start", 800000)),
-    )
-
-    solids = []
-    for part in plan.get("parts", []):
-        if part.get("strategy") not in {"solid", "solid_tet"}:
-            continue
-        pid = next_property_id
-        next_property_id += 1
-        psolid = _create_or_update_psolid(base, constants, pid, part)
-        node_ids, next_node_id = _create_tetra_nodes(base, constants, next_node_id, part["geometry_box"], float(part["target_size"]))
-        eid = next_element_id
-        next_element_id += 1
-        entity = base.CreateEntity(
-            constants.NASTRAN,
-            "SOLID",
-            {
-                "EID": eid,
-                "PID": pid,
-                "type": "CTETRA",
-                "G1": node_ids[0],
-                "G2": node_ids[1],
-                "G3": node_ids[2],
-                "G4": node_ids[3],
-            },
-        )
-        if not entity:
-            raise RuntimeError(f"failed to create native ANSA CTETRA for {part['part_uid']}")
-        solids.append(
-            {
-                "part_uid": part["part_uid"],
-                "element_id": int(getattr(entity, "_id", eid)),
-                "property_id": int(getattr(psolid, "_id", pid)),
-                "node_ids": node_ids,
-                "target_size": float(part["target_size"]),
-            }
-        )
 
     connector_pid = int(plan.get("connector_property", {}).get("property_id", 9001))
     pbush = _create_or_update_pbush(base, constants, connector_pid, plan)
@@ -414,10 +592,7 @@ def _create_native_solver_entities(base, constants, plan: dict) -> dict[str, obj
 
     return {
         "mode": "ansa_native_solver_entities",
-        "solid_tetra": {
-            "created_count": len(solids),
-            "records": solids,
-        },
+        "solid_tetra": solid_tetra_generation,
         "connectors": {
             "property_id": int(getattr(pbush, "_id", connector_pid)) if pbush else connector_pid,
             "created_count": len(connectors),
@@ -502,26 +677,6 @@ def _max_entity_id(base, constants, entity_type: str) -> int:
     return max(ids or [0])
 
 
-def _max_property_id(base, constants) -> int:
-    return max(_max_entity_id(base, constants, item) for item in ("PSHELL", "PSOLID", "PBUSH"))
-
-
-def _create_or_update_psolid(base, constants, pid: int, part: dict):
-    fields = {
-        "PID": int(pid),
-        "Name": f"AI_SOLID_{part['part_index']:03d}_{part['part_uid']}",
-        "MID": int(part["material_numeric_id"]),
-    }
-    entity = base.GetEntity(constants.NASTRAN, "PSOLID", int(pid))
-    if entity:
-        base.SetEntityCardValues(constants.NASTRAN, entity, fields)
-        return entity
-    entity = base.CreateEntity(constants.NASTRAN, "PSOLID", fields)
-    if not entity:
-        raise RuntimeError(f"failed to create native ANSA PSOLID for {part['part_uid']}")
-    return entity
-
-
 def _create_or_update_pbush(base, constants, pid: int, plan: dict):
     stiffness = list(plan.get("connector_property", {}).get("stiffness", [100000.0] * 6))
     fields = {
@@ -542,26 +697,6 @@ def _create_or_update_pbush(base, constants, pid: int, plan: dict):
     if not entity:
         raise RuntimeError(f"failed to create native ANSA PBUSH {pid}")
     return entity
-
-
-def _create_tetra_nodes(base, constants, next_node_id: int, geometry_box: dict, target_size: float) -> tuple[list[int], int]:
-    center = _point(geometry_box["center"])
-    dims = _point(geometry_box["dimensions"])
-    span = max(0.25, min(max(dims[0], 0.25), max(dims[1], 0.25), max(dims[2], 0.25), max(target_size, 0.25)) * 0.35)
-    offsets = [
-        (-span, -span, -span),
-        (span, -span, -span),
-        (-span, span, -span),
-        (-span, -span, span),
-    ]
-    node_ids = []
-    for offset in offsets:
-        nid = next_node_id
-        next_node_id += 1
-        coords = (center[0] + offset[0], center[1] + offset[1], center[2] + offset[2])
-        _create_grid(base, constants, nid, coords)
-        node_ids.append(nid)
-    return node_ids, next_node_id
 
 
 def _create_grid(base, constants, nid: int, coords: tuple[float, float, float]):
@@ -663,6 +798,30 @@ def _jsonable(value):
     if value is None or isinstance(value, (str, int, float, bool, dict, list)):
         return value
     return str(value)
+
+
+def _get_entity_card_values(base, constants, entity, fields: tuple[str, ...]) -> dict[str, object]:
+    try:
+        values = base.GetEntityCardValues(constants.NASTRAN, entity, fields)
+    except Exception:
+        return {}
+    return values if isinstance(values, dict) else {}
+
+
+def _sample_entity_card_values(base, constants, entities, fields: tuple[str, ...], limit: int = 5) -> list[dict[str, object]]:
+    samples = []
+    for entity in list(entities)[:limit]:
+        values = _get_entity_card_values(base, constants, entity, fields)
+        values["_id"] = int(getattr(entity, "_id", 0) or 0)
+        samples.append({key: _jsonable(value) for key, value in values.items()})
+    return samples
+
+
+def _safe_int(value, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return int(default)
 
 
 def _card_name(line: str) -> str:

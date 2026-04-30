@@ -116,6 +116,7 @@ def extract_sample_result(
     deck = manifest.get("solver_deck_recipe_application", {})
     batch_sessions = manifest.get("ansa_recipe_application", {}).get("batch_mesh_sessions", {})
     batch_quality = batch_sessions.get("quality_summary", {})
+    final_quality = final_quality_summary(batch_quality, quality_loop)
     bdf = validation.get("bdf_validation", {})
     expected = expected_counts(recipe_summary)
     result = {
@@ -135,9 +136,11 @@ def extract_sample_result(
         "expected_mass_count": expected["mass"],
         "solver_deck_element_fallback_enabled": bool(deck.get("element_creation_enabled", True)),
         "batch_mesh_session_count": int(batch_sessions.get("session_count", 0)),
-        "write_statistics_status_counts": batch_quality.get("status_counts", {}),
-        "quality_summary_passed": bool(batch_quality.get("passed", False)),
-        "quality_issue_record_count": int(batch_quality.get("issue_record_count", 0)),
+        "write_statistics_status_counts": final_quality.get("status_counts", {}),
+        "quality_summary_passed": bool(final_quality.get("passed", False)),
+        "quality_issue_record_count": int(final_quality.get("issue_record_count", 0)),
+        "quality_threshold_violation_count": quality_threshold_violation_count(final_quality),
+        "quality_numeric_metrics": quality_numeric_metrics(final_quality),
         "quality_repair_loop_status": quality_loop.get("status", ""),
         "quality_repair_loop_iteration_count": int(quality_loop.get("iteration_count", 0)),
         "runtime_seconds": round(float(runtime_seconds), 3),
@@ -170,6 +173,8 @@ def failed_sample_result(sample_id: str, result_zip: Path, runtime_seconds: floa
         "write_statistics_status_counts": {},
         "quality_summary_passed": False,
         "quality_issue_record_count": 0,
+        "quality_threshold_violation_count": 0,
+        "quality_numeric_metrics": [],
         "quality_repair_loop_status": "",
         "quality_repair_loop_iteration_count": 0,
         "runtime_seconds": round(float(runtime_seconds), 3),
@@ -191,6 +196,33 @@ def quality_loop_passed(status: str) -> bool:
     return str(status).strip().lower() in QUALITY_PASS_STATUSES
 
 
+def final_quality_summary(batch_quality: dict[str, Any], quality_loop: dict[str, Any]) -> dict[str, Any]:
+    records = quality_loop.get("records", [])
+    if records:
+        last = records[-1]
+        if isinstance(last, dict) and isinstance(last.get("summary"), dict):
+            return last["summary"]
+    return batch_quality
+
+
+def quality_threshold_violation_count(summary: dict[str, Any]) -> int:
+    total = 0
+    for report in summary.get("parsed_reports", []):
+        total += len(report.get("threshold_violations", []))
+    for issue in summary.get("issue_records", []):
+        total += len(issue.get("threshold_violations", []))
+    return total
+
+
+def quality_numeric_metrics(summary: dict[str, Any]) -> list[dict[str, Any]]:
+    metrics = []
+    for report in summary.get("parsed_reports", []):
+        parsed = report.get("numeric_metrics")
+        if parsed:
+            metrics.append(parsed)
+    return metrics
+
+
 def sample_failure_reasons(result: dict[str, Any]) -> list[str]:
     reasons = []
     if not result["ansa_success"]:
@@ -210,6 +242,10 @@ def sample_failure_reasons(result: dict[str, Any]) -> list[str]:
         reasons.append("native CONM2 count below expected mass count")
     if bool(result["solver_deck_element_fallback_enabled"]):
         reasons.append("solver-deck element fallback was enabled")
+    if not bool(result["quality_summary_passed"]):
+        reasons.append("ANSA numeric quality summary did not pass")
+    if int(result.get("quality_threshold_violation_count", 0)) > 0:
+        reasons.append("ANSA numeric quality thresholds were violated")
     if not quality_loop_passed(str(result["quality_repair_loop_status"])):
         reasons.append("ANSA quality repair loop did not pass")
     return reasons
@@ -267,8 +303,8 @@ def render_regression_report(report: dict[str, Any]) -> str:
         "",
         "## Sample Results",
         "",
-        "| sample_id | accepted | bdf | missing P/M/N | native CTE/CB/CM | expected S/C/M | BMM sessions | quality | runtime s | failure |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| sample_id | accepted | bdf | missing P/M/N | native CTE/CB/CM | expected S/C/M | BMM sessions | quality | threshold violations | runtime s | failure |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for sample in report["samples"]:
         missing = f"{sample['missing_property_count']}/{sample['missing_material_count']}/{sample['missing_nodes_count']}"
@@ -276,7 +312,7 @@ def render_regression_report(report: dict[str, Any]) -> str:
         expected = f"{sample['expected_solid_count']}/{sample['expected_connector_count']}/{sample['expected_mass_count']}"
         failure = str(sample.get("failure_reason", "")).replace("|", "/")
         lines.append(
-            "| {sample_id} | {accepted} | {bdf} | {missing} | {native} | {expected} | {sessions} | {quality} | {runtime} | {failure} |".format(
+            "| {sample_id} | {accepted} | {bdf} | {missing} | {native} | {expected} | {sessions} | {quality} | {violations} | {runtime} | {failure} |".format(
                 sample_id=sample["sample_id"],
                 accepted=sample["accepted"],
                 bdf=sample["bdf_validation_passed"],
@@ -285,6 +321,7 @@ def render_regression_report(report: dict[str, Any]) -> str:
                 expected=expected,
                 sessions=sample["batch_mesh_session_count"],
                 quality=sample["quality_repair_loop_status"],
+                violations=sample.get("quality_threshold_violation_count", 0),
                 runtime=sample["runtime_seconds"],
                 failure=failure,
             )

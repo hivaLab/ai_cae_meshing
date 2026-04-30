@@ -59,12 +59,12 @@ def evaluate_model(model_path: Path | str, dataset_dir: Path | str, split: str, 
         "connection_candidate_accuracy": raw[f"{split}_connection_candidate_accuracy"],
         "failure_risk_mae": raw[f"{split}_failure_risk_mae"],
         "repair_action_accuracy": raw[f"{split}_repair_action_accuracy"],
-        "part_strategy_macro_f1": raw[f"{split}_part_strategy_accuracy"],
-        "face_semantic_mean_iou": raw[f"{split}_face_semantic_accuracy"],
-        "edge_semantic_macro_f1": raw[f"{split}_edge_semantic_accuracy"],
-        "connection_candidate_recall": raw[f"{split}_connection_candidate_accuracy"],
-        "failure_risk_recall": max(0.0, 1.0 - raw[f"{split}_failure_risk_mae"]),
-        "repair_action_top1_accuracy": raw[f"{split}_repair_action_accuracy"],
+        "part_strategy_macro_f1": raw[f"{split}_part_strategy_macro_f1"],
+        "face_semantic_mean_iou": raw[f"{split}_face_semantic_mean_iou"],
+        "edge_semantic_macro_f1": raw[f"{split}_edge_semantic_macro_f1"],
+        "connection_candidate_recall": raw[f"{split}_connection_candidate_recall"],
+        "failure_risk_recall": raw[f"{split}_failure_risk_recall"],
+        "repair_action_top1_accuracy": raw[f"{split}_repair_action_top1_accuracy"],
     }
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)

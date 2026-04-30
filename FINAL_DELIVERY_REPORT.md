@@ -1,10 +1,11 @@
 # Final Delivery Report
 
-Generated at: 2026-04-30T11:54:25.515332+00:00
+Generated at: 2026-04-30T13:00:47.585752+00:00
 
 ## Workflow Commands
 - validate_all_repository_schemas
 - cad kernel status
+- python scripts/run_step_ingestion_regression.py --sample-count 3
 - cdf generate --num-samples 1000
 - cdf validate-dataset
 - cdf build-graphs
@@ -32,6 +33,13 @@ Generated at: 2026-04-30T11:54:25.515332+00:00
 - brep_graph.json files: 1000
 - assembly_graph.json files: 1000
 
+## STEP Ingestion Regression
+- Golden AP242 B-Rep samples: 3
+- Passed: 3
+- Failed: 0
+- Accepted: True
+- Limitation: Golden assemblies are locally generated AP242 B-Rep STEP fixtures; no external OEM STEP files were supplied.
+
 ## Model
 - Model type: hetero_brep_assembly_net
 - Model path: C:\Users\r0801\Desktop\code\06_ai_cae_meshing\runs\full_delivery\artifacts\models\brep_assembly_net_v001\model.pt
@@ -44,11 +52,11 @@ Generated at: 2026-04-30T11:54:25.515332+00:00
 - Test MAE: 0.720296
 - Test RMSE: 0.768061
 - Size MAE percent: 0.075206
-- PartStrategy macro F1: 1.000000
+- PartStrategy macro F1: 0.750000
 - FaceSemantic mean IoU: 1.000000
-- EdgeSemantic macro F1: 1.000000
+- EdgeSemantic macro F1: 0.500000
 - Connection recall: 1.000000
-- Failure risk recall: 0.941240
+- Failure risk recall: 1.000000
 - Repair top-1 accuracy: 0.637500
 
 ## AMG Result
@@ -70,14 +78,14 @@ Generated at: 2026-04-30T11:54:25.515332+00:00
 - Batch Meshing Manager invoked: True
 - Batch Meshing Manager note: ANSA batchmesh sessions applied AI mesh recipe parameters per part and ran Batch Mesh Manager
 - ANSA import counts: {'ANSAPART': 12, 'CBUSH': 0, 'CONM2': 0, 'FACE': 72, 'GRID': 0, 'MAT1': 1, 'PBUSH': 0, 'PSHELL': 12, 'PSOLID': 0, 'RBE2': 0, 'RBE3': 0, 'SHELL': 0, 'SOLID': 0, '__ELEMENTS__': 0}
-- ANSA batch counts: {'ANSAPART': 12, 'CBUSH': 8, 'CONM2': 1, 'FACE': 72, 'GRID': 12675, 'MAT1': 4, 'PBUSH': 1, 'PSHELL': 12, 'PSOLID': 5, 'RBE2': 0, 'RBE3': 0, 'SHELL': 12616, 'SOLID': 5, '__ELEMENTS__': 12630}
+- ANSA batch counts: {'ANSAPART': 23, 'CBUSH': 8, 'CONM2': 1, 'FACE': 72, 'GRID': 38871, 'MAT1': 15, 'PBUSH': 1, 'PSHELL': 12, 'PSOLID': 22, 'RBE2': 0, 'RBE3': 0, 'SHELL': 12616, 'SOLID': 179679, '__ELEMENTS__': 192304}
 - AI recipe batch sessions: 11
 - Per-part size fields planned: 12
 - BMM size-field sessions applied: 11
 - Materials written to deck: 4
 - PSHELL properties updated: 11
 - Solver-deck element fallback enabled: False
-- Native CTETRA solids generated: 5
+- Native CTETRA solids generated: 179679
 - Native CBUSH connectors generated: 8
 - Native CONM2 masses generated: 1
 - ANSA quality repair status: passed_no_repair_required
@@ -89,10 +97,10 @@ Generated at: 2026-04-30T11:54:25.515332+00:00
 - Sample count: 10
 - Passed samples: 10
 - Failed samples: 0
-- Native CTETRA total: 50 / expected 50
+- Native CTETRA total: 1578207 / expected 50
 - Native CBUSH total: 80 / expected 80
 - Native CONM2 total: 10 / expected 10
-- Total runtime seconds: 136.662
+- Total runtime seconds: 255.905
 - Regression acceptance: ACCEPTED
 
 ## Known Limitations

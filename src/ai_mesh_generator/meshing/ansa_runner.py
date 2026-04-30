@@ -14,7 +14,6 @@ from cae_mesh_common.bdf.bdf_validator import validate_bdf
 from cae_mesh_common.qa.report_writer import write_qa_json
 
 from .ansa_recipe import (
-    apply_solver_deck_recipe,
     build_ansa_recipe_plan,
     write_ansa_control_files,
     write_ansa_recipe_plan,
@@ -178,18 +177,9 @@ class AnsaCommandBackend:
                 }
             )
         else:
-            before = validation.to_dict()
-            deck_application = apply_solver_deck_recipe(bdf_path, plan, create_missing_elements=True)
-            validation = validate_bdf(bdf_path)
-            repair_history.append(
-                {
-                    "iteration": 1,
-                    "action": "apply_ai_recipe_solver_deck_repair",
-                    "status": "passed" if validation.passed else "failed",
-                    "before": before,
-                    "after": validation.to_dict(),
-                    "deck_application": deck_application,
-                }
+            raise RuntimeError(
+                "ANSA result failed strict BDF validation or native connector coverage; "
+                f"solver-deck element fallback is disabled: {validation.to_dict()}"
             )
         model = read_bdf(bdf_path)
         element_records = _element_records_from_model(request.assembly, model)

@@ -3,7 +3,9 @@ from __future__ import annotations
 from ai_mesh_generator.meshing.ansa_quality import (
     count_quality_issue_words,
     normalize_write_statistics_status,
+    parse_numeric_quality_metrics,
     parse_quality_report,
+    quality_threshold_violations,
     summarize_ansa_quality_statistics,
 )
 
@@ -69,3 +71,71 @@ def test_quality_report_parser_extracts_issue_terms_for_failed_status(tmp_path):
     assert parsed["parsed"] is True
     assert parsed["issue_count"] > 0
     assert parsed["issue_terms"]["fatal"] == 1
+
+
+def test_quality_report_parser_extracts_numeric_ansa_statistics(tmp_path):
+    report = tmp_path / "statistics.html"
+    report.write_text(
+        """
+        <html><body>
+        <table summary="Session-Parts Report Table">
+        <tr><td colspan="4">PARTS</td><td colspan="3">STATISTICS</td><td colspan="3">VIOLATING SHELL ELEMENTS</td></tr>
+        <tr><td>Part</td><td>Aver.Length Shells</td><td>Unmeshed</td><td>Triangles %</td><td>Total</td><td>Min.Len.</td><td>Max.Len.</td></tr>
+        <tr><td>TOTAL</td><td>12.5</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td></tr>
+        </table>
+        <table summary="Statistics Report Table">
+        <tr><td colspan="3">OVERALL NUMBERS of SHELL ELEMENTs / PERCENTAGE (%)</td></tr>
+        <tr><td>TYPE</td><td>Quad</td><td>TOTAL</td></tr>
+        <tr><td>NUMBER</td><td>126 (100.00 %)</td><td>126</td></tr>
+        </table>
+        <table>
+        <tr><td>ELEMENT's SIDE LENGTH</td></tr>
+        <tr><td>MIN</td><td>1.2</td><td>-</td></tr>
+        <tr><td>AVERAGE</td><td>12.5</td><td>12.5</td></tr>
+        <tr><td>MAX</td><td>18.0</td><td>-</td></tr>
+        </table>
+        </body></html>
+        """,
+        encoding="utf-8",
+    )
+
+    parsed = parse_quality_report(report, scan_issue_terms=False)
+
+    assert parsed["numeric_metrics"]["session_part_record_count"] == 1
+    assert parsed["numeric_metrics"]["session_unmeshed_total"] == 0.0
+    assert parsed["numeric_metrics"]["session_violating_total"] == 0.0
+    assert parsed["numeric_metrics"]["overall_shell_element_total"] == 126.0
+    assert parsed["numeric_metrics"]["side_length_min"] == 1.2
+    assert parsed["threshold_violations"] == []
+
+
+def test_quality_thresholds_reject_unmeshed_numeric_statistics():
+    metrics = parse_numeric_quality_metrics(
+        """
+        <table>
+        <tr><td>Part</td><td>Unmeshed</td><td>Total</td></tr>
+        <tr><td>TOTAL</td><td>2</td><td>126</td></tr>
+        </table>
+        """
+    )
+
+    violations = quality_threshold_violations(metrics)
+
+    assert violations
+    assert violations[0]["metric"] == "session_unmeshed_total"
+
+
+def test_quality_thresholds_reject_violating_shell_total():
+    metrics = parse_numeric_quality_metrics(
+        """
+        <table summary="Session-Parts Report Table">
+        <tr><td>Part</td><td>Unmeshed</td><td>Total</td></tr>
+        <tr><td>TOTAL</td><td>0</td><td>2</td></tr>
+        </table>
+        """
+    )
+
+    violations = quality_threshold_violations(metrics)
+
+    assert violations
+    assert violations[0]["metric"] == "session_violating_total"

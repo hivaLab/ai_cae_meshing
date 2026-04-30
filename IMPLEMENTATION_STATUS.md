@@ -20,6 +20,7 @@ Source of truth: `CAE_MESH_AUTOMATION_IMPLEMENTATION_PLAN.md`
 ## Commands Executed
 - validate_all_repository_schemas
 - cad kernel status
+- python scripts/run_step_ingestion_regression.py --sample-count 3
 - cdf generate --num-samples 1000
 - cdf validate-dataset
 - cdf build-graphs
@@ -39,6 +40,8 @@ Source of truth: `CAE_MESH_AUTOMATION_IMPLEMENTATION_PLAN.md`
 - Schema failures: 0
 - Missing artifacts: 0
 - STEP AP242 B-Rep failures: 0
+- STEP ingestion regression accepted: True
+- STEP ingestion regression samples: 3 / 3
 - Split mismatches: 0
 - Graph artifact validation passed: True
 - graph.pt files: 1000
@@ -60,11 +63,11 @@ Source of truth: `CAE_MESH_AUTOMATION_IMPLEMENTATION_PLAN.md`
 - Test MAE: 0.720296
 - Test RMSE: 0.768061
 - Size MAE percent: 0.075206
-- PartStrategy macro F1: 1.000000
+- PartStrategy macro F1: 0.750000
 - FaceSemantic mean IoU: 1.000000
-- EdgeSemantic macro F1: 1.000000
+- EdgeSemantic macro F1: 0.500000
 - Connection recall: 1.000000
-- Failure risk recall: 0.941240
+- Failure risk recall: 1.000000
 - Repair top-1 accuracy: 0.637500
 
 ## AMG Result Metrics
@@ -82,14 +85,14 @@ Source of truth: `CAE_MESH_AUTOMATION_IMPLEMENTATION_PLAN.md`
 - Batch Meshing Manager invoked: True
 - Batch Meshing Manager note: ANSA batchmesh sessions applied AI mesh recipe parameters per part and ran Batch Mesh Manager
 - ANSA import counts: {'ANSAPART': 12, 'CBUSH': 0, 'CONM2': 0, 'FACE': 72, 'GRID': 0, 'MAT1': 1, 'PBUSH': 0, 'PSHELL': 12, 'PSOLID': 0, 'RBE2': 0, 'RBE3': 0, 'SHELL': 0, 'SOLID': 0, '__ELEMENTS__': 0}
-- ANSA batch counts: {'ANSAPART': 12, 'CBUSH': 8, 'CONM2': 1, 'FACE': 72, 'GRID': 12675, 'MAT1': 4, 'PBUSH': 1, 'PSHELL': 12, 'PSOLID': 5, 'RBE2': 0, 'RBE3': 0, 'SHELL': 12616, 'SOLID': 5, '__ELEMENTS__': 12630}
+- ANSA batch counts: {'ANSAPART': 23, 'CBUSH': 8, 'CONM2': 1, 'FACE': 72, 'GRID': 38871, 'MAT1': 15, 'PBUSH': 1, 'PSHELL': 12, 'PSOLID': 22, 'RBE2': 0, 'RBE3': 0, 'SHELL': 12616, 'SOLID': 179679, '__ELEMENTS__': 192304}
 - AI recipe batch sessions: 11
 - Per-part size fields planned: 12
 - BMM size-field sessions applied: 11
 - Materials written to deck: 4
 - PSHELL properties updated: 11
 - Solver-deck element fallback enabled: False
-- Native CTETRA solids generated: 5
+- Native CTETRA solids generated: 179679
 - Native CBUSH connectors generated: 8
 - Native CONM2 masses generated: 1
 - ANSA quality repair status: passed_no_repair_required
@@ -101,10 +104,10 @@ Source of truth: `CAE_MESH_AUTOMATION_IMPLEMENTATION_PLAN.md`
 - Sample count: 10
 - Passed samples: 10
 - Failed samples: 0
-- Native CTETRA total: 50 / expected 50
+- Native CTETRA total: 1578207 / expected 50
 - Native CBUSH total: 80 / expected 80
 - Native CONM2 total: 10 / expected 10
-- Total runtime seconds: 136.662
+- Total runtime seconds: 255.905
 - Regression acceptance: ACCEPTED
 
 ## Known Limitations

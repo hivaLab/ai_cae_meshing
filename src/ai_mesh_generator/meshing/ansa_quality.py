@@ -11,6 +11,11 @@ DEFAULT_NUMERIC_THRESHOLDS = {
     "session_unmeshed_total_max": 0.0,
     "session_violating_total_max": 0.0,
     "side_length_min": 0.0,
+    "solid_unmeshed_volume_count_max": 0.0,
+    "solid_failed_region_count_max": 0.0,
+    "solid_scaled_jacobian_min": 0.1,
+    "solid_volume_min": 0.0,
+    "solid_dihedral_max": 165.0,
 }
 
 
@@ -125,6 +130,11 @@ def parse_numeric_quality_metrics(text: str) -> dict[str, Any]:
         if "max" in side_length:
             metrics["side_length_max"] = side_length["max"]
 
+    solid_quality = _parse_solid_quality_metrics(text)
+    if solid_quality:
+        metrics["solid_quality"] = solid_quality
+        metrics.update(solid_quality)
+
     return metrics
 
 
@@ -163,6 +173,61 @@ def quality_threshold_violations(
                     "value": side_min,
                     "threshold": float(thresholds["side_length_min"]),
                     "rule": ">",
+                }
+            )
+    if "solid_unmeshed_volume_count" in numeric_metrics:
+        unmeshed_volume = float(numeric_metrics["solid_unmeshed_volume_count"])
+        if unmeshed_volume > float(thresholds["solid_unmeshed_volume_count_max"]):
+            violations.append(
+                {
+                    "metric": "solid_unmeshed_volume_count",
+                    "value": unmeshed_volume,
+                    "threshold": float(thresholds["solid_unmeshed_volume_count_max"]),
+                    "rule": "<=",
+                }
+            )
+    if "solid_failed_region_count" in numeric_metrics:
+        failed_regions = float(numeric_metrics["solid_failed_region_count"])
+        if failed_regions > float(thresholds["solid_failed_region_count_max"]):
+            violations.append(
+                {
+                    "metric": "solid_failed_region_count",
+                    "value": failed_regions,
+                    "threshold": float(thresholds["solid_failed_region_count_max"]),
+                    "rule": "<=",
+                }
+            )
+    if "solid_scaled_jacobian_min" in numeric_metrics:
+        scaled_jacobian = float(numeric_metrics["solid_scaled_jacobian_min"])
+        if scaled_jacobian < float(thresholds["solid_scaled_jacobian_min"]):
+            violations.append(
+                {
+                    "metric": "solid_scaled_jacobian_min",
+                    "value": scaled_jacobian,
+                    "threshold": float(thresholds["solid_scaled_jacobian_min"]),
+                    "rule": ">=",
+                }
+            )
+    if "solid_volume_min" in numeric_metrics:
+        volume_min = float(numeric_metrics["solid_volume_min"])
+        if volume_min <= float(thresholds["solid_volume_min"]):
+            violations.append(
+                {
+                    "metric": "solid_volume_min",
+                    "value": volume_min,
+                    "threshold": float(thresholds["solid_volume_min"]),
+                    "rule": ">",
+                }
+            )
+    if "solid_dihedral_max" in numeric_metrics:
+        dihedral_max = float(numeric_metrics["solid_dihedral_max"])
+        if dihedral_max > float(thresholds["solid_dihedral_max"]):
+            violations.append(
+                {
+                    "metric": "solid_dihedral_max",
+                    "value": dihedral_max,
+                    "threshold": float(thresholds["solid_dihedral_max"]),
+                    "rule": "<=",
                 }
             )
     return violations
@@ -393,6 +458,41 @@ def _parse_side_length_table(rows: list[list[str]]) -> dict[str, float]:
                 record = _row_to_record(header, value_row)
                 return {key: float(record[key]) for key in ("min", "average", "max") if key in record}
     return {}
+
+
+def _parse_solid_quality_metrics(text: str) -> dict[str, float]:
+    metrics: dict[str, float] = {}
+    normalized = re.sub(r"\s+", " ", text.replace("&nbsp;", " ")).lower()
+    lookups = {
+        "solid_unmeshed_volume_count": [
+            r"unmeshed\s+volumes?\D{0,40}({number})",
+            r"unmeshed\s+macros?\D{0,40}({number})",
+        ],
+        "solid_failed_region_count": [
+            r"failed\s+regions?\D{0,40}({number})",
+            r"failed\s+volumes?\D{0,40}({number})",
+        ],
+        "solid_scaled_jacobian_min": [
+            r"min(?:imum)?\s+scaled\s+jacobian\D{0,40}({number})",
+            r"scaled\s+jacobian\D{0,40}min(?:imum)?\D{0,40}({number})",
+        ],
+        "solid_volume_min": [
+            r"min(?:imum)?\s+(?:tetra\s+)?volume\D{0,40}({number})",
+            r"(?:tetra\s+)?volume\D{0,40}min(?:imum)?\D{0,40}({number})",
+        ],
+        "solid_dihedral_max": [
+            r"max(?:imum)?\s+dihedral\D{0,40}({number})",
+            r"dihedral\D{0,40}max(?:imum)?\D{0,40}({number})",
+        ],
+    }
+    number = r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[ee][-+]?\d+)?"
+    for key, patterns in lookups.items():
+        for pattern in patterns:
+            match = re.search(pattern.replace("{number}", number), normalized)
+            if match:
+                metrics[key] = float(match.group(1))
+                break
+    return metrics
 
 
 def _parse_vertical_side_length_rows(rows: list[list[str]]) -> dict[str, float]:

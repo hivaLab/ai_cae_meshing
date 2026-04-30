@@ -25,6 +25,11 @@ def _summary(native=None, recipe_summary=None, deck=None, quality=None):
                 "ansa_recipe_summary": recipe_summary,
                 "native_entity_generation": native,
                 "ansa_quality_repair_loop": quality,
+                "bdf_traceability": {
+                    "passed": True,
+                    "failure_count": 0,
+                    "mapped_part_uid_count": 2,
+                },
                 "ansa_manifest": {
                     "solver_deck_recipe_application": deck,
                     "ansa_recipe_application": {

@@ -1,11 +1,11 @@
 # Final Delivery Report
 
-Generated at: 2026-04-30T13:00:47.585752+00:00
+Generated at: 2026-04-30T16:05:47.283909+00:00
 
 ## Workflow Commands
 - validate_all_repository_schemas
 - cad kernel status
-- python scripts/run_step_ingestion_regression.py --sample-count 3
+- python scripts/run_step_ingestion_regression.py --sample-count 5
 - cdf generate --num-samples 1000
 - cdf validate-dataset
 - cdf build-graphs
@@ -34,8 +34,9 @@ Generated at: 2026-04-30T13:00:47.585752+00:00
 - assembly_graph.json files: 1000
 
 ## STEP Ingestion Regression
-- Golden AP242 B-Rep samples: 3
-- Passed: 3
+- Golden/external AP242 B-Rep samples: 5
+- CAD dir: None
+- Passed: 5
 - Failed: 0
 - Accepted: True
 - Limitation: Golden assemblies are locally generated AP242 B-Rep STEP fixtures; no external OEM STEP files were supplied.
@@ -47,11 +48,11 @@ Generated at: 2026-04-30T13:00:47.585752+00:00
 - Hidden dim: 32
 - Message passing layers: 2
 - Edge relation types: 16
-- Train MAE: 0.701734
-- Val MAE: 0.705501
-- Test MAE: 0.720296
-- Test RMSE: 0.768061
-- Size MAE percent: 0.075206
+- Train MAE: 0.700835
+- Val MAE: 0.704863
+- Test MAE: 0.718643
+- Test RMSE: 0.767206
+- Size MAE percent: 0.075080
 - PartStrategy macro F1: 0.750000
 - FaceSemantic mean IoU: 1.000000
 - EdgeSemantic macro F1: 0.500000
@@ -78,18 +79,20 @@ Generated at: 2026-04-30T13:00:47.585752+00:00
 - Batch Meshing Manager invoked: True
 - Batch Meshing Manager note: ANSA batchmesh sessions applied AI mesh recipe parameters per part and ran Batch Mesh Manager
 - ANSA import counts: {'ANSAPART': 12, 'CBUSH': 0, 'CONM2': 0, 'FACE': 72, 'GRID': 0, 'MAT1': 1, 'PBUSH': 0, 'PSHELL': 12, 'PSOLID': 0, 'RBE2': 0, 'RBE3': 0, 'SHELL': 0, 'SOLID': 0, '__ELEMENTS__': 0}
-- ANSA batch counts: {'ANSAPART': 23, 'CBUSH': 8, 'CONM2': 1, 'FACE': 72, 'GRID': 38871, 'MAT1': 15, 'PBUSH': 1, 'PSHELL': 12, 'PSOLID': 22, 'RBE2': 0, 'RBE3': 0, 'SHELL': 12616, 'SOLID': 179679, '__ELEMENTS__': 192304}
+- ANSA batch counts: {'ANSAPART': 23, 'CBUSH': 8, 'CONM2': 1, 'FACE': 72, 'GRID': 39115, 'MAT1': 15, 'PBUSH': 1, 'PSHELL': 12, 'PSOLID': 22, 'RBE2': 0, 'RBE3': 0, 'SHELL': 12696, 'SOLID': 180985, '__ELEMENTS__': 193690}
 - AI recipe batch sessions: 11
 - Per-part size fields planned: 12
 - BMM size-field sessions applied: 11
 - Materials written to deck: 4
 - PSHELL properties updated: 11
 - Solver-deck element fallback enabled: False
-- Native CTETRA solids generated: 179679
+- Native CTETRA solids generated: 180985
 - Native CBUSH connectors generated: 8
 - Native CONM2 masses generated: 1
-- ANSA quality repair status: passed_no_repair_required
-- ANSA QA repair loop records: 3
+- BDF traceability passed: True
+- BDF traceability mapped parts: 12
+- ANSA quality repair status: passed_after_repair
+- ANSA QA repair loop records: 4
 
 ## ANSA Production Regression
 - Command: `python scripts/run_ansa_regression.py --sample-count 10`
@@ -97,14 +100,14 @@ Generated at: 2026-04-30T13:00:47.585752+00:00
 - Sample count: 10
 - Passed samples: 10
 - Failed samples: 0
-- Native CTETRA total: 1578207 / expected 50
+- Native CTETRA total: 1573799 / expected 50
 - Native CBUSH total: 80 / expected 80
 - Native CONM2 total: 10 / expected 10
-- Total runtime seconds: 255.905
+- Total runtime seconds: 293.147
 - Regression acceptance: ACCEPTED
 
 ## Known Limitations
-- Generated assemblies are deterministic synthetic CAD solids exported through CadQuery/OCP, not OEM production CAD.
+- Generated dataset assemblies are deterministic synthetic CAD solids; the STEP ingestion regression also supports external --cad-dir inputs when OEM CAD is supplied.
 - ANSA backend is explicit and does not fall back to local meshing.
 
 ## Final Acceptance Status

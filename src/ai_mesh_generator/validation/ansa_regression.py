@@ -113,6 +113,7 @@ def extract_sample_result(
     recipe_summary = metrics.get("ansa_recipe_summary", {}) or manifest.get("ansa_recipe_application", {}).get("summary", {})
     native = metrics.get("native_entity_generation", {}) or manifest.get("native_entity_generation", {})
     quality_loop = metrics.get("ansa_quality_repair_loop", {}) or manifest.get("ansa_quality_repair_loop", {})
+    traceability = metrics.get("bdf_traceability", {})
     deck = manifest.get("solver_deck_recipe_application", {})
     batch_sessions = manifest.get("ansa_recipe_application", {}).get("batch_mesh_sessions", {})
     batch_quality = batch_sessions.get("quality_summary", {})
@@ -141,6 +142,9 @@ def extract_sample_result(
         "quality_issue_record_count": int(final_quality.get("issue_record_count", 0)),
         "quality_threshold_violation_count": quality_threshold_violation_count(final_quality),
         "quality_numeric_metrics": quality_numeric_metrics(final_quality),
+        "bdf_traceability_passed": bool(traceability.get("passed", False)),
+        "bdf_traceability_failure_count": int(traceability.get("failure_count", 0)) if traceability else 0,
+        "bdf_traceability_mapped_part_count": int(traceability.get("mapped_part_uid_count", 0)) if traceability else 0,
         "quality_repair_loop_status": quality_loop.get("status", ""),
         "quality_repair_loop_iteration_count": int(quality_loop.get("iteration_count", 0)),
         "runtime_seconds": round(float(runtime_seconds), 3),
@@ -175,6 +179,9 @@ def failed_sample_result(sample_id: str, result_zip: Path, runtime_seconds: floa
         "quality_issue_record_count": 0,
         "quality_threshold_violation_count": 0,
         "quality_numeric_metrics": [],
+        "bdf_traceability_passed": False,
+        "bdf_traceability_failure_count": 0,
+        "bdf_traceability_mapped_part_count": 0,
         "quality_repair_loop_status": "",
         "quality_repair_loop_iteration_count": 0,
         "runtime_seconds": round(float(runtime_seconds), 3),
@@ -246,6 +253,8 @@ def sample_failure_reasons(result: dict[str, Any]) -> list[str]:
         reasons.append("ANSA numeric quality summary did not pass")
     if int(result.get("quality_threshold_violation_count", 0)) > 0:
         reasons.append("ANSA numeric quality thresholds were violated")
+    if not bool(result.get("bdf_traceability_passed", False)):
+        reasons.append("BDF source part/material/property traceability failed")
     if not quality_loop_passed(str(result["quality_repair_loop_status"])):
         reasons.append("ANSA quality repair loop did not pass")
     return reasons
@@ -324,6 +333,24 @@ def render_regression_report(report: dict[str, Any]) -> str:
                 violations=sample.get("quality_threshold_violation_count", 0),
                 runtime=sample["runtime_seconds"],
                 failure=failure,
+            )
+        )
+    lines.extend(
+        [
+            "",
+            "## Traceability",
+            "",
+            "| sample_id | bdf traceability | mapped parts | failures |",
+            "| --- | --- | --- | --- |",
+        ]
+    )
+    for sample in report["samples"]:
+        lines.append(
+            "| {sample_id} | {passed} | {mapped} | {failures} |".format(
+                sample_id=sample["sample_id"],
+                passed=sample.get("bdf_traceability_passed", False),
+                mapped=sample.get("bdf_traceability_mapped_part_count", 0),
+                failures=sample.get("bdf_traceability_failure_count", 0),
             )
         )
     return "\n".join(lines) + "\n"

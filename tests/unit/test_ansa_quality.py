@@ -139,3 +139,47 @@ def test_quality_thresholds_reject_violating_shell_total():
 
     assert violations
     assert violations[0]["metric"] == "session_violating_total"
+
+
+def test_quality_report_parser_extracts_solid_tetra_metrics(tmp_path):
+    report = tmp_path / "solid_statistics.html"
+    report.write_text(
+        """
+        <html><body>
+        Native solid tetra statistics
+        Unmeshed volumes: 0
+        Failed regions: 0
+        Minimum scaled Jacobian: 0.24
+        Minimum tetra volume: 0.003
+        Maximum dihedral: 142.0
+        </body></html>
+        """,
+        encoding="utf-8",
+    )
+
+    parsed = parse_quality_report(report, scan_issue_terms=False)
+
+    assert parsed["numeric_metrics"]["solid_scaled_jacobian_min"] == 0.24
+    assert parsed["numeric_metrics"]["solid_unmeshed_volume_count"] == 0.0
+    assert parsed["threshold_violations"] == []
+
+
+def test_quality_thresholds_reject_bad_solid_tetra_metrics():
+    metrics = parse_numeric_quality_metrics(
+        """
+        Unmeshed volumes: 2
+        Failed regions: 1
+        Minimum scaled Jacobian: 0.02
+        Minimum tetra volume: 0.0
+        Maximum dihedral: 178.0
+        """
+    )
+
+    violations = quality_threshold_violations(metrics)
+    names = {item["metric"] for item in violations}
+
+    assert "solid_unmeshed_volume_count" in names
+    assert "solid_failed_region_count" in names
+    assert "solid_scaled_jacobian_min" in names
+    assert "solid_volume_min" in names
+    assert "solid_dihedral_max" in names

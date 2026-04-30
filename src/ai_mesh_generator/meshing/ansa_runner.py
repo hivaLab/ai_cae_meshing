@@ -12,6 +12,7 @@ import pandas as pd
 from cae_mesh_common.bdf.bdf_reader import read_bdf
 from cae_mesh_common.bdf.bdf_validator import validate_bdf
 from cae_mesh_common.qa.report_writer import write_qa_json
+from ai_mesh_generator.validation.traceability import validate_bdf_traceability
 
 from .ansa_recipe import (
     build_ansa_recipe_plan,
@@ -162,6 +163,13 @@ class AnsaCommandBackend:
         manifest_details = manifest.get("details", {})
         repair_history = list(request.recipe.get("repair_history", []))
         validation = validate_bdf(bdf_path)
+        traceability = validate_bdf_traceability(
+            bdf_path,
+            plan,
+            manifest_details.get("ansa_recipe_application", {}),
+        )
+        if not traceability["passed"]:
+            raise RuntimeError(f"ANSA result failed BDF traceability validation: {traceability}")
         expected_connector_count = int(plan.get("summary", {}).get("connection_count", 0)) + int(
             plan.get("summary", {}).get("mass_only_part_count", 0)
         )
@@ -195,6 +203,9 @@ class AnsaCommandBackend:
             json.dumps(manifest_details.get("ansa_recipe_application", {}), indent=2, sort_keys=True),
             encoding="utf-8",
         )
+        (metadata_dir / "bdf_traceability.json").write_text(
+            json.dumps(traceability, indent=2, sort_keys=True), encoding="utf-8"
+        )
         (metadata_dir / "ai_prediction.json").write_text(
             json.dumps(request.recipe.get("ai_prediction", {}), indent=2, sort_keys=True), encoding="utf-8"
         )
@@ -216,6 +227,7 @@ class AnsaCommandBackend:
             "ansa_recipe_application": manifest_details.get("ansa_recipe_application", {}),
             "native_entity_generation": native_entity_generation,
             "ansa_quality_repair_loop": ansa_quality_repair_loop,
+            "bdf_traceability": traceability,
             "repair_iteration_count": len(repair_history)
             + int(ansa_quality_repair_loop.get("iteration_count", 0)),
         }

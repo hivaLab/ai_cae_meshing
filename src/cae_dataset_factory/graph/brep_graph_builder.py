@@ -147,12 +147,15 @@ def build_brep_graph(assembly: dict[str, Any]) -> HeteroGraph:
     edge_count = 0
 
     for p_index, part in enumerate(parts):
-        _validate_part_topology(part)
+        if _uses_extracted_topology(part):
+            _validate_extracted_part_topology(part)
+        else:
+            _validate_part_topology(part)
         node_sets["part"].append({"uid": part["part_uid"], "part_index": p_index, "name": part.get("name", "")})
         node_features["part"].append(_part_features(part, connection_counts.get(part["part_uid"], 0)))
 
         face_records_by_part[part["part_uid"]] = []
-        face_uid_by_name = _face_uid_by_name(part)
+        face_uid_by_name = {} if _uses_extracted_topology(part) else _face_uid_by_name(part)
         feature_counts = _feature_counts_by_face(part)
         for face in part["face_signatures"]:
             f_index = len(node_sets["face"])
@@ -161,7 +164,7 @@ def build_brep_graph(assembly: dict[str, Any]) -> HeteroGraph:
                 "uid": face["face_uid"],
                 "part_uid": part["part_uid"],
                 "part_index": p_index,
-                "local_name": _face_local_name(face["face_uid"]),
+                "local_name": str(face.get("local_name") or _safe_face_local_name(face["face_uid"])),
                 "centroid": [float(value) for value in face["centroid"]],
                 "normal": [float(value) for value in face["normal"]],
                 "area": float(face["area"]),
@@ -173,7 +176,12 @@ def build_brep_graph(assembly: dict[str, Any]) -> HeteroGraph:
             edge_sets["part__has_face__face"].append((p_index, f_index))
             edge_sets["face__belongs_to__part"].append((f_index, p_index))
 
-        for edge in _box_edges_for_part(part, face_uid_by_name, feature_counts):
+        edge_records = (
+            _topology_edges_for_part(part, feature_counts)
+            if _uses_extracted_topology(part)
+            else _box_edges_for_part(part, face_uid_by_name, feature_counts)
+        )
+        for edge in edge_records:
             e_index = len(node_sets["edge"])
             node_sets["edge"].append(
                 {
@@ -287,6 +295,27 @@ def _validate_part_topology(part: dict[str, Any]) -> None:
     missing_faces = BOX_FACE_NAMES - face_names
     if missing_faces:
         raise ValueError(f"part {part.get('part_uid')} missing B-Rep box faces {sorted(missing_faces)}")
+
+
+def _uses_extracted_topology(part: dict[str, Any]) -> bool:
+    return bool(part.get("topology_edges")) or str(part.get("topology_source", "")).startswith("STEP_AP242_BREP")
+
+
+def _validate_extracted_part_topology(part: dict[str, Any]) -> None:
+    if "dimensions" not in part:
+        raise ValueError(f"STEP part is missing dimensions: {part.get('part_uid')}")
+    missing_dims = {"length", "width", "height"} - set(part["dimensions"])
+    if missing_dims:
+        raise ValueError(f"STEP part {part.get('part_uid')} missing dimensions {sorted(missing_dims)}")
+    if not part.get("face_signatures"):
+        raise ValueError(f"STEP part {part.get('part_uid')} has no extracted faces")
+    if not part.get("topology_edges"):
+        raise ValueError(f"STEP part {part.get('part_uid')} has no extracted edges")
+    face_uids = {face.get("face_uid") for face in part.get("face_signatures", [])}
+    for edge in part.get("topology_edges", []):
+        missing = set(edge.get("incident_face_uids", [])) - face_uids
+        if missing:
+            raise ValueError(f"STEP part {part.get('part_uid')} edge references unknown faces {sorted(missing)}")
 
 
 def _validate_graph(graph: HeteroGraph) -> None:
@@ -419,6 +448,42 @@ def _box_edges_for_part(
     return records
 
 
+def _topology_edges_for_part(part: dict[str, Any], feature_counts: dict[str, tuple[int, int]]) -> list[dict[str, Any]]:
+    length, width, height = _dims(part)
+    max_dim = max(length, width, height, 1.0e-9)
+    records = []
+    for edge in part.get("topology_edges", []):
+        edge_length = float(edge.get("length", 0.0))
+        midpoint = [float(value) for value in edge.get("midpoint", [0.0, 0.0, 0.0])]
+        tangent = _unit([float(value) for value in edge.get("tangent", [1.0, 0.0, 0.0])])
+        incident_face_uids = [uid for uid in edge.get("incident_face_uids", []) if uid]
+        feature_touch = sum(feature_counts.get(uid, (0, 0))[0] for uid in incident_face_uids)
+        preserved_touch = sum(feature_counts.get(uid, (0, 0))[1] for uid in incident_face_uids)
+        records.append(
+            {
+                "uid": edge.get("edge_uid") or edge.get("uid") or f"{part['part_uid']}_edge_{len(records):03d}",
+                "incident_face_uids": incident_face_uids,
+                "midpoint": midpoint,
+                "tangent": tangent,
+                "features": [
+                    edge_length,
+                    midpoint[0],
+                    midpoint[1],
+                    midpoint[2],
+                    tangent[0],
+                    tangent[1],
+                    tangent[2],
+                    edge_length / max_dim,
+                    float(feature_touch),
+                    float(preserved_touch),
+                    1.0 if edge_length < 8.0 else 0.0,
+                    1.0 if abs(tangent[2]) > 0.9 else 0.0,
+                ],
+            }
+        )
+    return records
+
+
 def _best_contact_candidate(
     connection: dict[str, Any],
     face_records_by_part: dict[str, list[dict[str, Any]]],
@@ -426,21 +491,27 @@ def _best_contact_candidate(
     faces_a = face_records_by_part[connection["part_uid_a"]]
     faces_b = face_records_by_part[connection["part_uid_b"]]
     best: tuple[float, dict[str, Any], dict[str, Any], float, float, float] | None = None
+    nearest: tuple[float, dict[str, Any], dict[str, Any], float, float, float] | None = None
     for face_a in faces_a:
         for face_b in faces_b:
             dot = _dot(face_a["normal"], face_b["normal"])
-            if dot > -0.85:
-                continue
             gap = abs(_dot(_subtract(face_b["centroid"], face_a["centroid"]), face_a["normal"]))
             overlap = _projected_overlap_ratio(face_a, face_b)
+            area_ratio = min(face_a["area"], face_b["area"]) / max(face_a["area"], face_b["area"], 1e-9)
+            distance = _distance(face_a["centroid"], face_b["centroid"])
+            if nearest is None or distance < nearest[0]:
+                nearest = (distance, face_a, face_b, gap, overlap, area_ratio)
+            if dot > -0.85:
+                continue
             score = overlap - gap / 1000.0 - abs(dot + 1.0)
             if best is None or score > best[0]:
-                area_ratio = min(face_a["area"], face_b["area"]) / max(face_a["area"], face_b["area"], 1e-9)
                 best = (score, face_a, face_b, gap, overlap, area_ratio)
     if best is None:
-        raise ValueError(f"no opposing B-Rep faces found for connection {connection['connection_uid']}")
+        if nearest is None:
+            raise ValueError(f"no B-Rep faces found for connection {connection['connection_uid']}")
+        best = nearest
     _, face_a, face_b, gap, overlap, area_ratio = best
-    axis = _unit(face_a["normal"])
+    axis = _unit(_subtract(face_b["centroid"], face_a["centroid"]))
     features = [
         *_one_hot(str(connection.get("type", "unknown")), CONNECTION_TYPES),
         gap,
@@ -527,6 +598,13 @@ def _face_local_name(face_uid: str) -> str:
     if marker not in face_uid:
         raise ValueError(f"face uid does not encode local B-Rep face name: {face_uid}")
     return face_uid.rsplit(marker, 1)[1]
+
+
+def _safe_face_local_name(face_uid: str) -> str:
+    try:
+        return _face_local_name(face_uid)
+    except ValueError:
+        return face_uid
 
 
 def _distance(a: list[float], b: list[float]) -> float:

@@ -36,8 +36,8 @@ def main() -> int:
     command_log.append("validate_all_repository_schemas")
     cad_status = cad_kernel_status()
     command_log.append("cad kernel status")
-    step_regression = run_step_ingestion_regression(output_root / "step_ingestion_regression", sample_count=3)
-    command_log.append("python scripts/run_step_ingestion_regression.py --sample-count 3")
+    step_regression = run_step_ingestion_regression(output_root / "step_ingestion_regression", sample_count=5)
+    command_log.append("python scripts/run_step_ingestion_regression.py --sample-count 5")
 
     dataset_dir = output_root / "CAE_MESH_DATASET_V001"
     dataset_result = build_dataset(
@@ -136,7 +136,7 @@ def main() -> int:
         "ansa_backend": ansa_status,
         "ansa_execution_probe": ansa_probe,
         "known_limitations": [
-            "Generated assemblies are deterministic synthetic CAD solids exported through CadQuery/OCP, not OEM production CAD.",
+            "Generated dataset assemblies are deterministic synthetic CAD solids; the STEP ingestion regression also supports external --cad-dir inputs when OEM CAD is supplied.",
             "ANSA backend is explicit and does not fall back to local meshing.",
         ],
         "final_acceptance_status": "accepted"
@@ -257,6 +257,7 @@ def render_report(report: dict) -> str:
     batch_sessions = recipe_application.get("batch_mesh_sessions", {})
     recipe_summary = recipe_application.get("summary", {})
     ansa_metrics = ansa_probe.get("summary", {}).get("mesh_result", {}).get("metrics", {})
+    bdf_traceability = ansa_metrics.get("bdf_traceability", {})
     cad_kernel = report["cad_kernel"]
     step_regression = report["step_ingestion_regression"]
     return "\n".join(
@@ -284,7 +285,8 @@ def render_report(report: dict) -> str:
             f"- assembly_graph.json files: {graph_artifacts['assembly_graph_json_count']}",
             "",
             "## STEP Ingestion Regression",
-            f"- Golden AP242 B-Rep samples: {step_regression['sample_count']}",
+            f"- Golden/external AP242 B-Rep samples: {step_regression.get('source_count', step_regression['sample_count'])}",
+            f"- CAD dir: {step_regression.get('cad_dir')}",
             f"- Passed: {step_regression['passed_count']}",
             f"- Failed: {step_regression['failed_count']}",
             f"- Accepted: {step_regression['accepted']}",
@@ -338,6 +340,8 @@ def render_report(report: dict) -> str:
             f"- Native CTETRA solids generated: {native_generation.get('solid_tetra', {}).get('created_count', 0)}",
             f"- Native CBUSH connectors generated: {native_generation.get('connectors', {}).get('created_count', 0)}",
             f"- Native CONM2 masses generated: {native_generation.get('masses', {}).get('created_count', 0)}",
+            f"- BDF traceability passed: {bdf_traceability.get('passed', False)}",
+            f"- BDF traceability mapped parts: {bdf_traceability.get('mapped_part_uid_count', 0)}",
             f"- ANSA quality repair status: {quality_repair_loop.get('status', '')}",
             f"- ANSA QA repair loop records: {ansa_metrics.get('repair_iteration_count', 0)}",
             "",
@@ -364,6 +368,7 @@ def update_status(report: dict) -> None:
     batch_sessions = recipe_application.get("batch_mesh_sessions", {})
     recipe_summary = recipe_application.get("summary", {})
     ansa_metrics = ansa_probe.get("summary", {}).get("mesh_result", {}).get("metrics", {})
+    bdf_traceability = ansa_metrics.get("bdf_traceability", {})
     content = "\n".join(
         [
             "# Implementation Status",
@@ -396,7 +401,7 @@ def update_status(report: dict) -> None:
             f"- Missing artifacts: {validation['missing_artifacts']}",
             f"- STEP AP242 B-Rep failures: {validation['step_brep_failures']}",
             f"- STEP ingestion regression accepted: {step_regression['accepted']}",
-            f"- STEP ingestion regression samples: {step_regression['passed_count']} / {step_regression['sample_count']}",
+            f"- STEP ingestion regression samples: {step_regression['passed_count']} / {step_regression.get('source_count', step_regression['sample_count'])}",
             f"- Split mismatches: {validation['split_mismatch_count']}",
             f"- Graph artifact validation passed: {graph_artifacts['passed']}",
             f"- graph.pt files: {graph_artifacts['graph_pt_count']}",
@@ -450,6 +455,8 @@ def update_status(report: dict) -> None:
             f"- Native CTETRA solids generated: {native_generation.get('solid_tetra', {}).get('created_count', 0)}",
             f"- Native CBUSH connectors generated: {native_generation.get('connectors', {}).get('created_count', 0)}",
             f"- Native CONM2 masses generated: {native_generation.get('masses', {}).get('created_count', 0)}",
+            f"- BDF traceability passed: {bdf_traceability.get('passed', False)}",
+            f"- BDF traceability mapped parts: {bdf_traceability.get('mapped_part_uid_count', 0)}",
             f"- ANSA quality repair status: {quality_repair_loop.get('status', '')}",
             f"- ANSA QA repair loop records: {ansa_metrics.get('repair_iteration_count', 0)}",
             "",

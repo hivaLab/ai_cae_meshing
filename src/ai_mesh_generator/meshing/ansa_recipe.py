@@ -16,7 +16,7 @@ def build_ansa_recipe_plan(assembly: dict[str, Any], recipe: dict[str, Any]) -> 
     """Build the production ANSA controls derived from the guarded AI recipe."""
 
     parts = assembly.get("parts", [])
-    boxes = {str(box["part_uid"]): box for box in assembly_part_boxes(parts)}
+    boxes = _assembly_boxes(parts)
     materials = _material_plan(assembly.get("material_library", {}).get("materials", []))
     material_ids = {item["material_id"]: int(item["mid"]) for item in materials}
     base_size = _positive_float(recipe.get("base_size", 10.0), 10.0)
@@ -39,6 +39,8 @@ def build_ansa_recipe_plan(assembly: dict[str, Any], recipe: dict[str, Any]) -> 
             {
                 "part_uid": part_uid,
                 "part_name": part.get("name", part_uid),
+                "source_product_name": part.get("source_product_name", part.get("name", part_uid)),
+                "source_solid_index": part.get("source_solid_index"),
                 "part_index": index,
                 "strategy": strategy,
                 "requested_property_type": "PSOLID" if strategy in {"solid", "solid_tet"} else property_type,
@@ -245,6 +247,26 @@ def _connection_plan(connections: list[dict[str, Any]], boxes: dict[str, dict[st
             }
         )
     return planned
+
+
+def _assembly_boxes(parts: list[dict[str, Any]]) -> dict[str, dict[str, object]]:
+    boxes = {str(box["part_uid"]): box for box in assembly_part_boxes(parts)}
+    for part in parts:
+        part_uid = str(part["part_uid"])
+        geometry_box = part.get("geometry_box")
+        if not geometry_box:
+            continue
+        origin = _as_point(geometry_box.get("origin", boxes[part_uid]["origin"]))
+        dims = _as_point(geometry_box.get("dimensions", boxes[part_uid]["dimensions"]))
+        center = _as_point(geometry_box.get("center", [origin[0] + dims[0] / 2.0, origin[1] + dims[1] / 2.0, origin[2] + dims[2] / 2.0]))
+        boxes[part_uid] = {
+            "part_uid": part_uid,
+            "origin": [round(value, 6) for value in origin],
+            "dimensions": [round(value, 6) for value in dims],
+            "center": [round(value, 6) for value in center],
+            "source": "step_topology_geometry_box",
+        }
+    return boxes
 
 
 def _interface_point(box: dict[str, object], other: dict[str, object]) -> list[float]:

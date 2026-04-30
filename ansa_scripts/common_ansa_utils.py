@@ -85,7 +85,9 @@ def _run_explicit_ansa_export(config: dict, mode: str) -> dict:
         base, constants, plan, native_solid_generation
     )
     native_entity_generation = _create_native_solver_entities(base, constants, plan, native_solid_generation)
-    quality_repair_loop = _run_quality_repair_loop(base, batchmesh, constants, plan, stage_dir, session_application)
+    quality_repair_loop = _run_quality_repair_loop(
+        base, batchmesh, constants, plan, stage_dir, session_application, native_solid_generation
+    )
     final_counts = _collect_counts(base, constants)
     if int(native_entity_generation["solid_tetra"]["created_count"]) <= 0:
         raise RuntimeError(f"ANSA native CTETRA generation produced no solid elements: {native_entity_generation}")
@@ -474,6 +476,8 @@ def _assign_native_solid_solver_cards(base, constants, plan: dict, solid_tetra_g
                 "old_property_id": old_pid,
                 "new_property_id": int(getattr(psolid, "_id", new_pid)),
                 "part_uid": part["part_uid"],
+                "source_product_name": part.get("source_product_name") or part.get("part_name") or part["part_uid"],
+                "source_solid_index": part.get("source_solid_index"),
                 "material_numeric_id": int(part["material_numeric_id"]),
                 "solid_count": len(group_solids),
                 "failed_assignment_count": group_failed,
@@ -490,6 +494,7 @@ def _assign_native_solid_solver_cards(base, constants, plan: dict, solid_tetra_g
     return {
         "enabled": True,
         "method": "assign_solver_cards_to_native_volume_solids",
+        "traceability_method": "native_property_group_to_step_product_order",
         "assigned_count": assigned_count,
         "failed_assignment_count": failed_count,
         "created_property_count": len(records),
@@ -528,17 +533,22 @@ def _create_native_solver_entities(base, constants, plan: dict, solid_tetra_gene
     pbush = _create_or_update_pbush(base, constants, connector_pid, plan)
     connectors = []
     part_by_uid = {str(part["part_uid"]): part for part in plan.get("parts", [])}
+    mesh_nodes = _collect_grid_coordinates(base, constants)
+    if plan.get("connections") and not mesh_nodes:
+        raise RuntimeError("native connector generation requires existing mesh GRID nodes; free endpoint GRID fallback is disabled")
     for connection in plan.get("connections", []):
         endpoint_a = _point(connection["endpoint_a"])
         endpoint_b = _point(connection["endpoint_b"])
         endpoint_a, endpoint_b = _separate_connector_points(endpoint_a, endpoint_b, connection, part_by_uid)
-        ga = next_node_id
-        next_node_id += 1
-        gb = next_node_id
-        next_node_id += 1
-        _create_grid(base, constants, ga, endpoint_a)
-        _create_grid(base, constants, gb, endpoint_b)
-        orientation = _connector_orientation(endpoint_a, endpoint_b)
+        attachment_a = _nearest_grid_node(mesh_nodes, endpoint_a)
+        attachment_b = _nearest_grid_node(mesh_nodes, endpoint_b, exclude={attachment_a["node_id"]})
+        if not attachment_a or not attachment_b:
+            raise RuntimeError(f"failed to attach connector {connection['connection_uid']} to existing mesh GRID nodes")
+        ga = int(attachment_a["node_id"])
+        gb = int(attachment_b["node_id"])
+        if ga == gb:
+            raise RuntimeError(f"connector {connection['connection_uid']} resolved to the same mesh GRID node at both endpoints")
+        orientation = _connector_orientation(_point(attachment_a["coords"]), _point(attachment_b["coords"]))
         eid = next_element_id
         next_element_id += 1
         entity = base.CreateEntity(
@@ -564,6 +574,13 @@ def _create_native_solver_entities(base, constants, plan: dict, solid_tetra_gene
                 "node_ids": [ga, gb],
                 "endpoint_a": list(endpoint_a),
                 "endpoint_b": list(endpoint_b),
+                "attachment_method": "nearest_mesh_grid_nodes",
+                "free_endpoint_grids_created": False,
+                "attached_node_distances": [
+                    round(float(attachment_a["distance"]), 6),
+                    round(float(attachment_b["distance"]), 6),
+                ],
+                "attached_node_coordinates": [attachment_a["coords"], attachment_b["coords"]],
             }
         )
 
@@ -605,12 +622,23 @@ def _create_native_solver_entities(base, constants, plan: dict, solid_tetra_gene
     }
 
 
-def _run_quality_repair_loop(base, batchmesh, constants, plan: dict, stage_dir: Path, session_application: dict) -> dict[str, object]:
+def _run_quality_repair_loop(
+    base,
+    batchmesh,
+    constants,
+    plan: dict,
+    stage_dir: Path,
+    session_application: dict,
+    native_solid_generation: dict[str, object] | None = None,
+) -> dict[str, object]:
     records = list(session_application.get("records", []))
+    native_record = _native_solid_quality_record(native_solid_generation or {})
+    if native_record:
+        records.append(native_record)
     iterations = [
         {
             "iteration": 0,
-            "action": "parse_ansa_batchmesh_statistics",
+            "action": "parse_ansa_batchmesh_and_solid_tetra_statistics",
             "summary": summarize_ansa_quality_statistics(records),
         }
     ]
@@ -668,6 +696,20 @@ def _run_quality_repair_loop(base, batchmesh, constants, plan: dict, stage_dir: 
     }
 
 
+def _native_solid_quality_record(native_solid_generation: dict[str, object]) -> dict[str, object]:
+    report_path = native_solid_generation.get("statistics_report_file")
+    if not report_path:
+        return {}
+    return {
+        "part_uid": "__native_solid_tetra__",
+        "status": "ran",
+        "strategy": "solid_tetra",
+        "target_size": native_solid_generation.get("target_size"),
+        "write_statistics_status": native_solid_generation.get("write_statistics_status"),
+        "statistics_report_file": report_path,
+    }
+
+
 def _max_entity_id(base, constants, entity_type: str) -> int:
     try:
         entities = base.CollectEntities(constants.NASTRAN, None, entity_type, True) or []
@@ -713,6 +755,45 @@ def _create_grid(base, constants, nid: int, coords: tuple[float, float, float]):
     if not entity:
         raise RuntimeError(f"failed to create native ANSA GRID {nid}")
     return entity
+
+
+def _collect_grid_coordinates(base, constants) -> list[dict[str, object]]:
+    records = []
+    for grid in base.CollectEntities(constants.NASTRAN, None, "GRID", True) or []:
+        values = _get_entity_card_values(base, constants, grid, ("NID", "X1", "X2", "X3", "X", "Y", "Z"))
+        node_id = _safe_int(values.get("NID"), int(getattr(grid, "_id", 0) or 0))
+        coords = _grid_coords(values)
+        if node_id > 0 and coords is not None:
+            records.append({"node_id": node_id, "coords": list(coords)})
+    return records
+
+
+def _grid_coords(values: dict[str, object]) -> tuple[float, float, float] | None:
+    for fields in (("X1", "X2", "X3"), ("X", "Y", "Z")):
+        if all(field in values for field in fields):
+            try:
+                return (float(values[fields[0]]), float(values[fields[1]]), float(values[fields[2]]))
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+def _nearest_grid_node(
+    mesh_nodes: list[dict[str, object]],
+    point: tuple[float, float, float],
+    exclude: set[int] | None = None,
+) -> dict[str, object]:
+    excluded = exclude or set()
+    candidates = []
+    for record in mesh_nodes:
+        node_id = int(record["node_id"])
+        if node_id in excluded:
+            continue
+        coords = _point(record["coords"])
+        candidates.append({**record, "distance": _distance(coords, point)})
+    if not candidates:
+        return {}
+    return min(candidates, key=lambda item: float(item["distance"]))
 
 
 def _separate_connector_points(

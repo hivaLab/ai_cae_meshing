@@ -89,7 +89,24 @@ def write_step_input_package(
     packaged_step = geometry_dir / "assembly.step"
     if source.resolve() != packaged_step.resolve():
         shutil.copy2(source, packaged_step)
-    assembly = extract_step_assembly_topology(packaged_step, sample_id=sample_id or source.stem)
+    material_sidecar = _first_existing(
+        source.parent / f"{source.stem}_material_library.json",
+        source.parent / "material_library.json",
+    )
+    part_attributes_sidecar = _first_existing(
+        source.parent / f"{source.stem}_part_attributes.csv",
+        source.parent / "part_attributes.csv",
+    )
+    mesh_profile_sidecar = _first_existing(
+        source.parent / f"{source.stem}_mesh_profile.yaml",
+        source.parent / "mesh_profile.yaml",
+    )
+    material_library = _read_json_if_exists(material_sidecar) if material_sidecar else DEFAULT_STEP_MATERIAL_LIBRARY
+    assembly = extract_step_assembly_topology(
+        packaged_step,
+        sample_id=sample_id or source.stem,
+        material_library=material_library,
+    )
 
     manifest = {
         "job_id": assembly["sample_id"],
@@ -114,6 +131,11 @@ def write_step_input_package(
             "boundary_named_sets": "metadata/boundary_named_sets.json",
             "step_topology": "metadata/step_topology.json",
         },
+        "temporary_defaults": {
+            "material_library": material_sidecar is None,
+            "part_attributes": part_attributes_sidecar is None,
+            "mesh_profile": mesh_profile_sidecar is None,
+        },
     }
     (metadata_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
     (metadata_dir / "product_tree.json").write_text(
@@ -124,9 +146,15 @@ def write_step_input_package(
     )
     (metadata_dir / "boundary_named_sets.json").write_text("{}", encoding="utf-8")
     (metadata_dir / "step_topology.json").write_text(json.dumps(assembly, indent=2, sort_keys=True), encoding="utf-8")
-    _write_part_attributes(metadata_dir / "part_attributes.csv", assembly)
+    if part_attributes_sidecar:
+        shutil.copy2(part_attributes_sidecar, metadata_dir / "part_attributes.csv")
+    else:
+        _write_part_attributes(metadata_dir / "part_attributes.csv", assembly)
     _write_connections(metadata_dir / "connections.csv", assembly.get("connections", []))
-    _write_mesh_profile(metadata_dir / "mesh_profile.yaml")
+    if mesh_profile_sidecar:
+        shutil.copy2(mesh_profile_sidecar, metadata_dir / "mesh_profile.yaml")
+    else:
+        _write_mesh_profile(metadata_dir / "mesh_profile.yaml")
     return job_dir, assembly
 
 
@@ -153,9 +181,16 @@ def _attach_geometry_source(assembly: dict, job_dir: Path) -> dict:
 
 
 def _read_json_if_exists(path: Path) -> dict:
-    if not path.exists():
+    if not path or not path.exists():
         return {}
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _first_existing(*paths: Path) -> Path | None:
+    for path in paths:
+        if path.exists():
+            return path
+    return None
 
 
 def _read_connections_if_exists(path: Path) -> list[dict] | None:

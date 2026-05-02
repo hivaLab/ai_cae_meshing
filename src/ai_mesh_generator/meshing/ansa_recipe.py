@@ -56,7 +56,7 @@ def build_ansa_recipe_plan(assembly: dict[str, Any], recipe: dict[str, Any]) -> 
                 "quality_profile": _quality_profile(strategy, thickness),
                 "geometry_box": part_box,
                 "mesh_session_keywords": _mesh_session_keywords(target_size),
-                "batch_mesh": strategy not in {"mass_only", "connector", "exclude"},
+                "batch_mesh": strategy not in {"mass_only", "connector", "approved_exclude", "exclude"},
             }
         )
 
@@ -434,7 +434,7 @@ def _normalize_strategy(strategy: str) -> str:
         "SOLID_TETRA": "solid",
         "CONNECTOR_REPLACEMENT": "connector",
         "MASS_ONLY": "mass_only",
-        "EXCLUDE_FROM_ANALYSIS": "exclude",
+        "APPROVED_EXCLUDE": "approved_exclude",
         "MANUAL_REVIEW": "shell",
     }
     return lookup.get(strategy.upper(), strategy.lower())

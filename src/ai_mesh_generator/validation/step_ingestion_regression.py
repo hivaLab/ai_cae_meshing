@@ -33,6 +33,7 @@ def run_step_ingestion_regression(
         node_counts = {node_type: len(nodes) for node_type, nodes in graph.node_sets.items()}
         edge_counts = {edge_type: len(edges) for edge_type, edges in graph.edge_sets.items()}
         traceability = _traceability_summary(imported, packaged_assembly)
+        temporary_defaults = _temporary_defaults(job_dir)
         passed = (
             bool(package_validation["valid"])
             and bool(step_info["valid_step"])
@@ -55,10 +56,15 @@ def run_step_ingestion_regression(
                 "step_validation": step_info,
                 "geometry_source": imported["geometry_source"],
                 "topology_traceability": traceability,
+                "temporary_defaults_applied": temporary_defaults,
                 "node_counts": node_counts,
                 "edge_counts": edge_counts,
             }
         )
+    technical_passed = all(record["passed"] for record in records) and bool(records)
+    production_validation = bool(cad_dir) and technical_passed and not any(
+        record["temporary_defaults_applied"]["any"] for record in records
+    )
     report = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "output_dir": str(output.resolve()),
@@ -67,7 +73,9 @@ def run_step_ingestion_regression(
         "source_count": len(sources),
         "passed_count": sum(1 for record in records if record["passed"]),
         "failed_count": sum(1 for record in records if not record["passed"]),
-        "accepted": all(record["passed"] for record in records) and bool(records),
+        "technical_passed": technical_passed,
+        "accepted": production_validation,
+        "production_validation": production_validation,
         "records": records,
         "limitation": _limitation(cad_dir),
     }
@@ -88,7 +96,8 @@ def render_step_ingestion_report(report: dict[str, Any]) -> str:
         f"Sample count: {report['source_count']}",
         f"Passed: {report['passed_count']}",
         f"Failed: {report['failed_count']}",
-        f"Acceptance: {'ACCEPTED' if report['accepted'] else 'FAILED'}",
+        f"Technical fixture validation: {'PASSED' if report['technical_passed'] else 'FAILED'}",
+        f"Production validation: {'ACCEPTED' if report['accepted'] else 'NOT_VALIDATED'}",
         f"Limitation: {report['limitation']}",
         "",
         "| sample_id | source | passed | parts | faces | edges | contacts | connections | traceability |",
@@ -159,5 +168,24 @@ def _traceability_summary(imported: dict[str, Any], packaged: dict[str, Any]) ->
 
 def _limitation(cad_dir: Path | str | None) -> str:
     if cad_dir:
-        return "External STEP files were supplied by --cad-dir; production acceptance still depends on ANSA/license availability."
+        return (
+            "External STEP files were supplied by --cad-dir. Production validation is accepted only when "
+            "required sidecar metadata is supplied instead of generated temporary defaults."
+        )
     return "Golden assemblies are locally generated AP242 B-Rep STEP fixtures; no external OEM STEP files were supplied."
+
+
+def _temporary_defaults(job_dir: Path) -> dict[str, bool]:
+    metadata_dir = job_dir / "metadata"
+    manifest_path = metadata_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else {}
+    defaults = manifest.get("temporary_defaults", {}) if isinstance(manifest, dict) else {}
+    material = bool(defaults.get("material_library", False))
+    part_attributes = bool(defaults.get("part_attributes", False))
+    mesh_profile = bool(defaults.get("mesh_profile", False))
+    return {
+        "material_library": material,
+        "part_attributes": part_attributes,
+        "mesh_profile": mesh_profile,
+        "any": material or part_attributes or mesh_profile,
+    }

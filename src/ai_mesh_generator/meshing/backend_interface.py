@@ -23,7 +23,7 @@ class MeshRequest:
     assembly: dict[str, Any]
     recipe: dict[str, Any]
     output_dir: Path
-    backend: str = "LOCAL_PROCEDURAL"
+    backend: str = "ANSA_BATCH"
 
 
 @dataclass
@@ -60,11 +60,22 @@ class MeshBackend(Protocol):
         ...
 
 
-class LocalProceduralMeshingBackend:
-    """Deterministic executable backend used by the delivery workflow."""
+class SyntheticOracleMeshingBackend:
+    """Deterministic CDF-only oracle used to bootstrap synthetic training data.
+
+    This backend is not a production AMG backend. It exists only so the CDF can
+    generate reproducible synthetic labels, meshes, and QA artifacts before real
+    LG/OEM CAD/Mesh pairs are available.
+    """
 
     def status(self) -> dict[str, Any]:
-        return {"backend": "LOCAL_PROCEDURAL", "available": True, "mode": "deterministic"}
+        return {
+            "backend": "SYNTHETIC_ORACLE",
+            "available": True,
+            "mode": "deterministic_synthetic_oracle",
+            "production_allowed": False,
+            "fallback_enabled": False,
+        }
 
     def run(self, request: MeshRequest) -> MeshResult:
         output_dir = Path(request.output_dir)
@@ -86,8 +97,8 @@ class LocalProceduralMeshingBackend:
             json.dumps(
                 {
                     "sample_id": request.sample_id,
-                    "backend": "LOCAL_PROCEDURAL",
-                    "note": "Procedural ANSA-native manifest generated for reproducible local delivery.",
+                    "backend": "SYNTHETIC_ORACLE",
+                    "note": "CDF synthetic-oracle manifest; not evidence of production meshing capability.",
                 },
                 indent=2,
                 sort_keys=True,
@@ -146,7 +157,7 @@ class LocalProceduralMeshingBackend:
 
         return MeshResult(
             sample_id=request.sample_id,
-            backend="LOCAL_PROCEDURAL",
+            backend="SYNTHETIC_ORACLE",
             output_dir=output_dir,
             bdf_path=bdf_path,
             qa_metrics_path=qa_metrics_path,
@@ -160,7 +171,7 @@ class LocalProceduralMeshingBackend:
         parts = assembly["parts"]
         materials = assembly["material_library"]["materials"]
         material_ids = {material["material_id"]: index + 1 for index, material in enumerate(materials)}
-        lines = ["$ Deterministic procedural Nastran BDF", "BEGIN BULK"]
+        lines = ["$ Deterministic CDF synthetic-oracle Nastran BDF", "BEGIN BULK"]
         material_lines: list[str] = []
         property_lines: list[str] = []
         connection_lines: list[str] = []
@@ -227,7 +238,7 @@ class LocalProceduralMeshingBackend:
                 part_node_anchor[part["part_uid"]] = node_id
                 node_id += 1
                 elem_id += 1
-            elif strategy != "exclude":
+            elif strategy not in {"approved_exclude", "exclude"}:
                 nodes = [(ox, oy, oz), (ox + length, oy, oz), (ox + length, oy + width, oz), (ox, oy + width, oz)]
                 ids = list(range(node_id, node_id + len(nodes)))
                 for nid, coords in zip(ids, nodes):
@@ -299,7 +310,7 @@ def _normalize_strategy(strategy: str) -> str:
         "SOLID_TETRA": "solid",
         "CONNECTOR_REPLACEMENT": "connector",
         "MASS_ONLY": "mass_only",
-        "EXCLUDE_FROM_ANALYSIS": "exclude",
+        "APPROVED_EXCLUDE": "approved_exclude",
         "MANUAL_REVIEW": "shell",
     }
     return lookup.get(strategy.upper(), strategy.lower())
@@ -399,7 +410,7 @@ def _write_mesh_preview(model: Any, path: Path) -> None:
     points = list(model.nodes.items())
     lines = [
         "# vtk DataFile Version 3.0",
-        "procedural mesh preview",
+        "synthetic oracle mesh preview",
         "ASCII",
         "DATASET POLYDATA",
         f"POINTS {len(points)} float",

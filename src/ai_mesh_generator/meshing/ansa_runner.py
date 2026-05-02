@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -256,7 +257,12 @@ class AnsaCommandBackend:
         write_qa_json(metrics, qa_metrics_path)
         write_qa_json(validation.to_dict(), validation_path)
         if not qa_report_path.exists():
-            qa_report_path.write_text("<html><body><h1>ANSA QA Report</h1></body></html>", encoding="utf-8")
+            _copy_ansa_quality_report(manifest_details, qa_report_path)
+        if not qa_report_path.exists():
+            raise FileNotFoundError(
+                f"ANSA completed but did not produce a QA report at {qa_report_path}; "
+                "placeholder QA reports are disabled."
+            )
         _write_part_metrics(request.assembly, element_records, report_dir / "qa_metrics_part.csv")
         pd.DataFrame(element_records).to_parquet(report_dir / "qa_metrics_element.parquet", index=False)
         _write_failed_regions([] if validation.passed else validation.messages, report_dir / "failed_regions.csv")
@@ -302,6 +308,23 @@ def _write_solver_includes(bdf_path: Path, solver_dir: Path) -> None:
     for filename, cards in grouped.items():
         path = solver_dir / filename
         path.write_text("\n".join(cards) + ("\n" if cards else ""), encoding="utf-8")
+
+
+def _copy_ansa_quality_report(manifest_details: dict[str, Any], destination: Path) -> None:
+    candidates: list[str] = []
+    recipe_application = manifest_details.get("ansa_recipe_application", {})
+    batch_summary = recipe_application.get("batch_mesh_sessions", {}).get("quality_summary", {})
+    candidates.extend(str(path) for path in batch_summary.get("report_files", []) if path)
+    quality_loop = manifest_details.get("ansa_quality_repair_loop", {})
+    for record in quality_loop.get("records", []):
+        summary = record.get("summary", {}) if isinstance(record, dict) else {}
+        candidates.extend(str(path) for path in summary.get("report_files", []) if path)
+    for candidate in reversed(candidates):
+        source = Path(candidate)
+        if source.exists() and source.is_file():
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, destination)
+            return
 
 
 def _element_records_from_model(assembly: dict[str, Any], model: Any) -> list[dict[str, Any]]:

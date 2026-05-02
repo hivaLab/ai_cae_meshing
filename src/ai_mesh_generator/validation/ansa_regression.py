@@ -308,7 +308,7 @@ def render_regression_report(report: dict[str, Any]) -> str:
         f"Native CTETRA total: {summary['native_ctetra_total']} / expected {summary['expected_solid_total']}",
         f"Native CBUSH total: {summary['native_cbush_total']} / expected {summary['expected_connector_total']}",
         f"Native CONM2 total: {summary['native_conm2_total']} / expected {summary['expected_mass_total']}",
-        f"Acceptance: {'ACCEPTED' if summary['accepted'] else 'FAILED'}",
+        f"Acceptance: {'ANSA_REGRESSION_ACCEPTED' if summary['accepted'] else 'FAILED'}",
         "",
         "## Sample Results",
         "",
@@ -370,7 +370,7 @@ def render_delivery_section(report: dict[str, Any]) -> str:
             f"- Native CBUSH total: {summary['native_cbush_total']} / expected {summary['expected_connector_total']}",
             f"- Native CONM2 total: {summary['native_conm2_total']} / expected {summary['expected_mass_total']}",
             f"- Total runtime seconds: {summary['total_runtime_seconds']}",
-            f"- Regression acceptance: {'ACCEPTED' if summary['accepted'] else 'FAILED'}",
+            f"- Regression acceptance: {'ANSA_REGRESSION_ACCEPTED' if summary['accepted'] else 'FAILED'}",
             "",
         ]
     )
@@ -405,5 +405,5 @@ def replace_final_acceptance(content: str, regression_accepted: bool) -> str:
         return content
     end = next((index for index in range(start + 1, len(lines)) if lines[index].startswith("## ")), len(lines))
     previous_block = "\n".join(lines[start:end]).upper()
-    status = "ACCEPTED" if regression_accepted and "FAILED" not in previous_block else "FAILED"
+    status = "ANSA_REGRESSION_ACCEPTED" if regression_accepted and "FAILED" not in previous_block else "FAILED"
     return "\n".join(lines[: start + 1] + ["", status, ""] + lines[end:]).rstrip() + "\n"

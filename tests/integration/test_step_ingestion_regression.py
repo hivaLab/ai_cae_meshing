@@ -12,7 +12,8 @@ def test_step_ingestion_regression_uses_real_ap242_brep(tmp_path: Path):
 
     report = run_step_ingestion_regression(tmp_path, sample_count=1)
 
-    assert report["accepted"] is True
+    assert report["technical_passed"] is True
+    assert report["accepted"] is False
     assert report["passed_count"] == 1
     record = report["records"][0]
     assert record["geometry_source"]["cad_kernel"] == "STEP_AP242_BREP_OCP"
@@ -23,3 +24,4 @@ def test_step_ingestion_regression_uses_real_ap242_brep(tmp_path: Path):
     assert record["node_counts"]["face"] > 0
     assert record["node_counts"]["edge"] > 0
     assert record["node_counts"]["contact_candidate"] > 0
+    assert record["temporary_defaults_applied"]["any"] is True

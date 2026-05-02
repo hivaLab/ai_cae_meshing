@@ -57,9 +57,14 @@ def validate_result_package(output_zip: Path | str) -> dict:
         qa_metrics = {}
         if "report/qa_metrics_global.json" in names:
             qa_metrics = json.loads(archive.read("report/qa_metrics_global.json").decode("utf-8"))
+        qa_report_valid = False
+        if "report/qa_report.html" in names:
+            qa_report_text = archive.read("report/qa_report.html").decode("utf-8", errors="replace").lower()
+            qa_report_valid = "placeholder qa reports are disabled" not in qa_report_text and "<h1>ansa qa report</h1>" not in qa_report_text
     missing = sorted(required - names)
     passed = (
         not missing
+        and qa_report_valid
         and bool(bdf_result.get("bdf_parse_success"))
         and int(bdf_result.get("missing_property_count", 0)) == 0
         and int(bdf_result.get("missing_material_count", 0)) == 0
@@ -70,5 +75,6 @@ def validate_result_package(output_zip: Path | str) -> dict:
         "missing": missing,
         "bdf_validation": bdf_result,
         "qa_metrics": qa_metrics,
+        "qa_report_valid": qa_report_valid,
         "passed": passed,
     }

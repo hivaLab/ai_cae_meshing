@@ -69,15 +69,14 @@ def main() -> int:
     test_sample_id = (dataset_dir / "splits" / "test.txt").read_text(encoding="utf-8").splitlines()[0]
     index_rows = json.loads(dataset_result_to_json(dataset_dir))
     test_row = next(row for row in index_rows if row["sample_id"] == test_sample_id)
-    amg_output = output_root / "MESH_RESULT.zip"
-    amg_summary = run_mesh_job(test_row["input_zip"], exported_model, amg_output, backend="LOCAL_PROCEDURAL")
-    command_log.append("amg run-mesh")
-
-    amg_validation = validate_result_package(amg_output)
-    command_log.append("amg validate-result")
     ansa_status = AnsaCommandBackend().status()
     command_log.append("ansa backend status")
-    ansa_probe = {"attempted": False, "passed": False, "reason": "ANSA backend is not available"}
+    ansa_probe = {
+        "attempted": False,
+        "passed": False,
+        "reason": "ANSA_BATCH backend is required for production AMG meshing but is not available",
+        "batch_meshing_manager_invoked": False,
+    }
     if ansa_status["available"]:
         ansa_output = output_root / "ANSA_MESH_RESULT.zip"
         try:
@@ -110,6 +109,32 @@ def main() -> int:
             }
             command_log.append("amg run-mesh --backend ANSA_BATCH failed")
 
+    synthetic_bootstrap_passed = (
+        dataset_validation.passed
+        and graph_validation["passed"]
+        and cad_status["step_ap242_brep_export"]
+        and step_regression["technical_passed"]
+    )
+    ansa_smoke_passed = (
+        ansa_probe["attempted"]
+        and ansa_probe["passed"]
+        and ansa_probe.get("batch_meshing_manager_invoked", False)
+        and bool(ansa_probe.get("ansa_recipe_application", {}).get("batch_mesh_sessions", {}).get("session_count", 0))
+        and int(ansa_probe.get("ansa_batch_counts", {}).get("SOLID", 0)) > 0
+        and int(ansa_probe.get("ansa_batch_counts", {}).get("CBUSH", 0)) > 0
+        and int(ansa_probe.get("ansa_batch_counts", {}).get("CONM2", 0)) > 0
+        and int(ansa_probe.get("native_entity_generation", {}).get("solid_tetra", {}).get("created_count", 0)) > 0
+        and int(ansa_probe.get("native_entity_generation", {}).get("connectors", {}).get("created_count", 0)) > 0
+        and int(ansa_probe.get("native_entity_generation", {}).get("masses", {}).get("created_count", 0)) > 0
+    )
+    workflow_status = (
+        "ANSA_SMOKE_PASSED"
+        if ansa_smoke_passed
+        else "PRODUCTION_MESHING_NOT_VALIDATED"
+        if synthetic_bootstrap_passed
+        else "FAILED"
+    )
+
     report = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "schema_validation": schema_results,
@@ -130,39 +155,28 @@ def main() -> int:
         "evaluation": evaluation,
         "amg": {
             "test_sample_id": test_sample_id,
-            "summary": amg_summary,
-            "validation": amg_validation,
+            "summary": ansa_probe.get("summary", {}),
+            "validation": ansa_probe.get("validation", {"passed": False}),
+            "production_backend": "ANSA_BATCH",
         },
         "ansa_backend": ansa_status,
         "ansa_execution_probe": ansa_probe,
+        "synthetic_bootstrap_status": "SYNTHETIC_BOOTSTRAP_ACCEPTED" if synthetic_bootstrap_passed else "FAILED",
+        "lg_production_validation_status": "LG_PRODUCTION_NOT_VALIDATED",
         "known_limitations": [
-            "Generated dataset assemblies are deterministic synthetic CAD solids; the STEP ingestion regression also supports external --cad-dir inputs when OEM CAD is supplied.",
-            "ANSA backend is explicit and does not fall back to local meshing.",
+            "The 1,000-sample dataset is deterministic synthetic bootstrap data and is not evidence of LG/OEM production performance.",
+            "The built-in STEP ingestion regression uses local golden fixtures unless --cad-dir is supplied; fixture success is not real CAD validation.",
+            "ANSA_BATCH is the only production AMG backend; no local procedural fallback is used for production meshing.",
+            "LG/OEM production validation requires supplied CAD/Mesh pairs and acceptance metadata.",
         ],
-        "final_acceptance_status": "accepted"
-        if dataset_validation.passed
-        and graph_validation["passed"]
-        and amg_validation["passed"]
-        and cad_status["step_ap242_brep_export"]
-        and step_regression["accepted"]
-        and ansa_probe["attempted"]
-        and ansa_probe["passed"]
-        and ansa_probe.get("batch_meshing_manager_invoked", False)
-        and bool(ansa_probe.get("ansa_recipe_application", {}).get("batch_mesh_sessions", {}).get("session_count", 0))
-        and int(ansa_probe.get("ansa_batch_counts", {}).get("SOLID", 0)) > 0
-        and int(ansa_probe.get("ansa_batch_counts", {}).get("CBUSH", 0)) > 0
-        and int(ansa_probe.get("ansa_batch_counts", {}).get("CONM2", 0)) > 0
-        and int(ansa_probe.get("native_entity_generation", {}).get("solid_tetra", {}).get("created_count", 0)) > 0
-        and int(ansa_probe.get("native_entity_generation", {}).get("connectors", {}).get("created_count", 0)) > 0
-        and int(ansa_probe.get("native_entity_generation", {}).get("masses", {}).get("created_count", 0)) > 0
-        else "failed",
+        "final_acceptance_status": workflow_status,
     }
     final_report = ROOT / "FINAL_DELIVERY_REPORT.md"
     final_report.write_text(render_report(report), encoding="utf-8")
     (output_root / "FINAL_DELIVERY_REPORT.json").write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
     update_status(report)
     print(json.dumps({"final_report": str(final_report), "status": report["final_acceptance_status"]}, indent=2))
-    return 0 if report["final_acceptance_status"] == "accepted" else 1
+    return 0 if report["final_acceptance_status"] == "ANSA_SMOKE_PASSED" else 1
 
 
 def dataset_result_to_json(dataset_dir: Path) -> str:
@@ -248,7 +262,8 @@ def render_report(report: dict) -> str:
     graph_artifacts = report["dataset"]["graph_artifacts"]
     training = report["training"]
     evaluation = report["evaluation"]
-    amg_metrics = report["amg"]["summary"]["mesh_result"]["metrics"]
+    amg_summary = report["amg"].get("summary", {}) or {}
+    amg_metrics = amg_summary.get("mesh_result", {}).get("metrics", {})
     ansa_probe = report["ansa_execution_probe"]
     recipe_application = ansa_probe.get("ansa_recipe_application", {})
     deck_application = ansa_probe.get("solver_deck_recipe_application", {})
@@ -289,7 +304,8 @@ def render_report(report: dict) -> str:
             f"- CAD dir: {step_regression.get('cad_dir')}",
             f"- Passed: {step_regression['passed_count']}",
             f"- Failed: {step_regression['failed_count']}",
-            f"- Accepted: {step_regression['accepted']}",
+            f"- Technical fixture validation passed: {step_regression['technical_passed']}",
+            f"- Production validation accepted: {step_regression['accepted']}",
             f"- Limitation: {step_regression['limitation']}",
             "",
             "## Model",
@@ -311,15 +327,16 @@ def render_report(report: dict) -> str:
             f"- Failure risk recall: {evaluation['failure_risk_recall']:.6f}",
             f"- Repair top-1 accuracy: {evaluation['repair_action_top1_accuracy']:.6f}",
             "",
-            "## AMG Result",
+            "## AMG Production Result",
             f"- Test sample: {report['amg']['test_sample_id']}",
             f"- Result package validation passed: {report['amg']['validation']['passed']}",
-            f"- BDF parse success: {amg_metrics['bdf_parse_success']}",
-            f"- Missing properties: {amg_metrics['missing_property_count']}",
-            f"- Missing materials: {amg_metrics['missing_material_count']}",
-            f"- Shell elements: {int(amg_metrics['shell_element_count'])}",
-            f"- Solid elements: {int(amg_metrics['solid_element_count'])}",
-            f"- Connectors: {int(amg_metrics['connector_count'])}",
+            f"- Production backend: {report['amg']['production_backend']}",
+            f"- BDF parse success: {amg_metrics.get('bdf_parse_success', False)}",
+            f"- Missing properties: {amg_metrics.get('missing_property_count', 0)}",
+            f"- Missing materials: {amg_metrics.get('missing_material_count', 0)}",
+            f"- Shell elements: {int(amg_metrics.get('shell_element_count', 0))}",
+            f"- Solid elements: {int(amg_metrics.get('solid_element_count', 0))}",
+            f"- Connectors: {int(amg_metrics.get('connector_count', 0))}",
             "",
             "## ANSA Backend",
             f"- Available: {report['ansa_backend']['available']}",
@@ -347,6 +364,10 @@ def render_report(report: dict) -> str:
             "",
             "## Known Limitations",
             *[f"- {item}" for item in report["known_limitations"]],
+            "",
+            "## Truthful Status",
+            f"- Synthetic bootstrap status: {report['synthetic_bootstrap_status']}",
+            f"- LG production validation status: {report['lg_production_validation_status']}",
             "",
             f"## Final Acceptance Status\n\n{report['final_acceptance_status'].upper()}",
             "",
@@ -400,14 +421,15 @@ def update_status(report: dict) -> None:
             f"- Schema failures: {validation['schema_failures']}",
             f"- Missing artifacts: {validation['missing_artifacts']}",
             f"- STEP AP242 B-Rep failures: {validation['step_brep_failures']}",
-            f"- STEP ingestion regression accepted: {step_regression['accepted']}",
+            f"- STEP ingestion technical validation passed: {step_regression['technical_passed']}",
+            f"- STEP ingestion production validation accepted: {step_regression['accepted']}",
             f"- STEP ingestion regression samples: {step_regression['passed_count']} / {step_regression.get('source_count', step_regression['sample_count'])}",
             f"- Split mismatches: {validation['split_mismatch_count']}",
             f"- Graph artifact validation passed: {graph_artifacts['passed']}",
             f"- graph.pt files: {graph_artifacts['graph_pt_count']}",
             f"- brep_graph.json files: {graph_artifacts['brep_graph_json_count']}",
             f"- assembly_graph.json files: {graph_artifacts['assembly_graph_json_count']}",
-            f"- AMG result validation passed: {report['amg']['validation']['passed']}",
+            f"- AMG production result validation passed: {report['amg']['validation']['passed']}",
             "",
             "## Generated Dataset Counts",
             f"- Accepted samples: {dataset['accepted_count']}",
@@ -430,11 +452,12 @@ def update_status(report: dict) -> None:
             f"- Failure risk recall: {report['evaluation']['failure_risk_recall']:.6f}",
             f"- Repair top-1 accuracy: {report['evaluation']['repair_action_top1_accuracy']:.6f}",
             "",
-            "## AMG Result Metrics",
+            "## AMG Production Result Metrics",
             f"- Test sample: {report['amg']['test_sample_id']}",
-            f"- BDF parse success: {report['amg']['summary']['mesh_result']['metrics']['bdf_parse_success']}",
-            f"- Missing property count: {report['amg']['summary']['mesh_result']['metrics']['missing_property_count']}",
-            f"- Missing material count: {report['amg']['summary']['mesh_result']['metrics']['missing_material_count']}",
+            f"- Production backend: {report['amg']['production_backend']}",
+            f"- BDF parse success: {(report['amg'].get('summary', {}) or {}).get('mesh_result', {}).get('metrics', {}).get('bdf_parse_success', False)}",
+            f"- Missing property count: {(report['amg'].get('summary', {}) or {}).get('mesh_result', {}).get('metrics', {}).get('missing_property_count', 0)}",
+            f"- Missing material count: {(report['amg'].get('summary', {}) or {}).get('mesh_result', {}).get('metrics', {}).get('missing_material_count', 0)}",
             "",
             "## ANSA Backend",
             f"- Available: {report['ansa_backend']['available']}",
@@ -462,6 +485,10 @@ def update_status(report: dict) -> None:
             "",
             "## Known Limitations",
             *[f"- {item}" for item in report["known_limitations"]],
+            "",
+            "## Truthful Status",
+            f"- Synthetic bootstrap status: {report['synthetic_bootstrap_status']}",
+            f"- LG production validation status: {report['lg_production_validation_status']}",
             "",
             "## Final Acceptance Status",
             "",

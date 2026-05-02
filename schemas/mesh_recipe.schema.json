@@ -6,7 +6,7 @@
   "properties": {
     "recipe_id": {"type": "string"},
     "sample_id": {"type": "string"},
-    "backend": {"enum": ["LOCAL_PROCEDURAL", "ANSA_BATCH"]},
+    "backend": {"enum": ["SYNTHETIC_ORACLE", "ANSA_BATCH"]},
     "part_strategies": {"type": "array"},
     "size_fields": {"type": "array"},
     "connections": {"type": "array"},

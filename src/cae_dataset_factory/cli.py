@@ -35,7 +35,7 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("mesh")
     p.add_argument("--dataset", required=True)
     p.add_argument("--workers", type=int, default=1)
-    p.add_argument("--backend", default="LOCAL_PROCEDURAL")
+    p.add_argument("--backend", default="SYNTHETIC_ORACLE")
     p = sub.add_parser("evaluate")
     p.add_argument("--dataset", required=True)
     args = parser.parse_args(argv)

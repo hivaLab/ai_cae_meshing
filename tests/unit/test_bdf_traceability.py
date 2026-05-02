@@ -87,3 +87,57 @@ def test_bdf_traceability_rejects_wrong_solid_material_mapping(tmp_path: Path):
     assert result["passed"] is False
     assert result["failure_count"] >= 1
     assert any(item["kind"] == "solid_property" for item in result["failures"])
+
+
+def test_bdf_traceability_rejects_silent_cad_part_omission(tmp_path: Path):
+    bdf = tmp_path / "model.bdf"
+    bdf.write_text(
+        "\n".join(
+            [
+                "BEGIN BULK",
+                "GRID,1,,0.,0.,0.",
+                "GRID,2,,10.,0.,0.",
+                "GRID,3,,10.,10.,0.",
+                "GRID,4,,0.,10.,0.",
+                "CQUAD4,10,20,1,2,3,4",
+                "PSHELL,20,1,1.2",
+                "MAT1,1,210000.,,0.3,7.85-9",
+                "ENDDATA",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    plan = {
+        "materials": [{"material_id": "MAT", "mid": 1}],
+        "parts": [
+            {"part_uid": "shell_part", "strategy": "shell"},
+            {"part_uid": "missing_part", "strategy": "shell"},
+        ],
+        "connections": [],
+        "summary": {"mass_only_part_count": 0},
+    }
+    application = {
+        "property_application": {"assignments": [{"part_uid": "shell_part", "pshell_id": 20, "mid": 1}]}
+    }
+
+    result = validate_bdf_traceability(bdf, plan, application)
+
+    assert result["passed"] is False
+    assert any(item.get("reason") == "missing_representation_failure" for item in result["failures"])
+
+
+def test_bdf_traceability_rejects_unapproved_exclude(tmp_path: Path):
+    bdf = tmp_path / "model.bdf"
+    bdf.write_text("BEGIN BULK\nMAT1,1,210000.,,0.3,7.85-9\nENDDATA\n", encoding="utf-8")
+    plan = {
+        "materials": [{"material_id": "MAT", "mid": 1}],
+        "parts": [{"part_uid": "cosmetic_part", "strategy": "approved_exclude"}],
+        "connections": [],
+        "summary": {"mass_only_part_count": 0},
+    }
+
+    result = validate_bdf_traceability(bdf, plan, {})
+
+    assert result["passed"] is False
+    assert any(item.get("reason") == "CAD part is excluded without explicit approval" for item in result["failures"])

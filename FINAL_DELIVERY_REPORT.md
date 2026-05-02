@@ -1,6 +1,6 @@
 # Final Delivery Report
 
-Generated at: 2026-04-30T16:05:47.283909+00:00
+Generated at: 2026-05-02T06:47:10.283559+00:00
 
 ## Workflow Commands
 - validate_all_repository_schemas
@@ -12,11 +12,19 @@ Generated at: 2026-04-30T16:05:47.283909+00:00
 - train-brep-assembly-net
 - evaluate-brep-assembly-net --split test
 - export-amg-model
-- amg run-mesh
-- amg validate-result
 - ansa backend status
 - amg run-mesh --backend ANSA_BATCH
 - amg validate-result --backend ANSA_BATCH
+
+## Verification Commands
+- `python -m pytest -vv --basetemp .\tmp_pytest_truthful_backend`
+  - Result: 59 passed, 6 warnings
+- `python scripts\run_full_delivery.py`
+  - Result: ANSA_SMOKE_PASSED
+- `python scripts\run_ansa_regression.py --sample-count 10`
+  - Result: ANSA_REGRESSION_ACCEPTED, 10 passed / 0 failed
+- `python -m pytest -vv tests\unit\test_ansa_regression.py --basetemp .\tmp_pytest_ansa_regression_status`
+  - Result: 5 passed
 
 ## Dataset
 - CAD kernel: CadQuery/OCP(OpenCascade)
@@ -38,7 +46,8 @@ Generated at: 2026-04-30T16:05:47.283909+00:00
 - CAD dir: None
 - Passed: 5
 - Failed: 0
-- Accepted: True
+- Technical fixture validation passed: True
+- Production validation accepted: False
 - Limitation: Golden assemblies are locally generated AP242 B-Rep STEP fixtures; no external OEM STEP files were supplied.
 
 ## Model
@@ -60,14 +69,15 @@ Generated at: 2026-04-30T16:05:47.283909+00:00
 - Failure risk recall: 1.000000
 - Repair top-1 accuracy: 0.637500
 
-## AMG Result
+## AMG Production Result
 - Test sample: sample_000900
 - Result package validation passed: True
+- Production backend: ANSA_BATCH
 - BDF parse success: True
 - Missing properties: 0
 - Missing materials: 0
-- Shell elements: 6
-- Solid elements: 5
+- Shell elements: 12696
+- Solid elements: 193651
 - Connectors: 9
 
 ## ANSA Backend
@@ -79,14 +89,14 @@ Generated at: 2026-04-30T16:05:47.283909+00:00
 - Batch Meshing Manager invoked: True
 - Batch Meshing Manager note: ANSA batchmesh sessions applied AI mesh recipe parameters per part and ran Batch Mesh Manager
 - ANSA import counts: {'ANSAPART': 12, 'CBUSH': 0, 'CONM2': 0, 'FACE': 72, 'GRID': 0, 'MAT1': 1, 'PBUSH': 0, 'PSHELL': 12, 'PSOLID': 0, 'RBE2': 0, 'RBE3': 0, 'SHELL': 0, 'SOLID': 0, '__ELEMENTS__': 0}
-- ANSA batch counts: {'ANSAPART': 23, 'CBUSH': 8, 'CONM2': 1, 'FACE': 72, 'GRID': 39115, 'MAT1': 15, 'PBUSH': 1, 'PSHELL': 12, 'PSOLID': 22, 'RBE2': 0, 'RBE3': 0, 'SHELL': 12696, 'SOLID': 180985, '__ELEMENTS__': 193690}
+- ANSA batch counts: {'ANSAPART': 23, 'CBUSH': 8, 'CONM2': 1, 'FACE': 72, 'GRID': 39110, 'MAT1': 15, 'PBUSH': 1, 'PSHELL': 12, 'PSOLID': 22, 'RBE2': 0, 'RBE3': 0, 'SHELL': 12696, 'SOLID': 180955, '__ELEMENTS__': 193660}
 - AI recipe batch sessions: 11
 - Per-part size fields planned: 12
 - BMM size-field sessions applied: 11
 - Materials written to deck: 4
 - PSHELL properties updated: 11
 - Solver-deck element fallback enabled: False
-- Native CTETRA solids generated: 180985
+- Native CTETRA solids generated: 180955
 - Native CBUSH connectors generated: 8
 - Native CONM2 masses generated: 1
 - BDF traceability passed: True
@@ -100,16 +110,22 @@ Generated at: 2026-04-30T16:05:47.283909+00:00
 - Sample count: 10
 - Passed samples: 10
 - Failed samples: 0
-- Native CTETRA total: 1573799 / expected 50
+- Native CTETRA total: 1573764 / expected 50
 - Native CBUSH total: 80 / expected 80
 - Native CONM2 total: 10 / expected 10
-- Total runtime seconds: 293.147
-- Regression acceptance: ACCEPTED
+- Total runtime seconds: 321.907
+- Regression acceptance: ANSA_REGRESSION_ACCEPTED
 
 ## Known Limitations
-- Generated dataset assemblies are deterministic synthetic CAD solids; the STEP ingestion regression also supports external --cad-dir inputs when OEM CAD is supplied.
-- ANSA backend is explicit and does not fall back to local meshing.
+- The 1,000-sample dataset is deterministic synthetic bootstrap data and is not evidence of LG/OEM production performance.
+- The built-in STEP ingestion regression uses local golden fixtures unless --cad-dir is supplied; fixture success is not real CAD validation.
+- ANSA_BATCH is the only production AMG backend; no local procedural fallback is used for production meshing.
+- LG/OEM production validation requires supplied CAD/Mesh pairs and acceptance metadata.
+
+## Truthful Status
+- Synthetic bootstrap status: SYNTHETIC_BOOTSTRAP_ACCEPTED
+- LG production validation status: LG_PRODUCTION_NOT_VALIDATED
 
 ## Final Acceptance Status
 
-ACCEPTED
+ANSA_REGRESSION_ACCEPTED

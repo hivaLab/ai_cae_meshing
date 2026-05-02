@@ -4,17 +4,21 @@ from pathlib import Path
 import json
 
 from ai_mesh_generator.meshing.ansa_runner import AnsaBackendConfig, AnsaCommandBackend
-from ai_mesh_generator.meshing.backend_interface import LocalProceduralMeshingBackend, MeshRequest
+from ai_mesh_generator.meshing.backend_interface import MeshRequest, SyntheticOracleMeshingBackend
 from cae_dataset_factory.dataset.sample_writer import build_oracle_labels, build_oracle_recipe
 from cae_dataset_factory.workflow.generate_sample import generate_sample
 
 
-def test_local_backend_generates_valid_bdf(tmp_path: Path):
+def test_synthetic_oracle_backend_generates_valid_bdf_for_cdf_only(tmp_path: Path):
     assembly = generate_sample(0, 123, 0.2)
     labels = build_oracle_labels(assembly)
     recipe = build_oracle_recipe(assembly, labels)
-    result = LocalProceduralMeshingBackend().run(MeshRequest(assembly["sample_id"], assembly, recipe, tmp_path))
+    result = SyntheticOracleMeshingBackend().run(
+        MeshRequest(assembly["sample_id"], assembly, recipe, tmp_path, backend="SYNTHETIC_ORACLE")
+    )
     assert result.accepted
+    assert result.backend == "SYNTHETIC_ORACLE"
+    assert SyntheticOracleMeshingBackend().status()["production_allowed"] is False
     assert result.bdf_path.exists()
     assert result.qa_report_path.exists()
     assert (tmp_path / "solver_deck" / "materials.inc").exists()

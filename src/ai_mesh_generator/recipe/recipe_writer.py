@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 
-def build_mesh_recipe(sample_id: str, prediction: dict, guarded: dict, backend: str = "LOCAL_PROCEDURAL") -> dict:
+def build_mesh_recipe(sample_id: str, prediction: dict, guarded: dict, backend: str = "ANSA_BATCH") -> dict:
     return {
         "recipe_id": f"amg_recipe_{sample_id}",
         "sample_id": sample_id,

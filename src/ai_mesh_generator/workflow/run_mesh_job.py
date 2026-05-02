@@ -12,7 +12,7 @@ from ai_mesh_generator.inference.model_loader import load_model
 from ai_mesh_generator.inference.predictor import predict_recipe_signals
 from ai_mesh_generator.input.validator import validate_input_package_dir
 from ai_mesh_generator.meshing.ansa_runner import AnsaBackendConfig, AnsaCommandBackend
-from ai_mesh_generator.meshing.backend_interface import LocalProceduralMeshingBackend, MeshRequest
+from ai_mesh_generator.meshing.backend_interface import MeshRequest
 from ai_mesh_generator.output.result_packager import package_result, validate_result_package
 from ai_mesh_generator.recipe.guard import apply_recipe_guard
 from ai_mesh_generator.recipe.recipe_schema import validate_mesh_recipe
@@ -20,7 +20,16 @@ from ai_mesh_generator.recipe.recipe_writer import build_mesh_recipe, write_reci
 from cae_mesh_common.io.package_reader import extract_job_package
 
 
-def run_mesh_job(job: Path | str, model: Path | str, output: Path | str, backend: str = "LOCAL_PROCEDURAL") -> dict:
+def run_mesh_job(job: Path | str, model: Path | str, output: Path | str, backend: str = "ANSA_BATCH") -> dict:
+    if backend != "ANSA_BATCH":
+        raise ValueError(
+            "AMG production meshing supports only ANSA_BATCH. "
+            "Synthetic oracle meshing is CDF-internal and cannot be selected here."
+        )
+    backend_impl = AnsaCommandBackend(AnsaBackendConfig())
+    status = backend_impl.status()
+    if not status["available"]:
+        raise RuntimeError(f"ANSA_BATCH backend is required for production AMG meshing but is unavailable: {status}")
     output = Path(output)
     workdir = output.with_suffix("")
     if workdir.exists():
@@ -39,10 +48,6 @@ def run_mesh_job(job: Path | str, model: Path | str, output: Path | str, backend
     validate_mesh_recipe(recipe)
     write_recipe(recipe, workdir / "mesh_recipe_predicted.json")
     mesh_output = workdir / "result"
-    if backend == "ANSA_BATCH":
-        backend_impl = AnsaCommandBackend(AnsaBackendConfig())
-    else:
-        backend_impl = LocalProceduralMeshingBackend()
     mesh_result = backend_impl.run(MeshRequest(assembly["sample_id"], assembly, recipe, mesh_output, backend=backend))
     package_path = package_result(mesh_output, output)
     validation = validate_result_package(package_path)

@@ -8,7 +8,7 @@ from typing import Any
 import pandas as pd
 import yaml
 
-from ai_mesh_generator.meshing.backend_interface import LocalProceduralMeshingBackend, MeshRequest
+from ai_mesh_generator.meshing.backend_interface import MeshRequest, SyntheticOracleMeshingBackend
 from cae_mesh_common.io.package_writer import zip_directory
 from cae_dataset_factory.cad.cad_exporter import export_assembly_step
 from cae_dataset_factory.graph.brep_graph_builder import build_brep_graph
@@ -54,7 +54,7 @@ def build_oracle_recipe(assembly: dict[str, Any], labels: dict[str, Any]) -> dic
     return {
         "recipe_id": f"recipe_{assembly['sample_id']}",
         "sample_id": assembly["sample_id"],
-        "backend": "LOCAL_PROCEDURAL",
+        "backend": "SYNTHETIC_ORACLE",
         "base_size": round(base_size, 4),
         "part_strategies": [
             {"part_uid": item["part_uid"], "strategy": item["strategy"], "confidence": 1.0}
@@ -192,7 +192,9 @@ def write_sample(assembly: dict[str, Any], dataset_dir: Path | str, mesh_profile
 
     graph = build_brep_graph(assembly)
     graph_path = export_graph(graph, graph_dir / "graph.pt")
-    mesh_result = LocalProceduralMeshingBackend().run(MeshRequest(sample_id, assembly, recipe, mesh_dir))
+    mesh_result = SyntheticOracleMeshingBackend().run(
+        MeshRequest(sample_id, assembly, recipe, mesh_dir, backend="SYNTHETIC_ORACLE")
+    )
     input_zip = zip_directory(input_dir, sample_dir / "LGE_CAE_MESH_JOB.zip")
 
     return {

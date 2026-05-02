@@ -47,6 +47,10 @@ def validate_bdf_traceability(
     records.extend(mass_result["records"])
     failures.extend(mass_result["failures"])
 
+    coverage_result = _validate_part_representation_coverage(model, plan, records)
+    records.extend(coverage_result["records"])
+    failures.extend(coverage_result["failures"])
+
     source_part_count = len(plan.get("parts", []))
     mapped_part_uids = sorted(
         {
@@ -65,6 +69,7 @@ def validate_bdf_traceability(
         "failures": failures,
         "records": records,
         "method": "bdf_property_material_element_traceability",
+        "representation_policy": "no_silent_cad_part_omission",
     }
 
 
@@ -94,18 +99,40 @@ def _validate_shell_assignments(model: BDFModel, property_application: dict[str,
         expected_mid = int(assignment["mid"])
         prop = model.properties.get(pid)
         element_count = _element_count_by_pid(model, pid)
-        status = "passed" if prop and prop.get("type") == "PSHELL" and int(prop.get("mid", 0)) == expected_mid else "failed"
+        thickness = float(prop.get("thickness", 0.0)) if prop else 0.0
+        if element_count == 0:
+            records.append(
+                {
+                    "kind": "shell_property",
+                    "part_uid": assignment.get("part_uid"),
+                    "property_id": pid,
+                    "expected_mid": expected_mid,
+                    "element_count": element_count,
+                    "thickness": thickness,
+                    "status": "not_applicable_no_shell_elements",
+                }
+            )
+            continue
+        status = (
+            "passed"
+            if prop
+            and prop.get("type") == "PSHELL"
+            and int(prop.get("mid", 0)) == expected_mid
+            and thickness > 0.0
+            else "failed"
+        )
         record = {
             "kind": "shell_property",
             "part_uid": assignment.get("part_uid"),
             "property_id": pid,
             "expected_mid": expected_mid,
             "element_count": element_count,
+            "thickness": thickness,
             "status": status,
         }
         records.append(record)
         if status != "passed":
-            failures.append({**record, "reason": "PSHELL material assignment does not match source part"})
+            failures.append({**record, "reason": "PSHELL material, thickness, or element coverage does not match source part"})
     return {"records": records, "failures": failures}
 
 
@@ -199,6 +226,99 @@ def _validate_masses(model: BDFModel, plan: dict[str, Any], native: dict[str, An
     }
     failures = [] if status == "passed" else [{**record, "reason": "CONM2 mass coverage is incomplete"}]
     return {"records": [record], "failures": failures}
+
+
+def _validate_part_representation_coverage(
+    model: BDFModel, plan: dict[str, Any], existing_records: list[dict[str, Any]]
+) -> dict[str, Any]:
+    records = []
+    failures = []
+    passed_by_part: dict[str, list[dict[str, Any]]] = {}
+    for record in existing_records:
+        part_uid = record.get("part_uid")
+        if part_uid and record.get("status") == "passed":
+            passed_by_part.setdefault(str(part_uid), []).append(record)
+
+    for part in plan.get("parts", []):
+        part_uid = str(part.get("part_uid", ""))
+        strategy = _normalize_strategy(str(part.get("strategy", "")))
+        if not part_uid:
+            continue
+        representation = _representation_for_strategy(strategy)
+        part_records = passed_by_part.get(part_uid, [])
+        if representation == "approved_exclude":
+            approved = bool(part.get("approved_exclude", False)) or bool(part.get("approved_exclude_reason"))
+            status = "passed" if approved else "failed"
+            record = {
+                "kind": "part_representation",
+                "part_uid": part_uid,
+                "representation": "approved_exclude",
+                "status": status,
+            }
+            records.append(record)
+            if status != "passed":
+                failures.append({**record, "reason": "CAD part is excluded without explicit approval"})
+            continue
+        if representation == "manual_review":
+            records.append(
+                {
+                    "kind": "part_representation",
+                    "part_uid": part_uid,
+                    "representation": "manual_review",
+                    "status": "manual_review",
+                }
+            )
+            continue
+        status = "passed" if part_records else "failed"
+        record = {
+            "kind": "part_representation",
+            "part_uid": part_uid,
+            "representation": representation,
+            "status": status,
+            "trace_record_count": len(part_records),
+        }
+        records.append(record)
+        if status != "passed":
+            failures.append(
+                {
+                    **record,
+                    "reason": "missing_representation_failure",
+                    "allowed_representations": [
+                        "explicit_mesh",
+                        "connector",
+                        "mass",
+                        "approved_exclude",
+                        "manual_review",
+                    ],
+                }
+            )
+    return {"records": records, "failures": failures}
+
+
+def _normalize_strategy(strategy: str) -> str:
+    lookup = {
+        "SHELL_MIDSURFACE": "shell",
+        "SOLID_TETRA": "solid",
+        "CONNECTOR_REPLACEMENT": "connector",
+        "MASS_ONLY": "mass_only",
+        "APPROVED_EXCLUDE": "approved_exclude",
+        "MANUAL_REVIEW": "manual_review",
+    }
+    return lookup.get(strategy.upper(), strategy.lower())
+
+
+def _representation_for_strategy(strategy: str) -> str:
+    if strategy in {"shell", "solid", "solid_tet"}:
+        return "explicit_mesh"
+    if strategy == "mass_only":
+        return "mass"
+    if strategy == "connector":
+        return "connector"
+    if strategy == "approved_exclude":
+        return "approved_exclude"
+    if strategy == "manual_review":
+        return "manual_review"
+    return "explicit_mesh"
 
 
 def _element_count_by_pid(model: BDFModel, pid: int) -> int:

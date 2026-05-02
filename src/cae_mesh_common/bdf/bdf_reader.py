@@ -105,7 +105,10 @@ def _from_pynastran_model(nastran: object) -> BDFModel:
     for pid, prop in nastran.properties.items():
         ptype = str(prop.type).upper()
         mid = _property_material_id(prop)
-        model.properties[int(pid)] = {"type": ptype, "mid": mid}
+        record = {"type": ptype, "mid": mid}
+        if ptype == "PSHELL":
+            record["thickness"] = float(getattr(prop, "t", 0.0) or 0.0)
+        model.properties[int(pid)] = record
     for mid, material in nastran.materials.items():
         model.materials[int(mid)] = {
             "type": str(material.type).upper(),

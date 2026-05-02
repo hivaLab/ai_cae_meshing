@@ -8,6 +8,16 @@ This repository implements the AI-based CAE mesh automation system defined in:
 
 Read `CAE_MESH_AUTOMATION_IMPLEMENTATION_PLAN.md` before writing code. Treat that document as the implementation source of truth.
 
+For LG Electronics research-request alignment, also read:
+
+- `docs/lg_research_scope_design_guide.md`
+
+When broad CAE automation ideas conflict with the LG research scope, prioritize
+the LG scope: AI-assisted structural shell mesh automation for
+constant-thickness sheet-metal parts first, followed by variable-thickness
+molded-plastic assemblies. Generic CFD meshing and universal arbitrary solid
+meshing are secondary unless explicitly requested.
+
 ## Implementation target
 
 Build the complete Python project described in the implementation plan.
@@ -17,7 +27,7 @@ The delivered repository must include:
 1. Shared schemas and validators
 2. CAE Dataset Factory, CDF
 3. AI Mesh Generator, AMG
-4. Local procedural meshing backend
+4. CDF synthetic oracle meshing backend
 5. ANSA command backend adapter
 6. QA and BDF validation modules
 7. Graph dataset builder
@@ -42,7 +52,7 @@ The generated dataset must contain:
 1. Input package files
 2. Synthetic assembly geometry data
 3. Part, face, edge, connection, size-field, failure-risk, and repair-action labels
-4. Procedural mesh data
+4. Synthetic-oracle mesh data
 5. BDF files
 6. QA metrics
 7. Graph files
@@ -83,7 +93,9 @@ Use deterministic tests.
 
 Use explicit CLI commands.
 
-Use the local procedural meshing backend as the executable backend for the full delivery workflow.
+Use ANSA_BATCH as the executable production AMG backend for the full delivery workflow.
+The deterministic synthetic oracle is CDF-internal only and must not be used as
+evidence that production AMG meshing works.
 
 Implement the ANSA backend as a production adapter with:
 
@@ -94,9 +106,9 @@ Implement the ANSA backend as a production adapter with:
 5. Error handling
 6. Backend status reporting
 
-Use optional dependency handling for heavy or proprietary libraries.
-
-When an optional dependency is unavailable, the repository must still run through the local procedural backend.
+Use optional dependency handling for heavy or proprietary libraries in dataset
+building and inspection code. Production AMG meshing must fail explicitly when
+ANSA is unavailable; it must not fall back to synthetic or local meshing.
 
 ## Required CLI commands
 
@@ -157,9 +169,23 @@ The implementation is complete when:
 5. The compact AI model trains on the generated dataset.
 6. The trained model is exported as a reusable model artifact.
 7. AMG loads the trained model and runs inference on a held-out test sample.
-8. AMG generates a mesh result package.
+8. AMG generates a mesh result package through ANSA_BATCH.
 9. QA validation passes for the generated AMG result package.
 10. Unit tests pass.
 11. Integration tests pass.
 12. End-to-end tests pass.
-13. `FINAL_DELIVERY_REPORT.md` summarizes implementation results, dataset statistics, model metrics, AMG validation metrics, and final acceptance status.
+13. `FINAL_DELIVERY_REPORT.md` summarizes implementation results, dataset statistics, model metrics, AMG validation metrics, and truthful status classes such as `SYNTHETIC_BOOTSTRAP_ACCEPTED`, `ANSA_SMOKE_PASSED`, and `LG_PRODUCTION_NOT_VALIDATED`.
+
+## Truthfulness requirements
+
+No silent omission is allowed. Every CAD product/part must be represented in the
+FE output as explicit mesh, connector, mass, approved exclude, or manual
+review/failure. Any unrepresented part is a validation failure.
+
+`approved_exclude` requires explicit acceptance metadata. CAD parts must not be
+excluded by name pattern or convenience rule.
+
+Physical material constants such as Young's modulus, density, and Poisson ratio
+are not required for mesh automation training submissions unless a solver-ready
+BDF is explicitly part of the target workflow. Shell thickness and shell quality
+criteria are required for shell mesh validation.

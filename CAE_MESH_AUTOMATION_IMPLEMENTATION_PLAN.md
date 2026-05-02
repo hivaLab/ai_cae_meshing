@@ -3246,3 +3246,25 @@ PoC의 최소 성공 기준은 다음이다.
 [7]: https://fastapi.tiangolo.com/?utm_source=chatgpt.com "FastAPI"
 [8]: https://vtk.org/?utm_source=chatgpt.com "VTK - The Visualization Toolkit"
 [9]: https://developers.openai.com/codex?utm_source=chatgpt.com "Codex | OpenAI Developers"
+## Truthful Production Validation Addendum
+
+The repository must distinguish synthetic bootstrap validation from production
+LG/OEM CAD validation.
+
+- Production AMG meshing uses `ANSA_BATCH` only.
+- CDF may use a deterministic synthetic oracle to generate bootstrap labels and
+  meshes, but this oracle must not be reported as production mesh automation.
+- If ANSA is unavailable or fails, production meshing fails explicitly.
+- `FINAL_DELIVERY_REPORT.md` must use truthful status labels such as
+  `SYNTHETIC_BOOTSTRAP_ACCEPTED`, `ANSA_SMOKE_PASSED`, and
+  `LG_PRODUCTION_NOT_VALIDATED`; generic `ACCEPTED` is not sufficient unless a
+  real LG/OEM CAD/Mesh regression has been supplied and passed.
+- Every CAD product/part must be represented in FE output as explicit mesh,
+  connector, mass, approved-exclude, or manual-review/failure. Silent omission
+  is a validation failure.
+- `approved_exclude` requires explicit acceptance metadata. Fasteners are mesh
+  targets by default unless engineering intent maps them to connector or mass.
+- Real training submissions require `cad/raw.step`, `ansa/final.ansa`,
+  `metadata/acceptance.csv`, and `metadata/quality_criteria.yaml`.
+- Young's modulus, density, and Poisson ratio are not required for mesh
+  automation training unless solver-ready BDF export is explicitly in scope.

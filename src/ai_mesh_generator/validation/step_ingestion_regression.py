@@ -11,7 +11,7 @@ from ai_mesh_generator.graph.graph_builder import build_amg_graph
 from ai_mesh_generator.input.validator import validate_input_package_dir
 from cae_dataset_factory.assembly.assembly_grammar import AssemblyGrammar
 from cae_dataset_factory.cad.cad_exporter import export_assembly_step
-from cae_mesh_common.cad.step_io import inspect_step_brep
+from cae_mesh_common.cad.step_io import inspect_step_brep, validate_feature_bearing_step
 
 
 def run_step_ingestion_regression(
@@ -30,6 +30,7 @@ def run_step_ingestion_regression(
         imported = extract_features(import_input_assembly(job_dir))
         graph = build_amg_graph(imported)
         step_info = inspect_step_brep(Path(job_dir) / "geometry" / "assembly.step")
+        feature_validation = _feature_synthetic_validation(Path(job_dir) / "geometry" / "assembly.step", source)
         node_counts = {node_type: len(nodes) for node_type, nodes in graph.node_sets.items()}
         edge_counts = {edge_type: len(edges) for edge_type, edges in graph.edge_sets.items()}
         traceability = _traceability_summary(imported, packaged_assembly)
@@ -44,6 +45,7 @@ def run_step_ingestion_regression(
             and imported.get("topology_traceability", {}).get("source") == "STEP_AP242_BREP_OCP"
             and all(count > 0 for count in node_counts.values())
             and traceability["passed"]
+            and feature_validation["passed"]
         )
         records.append(
             {
@@ -54,6 +56,7 @@ def run_step_ingestion_regression(
                 "passed": passed,
                 "package_validation": package_validation,
                 "step_validation": step_info,
+                "feature_synthetic_validation": feature_validation,
                 "geometry_source": imported["geometry_source"],
                 "topology_traceability": traceability,
                 "temporary_defaults_applied": temporary_defaults,
@@ -100,17 +103,18 @@ def render_step_ingestion_report(report: dict[str, Any]) -> str:
         f"Production validation: {'ACCEPTED' if report['accepted'] else 'NOT_VALIDATED'}",
         f"Limitation: {report['limitation']}",
         "",
-        "| sample_id | source | passed | parts | faces | edges | contacts | connections | traceability |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| sample_id | source | passed | feature_step | parts | faces | edges | contacts | connections | traceability |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for record in report["records"]:
         nodes = record["node_counts"]
         traceability = record["topology_traceability"]
         lines.append(
-            "| {sample_id} | {source} | {passed} | {parts} | {faces} | {edges} | {contacts} | {connections} | {traceability} |".format(
+            "| {sample_id} | {source} | {passed} | {feature_step} | {parts} | {faces} | {edges} | {contacts} | {connections} | {traceability} |".format(
                 sample_id=record["sample_id"],
                 source=record["source"],
                 passed=record["passed"],
+                feature_step=record["feature_synthetic_validation"].get("status", "not_applicable"),
                 parts=nodes.get("part", 0),
                 faces=nodes.get("face", 0),
                 edges=nodes.get("edge", 0),
@@ -142,8 +146,31 @@ def _step_sources(output: Path, sample_count: int, cad_dir: Path | str | None) -
         sample_id = f"golden_ap242_{index:03d}"
         assembly["sample_id"] = sample_id
         step_path = export_assembly_step(source_dir / f"{sample_id}.step", sample_id, assembly["parts"])
-        sources.append({"sample_id": sample_id, "step_file": step_path, "source": "local_golden_ap242_fixture"})
+        sources.append(
+            {
+                "sample_id": sample_id,
+                "step_file": step_path,
+                "source": "local_feature_synthetic_ap242_fixture",
+                "assembly_parts": assembly["parts"],
+            }
+        )
     return sources
+
+
+def _feature_synthetic_validation(step_path: Path, source: dict[str, Any]) -> dict[str, Any]:
+    parts = source.get("assembly_parts")
+    if not parts:
+        return {"passed": True, "status": "not_applicable_external_cad"}
+    evidence = validate_feature_bearing_step(step_path, parts)
+    return {
+        "passed": bool(evidence["feature_bearing"]),
+        "status": "FEATURE_SYNTHETIC_STEP" if evidence["feature_bearing"] else "FAILED",
+        "advanced_face_count": evidence["advanced_face_count"],
+        "cylindrical_surface_count": evidence["cylindrical_surface_count"],
+        "circle_count": evidence["circle_count"],
+        "box_only_face_limit": evidence["box_only_face_limit"],
+        "failures": evidence["failures"],
+    }
 
 
 def _traceability_summary(imported: dict[str, Any], packaged: dict[str, Any]) -> dict[str, Any]:

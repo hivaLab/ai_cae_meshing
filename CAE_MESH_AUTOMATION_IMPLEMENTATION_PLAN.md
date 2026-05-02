@@ -3268,3 +3268,16 @@ LG/OEM CAD validation.
   `metadata/acceptance.csv`, and `metadata/quality_criteria.yaml`.
 - Young's modulus, density, and Poisson ratio are not required for mesh
   automation training unless solver-ready BDF export is explicitly in scope.
+## Current Synthetic CAD Integrity Rule
+
+The CDF synthetic bootstrap dataset is accepted only when generated STEP AP242
+B-Rep geometry contains actual template features. `plastic_base`,
+`ribbed_cover`, `sheet_metal_box`, `bracket`, `screw`, `motor_dummy`, and
+`pcb_dummy` must not export as plain rectangular boxes. Feature labels such as
+`rib`, `screw_boss`, `mounting_hole`, `flange`, `cylindrical_shank`, and
+`cylindrical_body` must have topology evidence in the STEP file. Builder
+failures or unsupported templates must fail or be rejected; box fallback is not
+permitted. Synthetic success is reported as
+`FEATURE_SYNTHETIC_BOOTSTRAP_ACCEPTED`, while real LG/OEM production validation
+remains `LG_PRODUCTION_NOT_VALIDATED` until external CAD/Mesh pairs are
+validated.

@@ -10,6 +10,7 @@ import yaml
 
 from ai_mesh_generator.meshing.backend_interface import MeshRequest, SyntheticOracleMeshingBackend
 from cae_mesh_common.io.package_writer import zip_directory
+from cae_mesh_common.cad.step_io import validate_feature_bearing_step
 from cae_dataset_factory.cad.cad_exporter import export_assembly_step
 from cae_dataset_factory.graph.brep_graph_builder import build_brep_graph
 from cae_dataset_factory.graph.pyg_exporter import export_graph
@@ -82,7 +83,10 @@ def write_sample(assembly: dict[str, Any], dataset_dir: Path | str, mesh_profile
     for path in [metadata_dir, geometry_dir, labels_dir, graph_dir, mesh_dir]:
         path.mkdir(parents=True, exist_ok=True)
 
-    export_assembly_step(geometry_dir / "assembly.step", sample_id, assembly["parts"])
+    step_path = export_assembly_step(geometry_dir / "assembly.step", sample_id, assembly["parts"])
+    geometry_evidence = validate_feature_bearing_step(step_path, assembly["parts"])
+    if not geometry_evidence["feature_bearing"]:
+        raise RuntimeError(f"synthetic CAD geometry failed feature consistency validation: {geometry_evidence}")
     manifest = {
         "job_id": sample_id,
         "schema_version": "0.1.0",
@@ -103,6 +107,7 @@ def write_sample(assembly: dict[str, Any], dataset_dir: Path | str, mesh_profile
             "material_library": "metadata/material_library.json",
             "connections": "metadata/connections.csv",
             "mesh_profile": "metadata/mesh_profile.yaml",
+            "geometry_feature_evidence": "metadata/geometry_feature_evidence.json",
         },
     }
     (metadata_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
@@ -111,6 +116,10 @@ def write_sample(assembly: dict[str, Any], dataset_dir: Path | str, mesh_profile
     (metadata_dir / "boundary_named_sets.json").write_text(json.dumps(assembly["boundary_named_sets"], indent=2, sort_keys=True), encoding="utf-8")
     (metadata_dir / "mesh_profile.yaml").write_text(yaml.safe_dump(mesh_profile, sort_keys=True), encoding="utf-8")
     (metadata_dir / "assembly.json").write_text(json.dumps(assembly, indent=2, sort_keys=True), encoding="utf-8")
+    (metadata_dir / "geometry_feature_evidence.json").write_text(
+        json.dumps(geometry_evidence, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
     (sample_dir / "assembly.json").write_text(json.dumps(assembly, indent=2, sort_keys=True), encoding="utf-8")
 
     with (metadata_dir / "part_attributes.csv").open("w", newline="", encoding="utf-8") as handle:

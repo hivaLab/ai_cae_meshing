@@ -43,7 +43,6 @@ class AssemblyGrammar:
             ScrewTemplate(),
             ScrewTemplate(),
             ScrewTemplate(),
-            ScrewTemplate(),
         ]
         parts = []
         face_signatures = []

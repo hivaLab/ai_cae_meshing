@@ -89,6 +89,62 @@ def test_bdf_traceability_rejects_wrong_solid_material_mapping(tmp_path: Path):
     assert any(item["kind"] == "solid_property" for item in result["failures"])
 
 
+def test_bdf_traceability_accepts_native_ansa_pyramid_solid_cards(tmp_path: Path):
+    bdf = tmp_path / "model_pyramid.bdf"
+    bdf.write_text(
+        "\n".join(
+            [
+                "BEGIN BULK",
+                "GRID,1,,0.,0.,0.",
+                "GRID,2,,10.,0.,0.",
+                "GRID,3,,10.,10.,0.",
+                "GRID,4,,0.,10.,0.",
+                "GRID,5,,5.,5.,10.",
+                "PYRAMID,101,801000,1,2,3,4,5",
+                "PSOLID,801000,1",
+                "MAT1,1,210000.,,0.3,7.85-9",
+                "ENDDATA",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    application = _application()
+    application["native_entity_generation"]["solid_tetra"]["solver_card_assignment"]["records"][0][
+        "solid_type_counts"
+    ] = {"PYRAMID": 1}
+
+    result = validate_bdf_traceability(bdf, {"materials": _plan()["materials"], "parts": _plan()["parts"], "connections": []}, application)
+
+    assert result["passed"] is True
+    assert result["mapped_part_uids"] == ["step_part_000"]
+
+
+def test_bdf_traceability_ignores_zero_element_native_groups_when_part_is_mapped(tmp_path: Path):
+    bdf = tmp_path / "model_extra_group.bdf"
+    _write_traceable_bdf(bdf)
+    text = bdf.read_text(encoding="utf-8").replace("ENDDATA", "PSOLID,801001,1\nENDDATA")
+    bdf.write_text(text, encoding="utf-8")
+    application = _application()
+    application["native_entity_generation"]["solid_tetra"]["solver_card_assignment"]["records"].append(
+        {
+            "part_uid": "step_part_000",
+            "new_property_id": 801001,
+            "material_numeric_id": 1,
+            "solid_type_counts": {"PYRAMID": 4},
+        }
+    )
+
+    result = validate_bdf_traceability(bdf, _plan(), application)
+
+    assert result["passed"] is True
+    assert any(
+        record["status"] == "not_applicable_no_exported_solid_elements"
+        for record in result["records"]
+        if record.get("property_id") == 801001
+    )
+
+
 def test_bdf_traceability_rejects_silent_cad_part_omission(tmp_path: Path):
     bdf = tmp_path / "model.bdf"
     bdf.write_text(
@@ -125,6 +181,37 @@ def test_bdf_traceability_rejects_silent_cad_part_omission(tmp_path: Path):
 
     assert result["passed"] is False
     assert any(item.get("reason") == "missing_representation_failure" for item in result["failures"])
+
+
+def test_bdf_traceability_accepts_connector_representation_for_fastener_part(tmp_path: Path):
+    bdf = tmp_path / "connector_part.bdf"
+    bdf.write_text(
+        "\n".join(
+            [
+                "BEGIN BULK",
+                "GRID,1,,0.,0.,0.",
+                "GRID,2,,10.,0.,0.",
+                "MAT1,1,210000.,,0.3,7.85-9",
+                "PBUSH,9001,K,100000.,100000.,100000.",
+                "CBUSH,200,9001,1,2,1.,0.,0.",
+                "ENDDATA",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    plan = {
+        "materials": [{"material_id": "MAT", "mid": 1}],
+        "parts": [{"part_uid": "screw_part", "strategy": "connector"}],
+        "connections": [{"connection_uid": "c0", "part_uid_a": "base_part", "part_uid_b": "screw_part"}],
+        "connector_property": {"property_id": 9001},
+        "summary": {"mass_only_part_count": 0},
+    }
+
+    result = validate_bdf_traceability(bdf, plan, {})
+
+    assert result["passed"] is True
+    assert "screw_part" in result["mapped_part_uids"]
 
 
 def test_bdf_traceability_rejects_unapproved_exclude(tmp_path: Path):

@@ -25,8 +25,8 @@ def test_graph_builder_saves_and_loads(tmp_path: Path):
     assert payload["format"] == "cae_hetero_graph_v1"
     assert set(payload["node_features"]) == {"part", "face", "edge", "contact_candidate", "connection"}
     assert payload["node_features"]["part"].ndim == 2
-    assert payload["node_features"]["face"].shape[0] == 72
-    assert payload["node_features"]["edge"].shape[0] == 144
+    assert payload["node_features"]["face"].shape[0] == 66
+    assert payload["node_features"]["edge"].shape[0] == 132
     assert payload["edge_index"]["face__incident_to__edge"].shape[0] == 2
     assert payload["edge_index"]["face__shares_edge__face"].shape[1] > 0
     assert loaded.node_sets["part"]

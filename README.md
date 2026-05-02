@@ -10,7 +10,7 @@ sheet-metal parts first, then variable-thickness molded-plastic assemblies.
 
 The project contains two runnable systems:
 
-- `cdf`: CAE Dataset Factory for deterministic synthetic bootstrap dataset generation.
+- `cdf`: CAE Dataset Factory for deterministic feature-bearing synthetic bootstrap dataset generation.
 - `amg`: AI Mesh Generator for model-backed mesh recipe inference and ANSA_BATCH production meshing.
 
 The full reproducible delivery workflow is:
@@ -23,6 +23,13 @@ ANSA_BATCH is the only production AMG backend. The deterministic synthetic
 oracle is used only inside CDF to bootstrap labels and test artifacts; it is not
 reported as production mesh automation capability. If ANSA is unavailable,
 production AMG meshing fails explicitly.
+
+The built-in synthetic dataset is not a real LG/OEM dataset. It is a
+feature-bearing bootstrap dataset: generated STEP AP242 B-Rep files must contain
+actual template geometry for `plastic_base`, `ribbed_cover`,
+`sheet_metal_box`, `bracket`, `screw`, `motor_dummy`, and `pcb_dummy`. Box-only
+STEP exports are rejected by validation and must not be reported as completed
+CAD examples.
 
 Real supervised training submissions should use this minimum structure:
 

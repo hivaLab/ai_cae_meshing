@@ -28,13 +28,38 @@ def build_dataset(
     mesh_profile = load_json_or_yaml(Path("configs/amg/default_mesh_profile.yaml"))
     target = num_samples or spec.accepted_target
     rows: list[dict[str, Any]] = []
+    rejections: list[dict[str, str]] = []
     attempts = 0
-    while len(rows) < target:
-        assembly = generate_sample(attempts, spec.seed, spec.defect_rate)
-        row = mesh_and_write_sample(assembly, output_dir, mesh_profile)
+    max_attempts = target * 5
+    while len(rows) < target and attempts < max_attempts:
+        sample_index = attempts
         attempts += 1
+        try:
+            assembly = generate_sample(sample_index, spec.seed, spec.defect_rate)
+            row = mesh_and_write_sample(assembly, output_dir, mesh_profile)
+        except Exception as exc:
+            rejections.append(
+                {
+                    "sample_id": f"sample_{sample_index:06d}",
+                    "reason": type(exc).__name__,
+                    "message": str(exc),
+                }
+            )
+            continue
         if row["accepted"]:
             rows.append(row)
+        else:
+            rejections.append(
+                {
+                    "sample_id": str(row.get("sample_id", f"sample_{sample_index:06d}")),
+                    "reason": "qa_rejected",
+                    "message": "Synthetic oracle mesh quality gate rejected the sample.",
+                }
+            )
+    if rejections:
+        (output_dir / "rejection_log.json").write_text(json.dumps(rejections, indent=2, sort_keys=True), encoding="utf-8")
+    if len(rows) < target:
+        raise RuntimeError(f"accepted synthetic dataset target not reached: accepted={len(rows)} target={target} attempts={attempts}")
     sample_ids = [row["sample_id"] for row in rows]
     train = min(spec.train_count, len(sample_ids))
     val = min(spec.val_count, max(0, len(sample_ids) - train))

@@ -47,8 +47,14 @@ def _add_unique(bucket: dict[int, object], key: int, value: object, model: BDFMo
 
 
 def read_bdf_lines(lines: list[str]) -> BDFModel:
-    model = _read_with_pynastran(lines)
-    model.duplicate_ids.extend(_duplicate_ids(lines))
+    lightweight = _read_lightweight_cards(lines)
+    try:
+        model = _read_with_pynastran(lines)
+    except Exception:
+        lightweight.parser = "lightweight_known_card_parser"
+        return lightweight
+    _merge_lightweight_model(model, lightweight)
+    model.duplicate_ids.extend(lightweight.duplicate_ids)
     return model
 
 
@@ -147,6 +153,10 @@ def _property_material_id(prop: object) -> int:
 
 
 def _duplicate_ids(lines: list[str]) -> list[tuple[str, int]]:
+    return _read_lightweight_cards(lines).duplicate_ids
+
+
+def _read_lightweight_cards(lines: list[str]) -> BDFModel:
     model = BDFModel(parser="lightweight_duplicate_scan")
     for line in lines:
         card = _split_card(line)
@@ -167,6 +177,7 @@ def _duplicate_ids(lines: list[str]) -> list[tuple[str, int]]:
                 "CHEXA",
                 "CPENTA",
                 "CPYRA",
+                "PYRAMID",
                 "CBUSH",
                 "RBE2",
                 "RBE3",
@@ -196,4 +207,15 @@ def _duplicate_ids(lines: list[str]) -> list[tuple[str, int]]:
                 _add_unique(model.materials, mid, {"type": name, "young_modulus": young}, model, name)
         except (IndexError, ValueError) as exc:
             model.duplicate_ids.append((f"PARSE_ERROR:{name}", len(model.raw_cards)))
-    return model.duplicate_ids
+    return model
+
+
+def _merge_lightweight_model(model: BDFModel, lightweight: BDFModel) -> None:
+    for nid, node in lightweight.nodes.items():
+        model.nodes.setdefault(nid, node)
+    for eid, element in lightweight.elements.items():
+        model.elements.setdefault(eid, element)
+    for pid, prop in lightweight.properties.items():
+        model.properties.setdefault(pid, prop)
+    for mid, material in lightweight.materials.items():
+        model.materials.setdefault(mid, material)

@@ -187,6 +187,14 @@ region segmentation and assembly connection automation.
 Synthetic data is useful for bootstrapping, but production claims require
 validation on real LG CAD/Mesh examples.
 
+Synthetic bootstrap data must be visually and topologically honest. Template
+names such as `plastic_base`, `ribbed_cover`, `sheet_metal_box`, `bracket`,
+`screw`, `motor_dummy`, and `pcb_dummy` must correspond to visible AP242 B-Rep
+features in the generated STEP file. A simple rectangular box with a rich label
+is not valid training evidence. Generated samples that cannot create the
+required feature geometry should fail or be rejected instead of falling back to
+plain boxes.
+
 Young's modulus, density, and Poisson ratio are not required inputs for the mesh
 automation training dataset unless solver-ready BDF export is explicitly in
 scope. Shell thickness and shell quality criteria are required because they

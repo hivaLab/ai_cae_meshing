@@ -50,7 +50,7 @@ train / val / test = 800 / 100 / 100
 The generated dataset must contain:
 
 1. Input package files
-2. Synthetic assembly geometry data
+2. Feature-bearing synthetic AP242 B-Rep assembly geometry data
 3. Part, face, edge, connection, size-field, failure-risk, and repair-action labels
 4. Synthetic-oracle mesh data
 5. BDF files
@@ -58,6 +58,14 @@ The generated dataset must contain:
 7. Graph files
 8. Dataset index
 9. Train, validation, and test split files
+
+The synthetic CAD geometry must not be box-only. Current supported synthetic
+templates are `plastic_base`, `ribbed_cover`, `sheet_metal_box`, `bracket`,
+`screw`, `motor_dummy`, and `pcb_dummy`. STEP export must create visible B-Rep
+feature evidence such as ribs, bosses, holes, flanges, brackets, screw
+cylinders/heads, board holes, and motor cylinders. If a template builder is
+missing or CadQuery/OCP cannot build the feature geometry, the sample must be
+rejected or the run must fail; it must not be replaced by a box fallback.
 
 ## Development workflow
 
@@ -174,7 +182,7 @@ The implementation is complete when:
 10. Unit tests pass.
 11. Integration tests pass.
 12. End-to-end tests pass.
-13. `FINAL_DELIVERY_REPORT.md` summarizes implementation results, dataset statistics, model metrics, AMG validation metrics, and truthful status classes such as `SYNTHETIC_BOOTSTRAP_ACCEPTED`, `ANSA_SMOKE_PASSED`, and `LG_PRODUCTION_NOT_VALIDATED`.
+13. `FINAL_DELIVERY_REPORT.md` summarizes implementation results, dataset statistics, model metrics, AMG validation metrics, and truthful status classes such as `FEATURE_SYNTHETIC_BOOTSTRAP_ACCEPTED`, `ANSA_SMOKE_PASSED`, and `LG_PRODUCTION_NOT_VALIDATED`.
 
 ## Truthfulness requirements
 

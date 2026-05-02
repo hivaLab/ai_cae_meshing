@@ -19,5 +19,7 @@ class SheetMetalBoxTemplate(PartTemplate):
             FeatureRecord(f"{part_uid}_flange_{i}", "flange", f"{part_uid}_face_front", rng.uniform(8.0, 16.0), False)
             for i in range(2)
         ]
+        for index in range(4):
+            features.append(FeatureRecord(f"{part_uid}_hole_{index}", "mounting_hole", f"{part_uid}_face_front", rng.uniform(2.8, 4.8), True))
         ports = [AssemblyPort(f"{part_uid}_port_mount", part_uid, "mount", (length / 2, width / 2, 0.0), (0.0, 0.0, -1.0))]
         return GeneratedPart(part_uid, self.name, self.material_id, self.strategy, {"length": length, "width": width, "height": height}, 1.0, features, labels, ports, signatures)

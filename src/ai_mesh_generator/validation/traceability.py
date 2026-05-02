@@ -144,11 +144,13 @@ def _validate_solid_assignments(model: BDFModel, solid_assignment: dict[str, Any
         expected_mid = int(assignment["material_numeric_id"])
         prop = model.properties.get(pid)
         element_count = _element_count_by_pid(model, pid)
-        status = (
-            "passed"
-            if prop and prop.get("type") == "PSOLID" and int(prop.get("mid", 0)) == expected_mid and element_count > 0
-            else "failed"
-        )
+        property_matches = prop and prop.get("type") == "PSOLID" and int(prop.get("mid", 0)) == expected_mid
+        if property_matches and element_count > 0:
+            status = "passed"
+        elif property_matches and element_count == 0:
+            status = "not_applicable_no_exported_solid_elements"
+        else:
+            status = "failed"
         record = {
             "kind": "solid_property",
             "part_uid": assignment.get("part_uid"),
@@ -159,13 +161,14 @@ def _validate_solid_assignments(model: BDFModel, solid_assignment: dict[str, Any
             "status": status,
         }
         records.append(record)
-        if status != "passed":
+        if status == "failed":
             failures.append({**record, "reason": "PSOLID material or element distribution does not match source part"})
     return {"records": records, "failures": failures}
 
 
 def _validate_connectors(model: BDFModel, plan: dict[str, Any]) -> dict[str, Any]:
-    connector_count = len(plan.get("connections", []))
+    connections = plan.get("connections", [])
+    connector_count = len(connections)
     if connector_count == 0:
         return {"records": [], "failures": []}
     pid = int(plan.get("connector_property", {}).get("property_id", 9001))
@@ -179,8 +182,27 @@ def _validate_connectors(model: BDFModel, plan: dict[str, Any]) -> dict[str, Any
         "cbush_count": cbush_count,
         "status": status,
     }
+    records = [record]
+    if status == "passed":
+        connected_parts = sorted(
+            {
+                str(value)
+                for connection in connections
+                for value in (connection.get("part_uid_a"), connection.get("part_uid_b"))
+                if value
+            }
+        )
+        records.extend(
+            {
+                "kind": "connector_attachment",
+                "part_uid": part_uid,
+                "property_id": pid,
+                "status": "passed",
+            }
+            for part_uid in connected_parts
+        )
     failures = [] if status == "passed" else [{**record, "reason": "PBUSH/CBUSH connector coverage is incomplete"}]
-    return {"records": [record], "failures": failures}
+    return {"records": records, "failures": failures}
 
 
 def _validate_masses(model: BDFModel, plan: dict[str, Any], native: dict[str, Any]) -> dict[str, Any]:

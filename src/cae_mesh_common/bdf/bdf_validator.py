@@ -51,7 +51,7 @@ def validate_model(model: BDFModel) -> BDFValidationResult:
     missing_nodes = 0
     messages: list[str] = []
     shell_types = {"CQUAD4", "CTRIA3"}
-    solid_types = {"CTETRA", "CTETRA10", "CHEXA", "CPENTA", "CPYRA"}
+    solid_types = {"CTETRA", "CTETRA10", "CHEXA", "CPENTA", "CPYRA", "PYRAMID"}
     connector_types = {"RBE2", "RBE3", "CBUSH", "CONM2"}
 
     for eid, element in model.elements.items():

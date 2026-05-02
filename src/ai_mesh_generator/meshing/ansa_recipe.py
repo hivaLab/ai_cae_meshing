@@ -51,7 +51,7 @@ def build_ansa_recipe_plan(assembly: dict[str, Any], recipe: dict[str, Any]) -> 
                 "material_numeric_id": mid,
                 "nominal_thickness": round(thickness, 6),
                 "target_size": target_size,
-                "min_size": round(max(0.5, target_size * 0.35), 4),
+                "min_size": round(max(0.25, target_size * 0.15), 4),
                 "max_size": round(max(target_size, target_size * 1.65), 4),
                 "quality_profile": _quality_profile(strategy, thickness),
                 "geometry_box": part_box,
@@ -283,7 +283,7 @@ def _interface_point(box: dict[str, object], other: dict[str, object]) -> list[f
 
 def _mesh_session_keywords(target_size: float) -> dict[str, str]:
     target = _positive_float(target_size, 10.0)
-    min_size = max(0.5, target * 0.35)
+    min_size = max(0.25, target * 0.15)
     max_size = max(target, target * 1.65)
     return {
         "perimeter_length": _fmt(target),

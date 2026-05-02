@@ -6,7 +6,7 @@ val_count: 100
 test_count: 100
 product_family: base_indoor_control_box
 units: mm
-backend: LOCAL_PROCEDURAL
+backend: SYNTHETIC_ORACLE
 min_parts_per_assembly: 10
 defect_rate: 0.35
 output_version: v001

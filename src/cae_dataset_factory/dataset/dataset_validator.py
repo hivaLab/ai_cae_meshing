@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from cae_mesh_common.bdf.bdf_validator import validate_bdf
-from cae_mesh_common.cad.step_io import inspect_step_brep
+from cae_mesh_common.cad.step_io import inspect_step_brep, validate_feature_bearing_step
 from cae_mesh_common.graph.hetero_graph import load_graph
 from cae_mesh_common.schema.validators import validate_json_file
 from cae_dataset_factory.dataset.dataset_indexer import read_dataset_index
@@ -75,6 +75,7 @@ def validate_dataset(dataset_dir: Path | str) -> DatasetValidationSummary:
             sample_dir / "input_package/metadata/material_library.json",
             sample_dir / "input_package/metadata/connections.csv",
             sample_dir / "input_package/metadata/boundary_named_sets.json",
+            sample_dir / "input_package/metadata/geometry_feature_evidence.json",
             sample_dir / "graphs/graph.pt",
             sample_dir / "graphs/brep_graph.json",
             sample_dir / "graphs/assembly_graph.json",
@@ -87,9 +88,18 @@ def validate_dataset(dataset_dir: Path | str) -> DatasetValidationSummary:
         missing += sum(1 for path in required_sample_artifacts if not path.exists())
         step_path = sample_dir / "input_package/geometry/assembly.step"
         if step_path.exists():
-            step_info = inspect_step_brep(step_path)
-            if not step_info["valid_step"] or not step_info["is_ap242"] or not step_info["is_brep"] or step_info["descriptor_only"]:
-                step_brep_failures += 1
+            assembly_path = sample_dir / "input_package/metadata/assembly.json"
+            if assembly_path.exists():
+                assembly = json.loads(assembly_path.read_text(encoding="utf-8"))
+                step_info = validate_feature_bearing_step(step_path, assembly.get("parts", []))
+                if not step_info["feature_bearing"]:
+                    step_brep_failures += 1
+            else:
+                step_info = inspect_step_brep(step_path)
+                if not step_info["valid_step"] or not step_info["is_ap242"] or not step_info["is_brep"] or step_info["descriptor_only"]:
+                    step_brep_failures += 1
+        else:
+            step_brep_failures += 1
         if Path(row["graph_path"]).exists():
             load_graph(row["graph_path"])
         for path, schema in [

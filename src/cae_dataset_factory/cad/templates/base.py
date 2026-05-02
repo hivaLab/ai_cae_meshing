@@ -50,6 +50,7 @@ class GeneratedPart:
         return {
             "part_uid": self.part_uid,
             "name": self.name,
+            "cad_template": self.name,
             "material_id": self.material_id,
             "strategy": self.strategy,
             "dimensions": self.dimensions,

@@ -21,11 +21,11 @@ def test_brep_training_evaluate_export_pipeline(tmp_path: Path):
     item = train_split[0]
     assert item["part_strategy"].dtype == torch.long
     assert item["graph"]["node_features"]["part"].ndim == 2
-    assert item["graph"]["node_features"]["face"].shape[0] == 72
+    assert item["graph"]["node_features"]["face"].shape[0] == 66
     assert item["graph"]["edge_index"]["face__incident_to__edge"].shape[0] == 2
-    assert item["part_strategy"].shape == (12,)
-    assert item["face_semantic"].shape == (72,)
-    assert item["edge_semantic"].shape == (144,)
+    assert item["part_strategy"].shape == (11,)
+    assert item["face_semantic"].shape == (66,)
+    assert item["edge_semantic"].shape == (132,)
     assert Path(item["graph_path"]).with_name("brep_graph.json").exists()
     assert Path(item["graph_path"]).with_name("assembly_graph.json").exists()
 

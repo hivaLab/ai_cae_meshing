@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from ai_mesh_generator.cad.importer import import_input_assembly
-from cae_mesh_common.cad.step_io import cad_kernel_status, inspect_step_brep
+from cae_mesh_common.cad.step_io import cad_kernel_status, inspect_step_brep, validate_feature_bearing_step
 from cae_dataset_factory.assembly.assembly_grammar import AssemblyGrammar
 from cae_dataset_factory.cad.cad_exporter import export_assembly_step
 
@@ -29,11 +29,13 @@ def test_cadquery_ocp_exports_real_ap242_brep_step(tmp_path: Path):
     assert info["is_ap242"]
     assert info["is_brep"]
     assert not info["descriptor_only"]
-    assert info["advanced_face_count"] >= 6 * len(assembly["parts"])
+    assert info["advanced_face_count"] > 6 * len(assembly["parts"])
+    assert info["cylindrical_surface_count"] > 0
     assert info["product_count"] >= len(assembly["parts"])
+    feature_info = validate_feature_bearing_step(step_path, assembly["parts"])
+    assert feature_info["feature_bearing"], feature_info
     assert imported["geometry_source"]["cad_kernel"] == "STEP_AP242_BREP"
     assert imported["geometry_source"]["step_descriptor_only"] is False
     assert "deterministic procedural geometry descriptor" not in step_path.read_text(
         encoding="utf-8", errors="replace"
     )
-

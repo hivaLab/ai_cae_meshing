@@ -15,3 +15,17 @@ def test_cdf_build_dataset_smoke(tmp_path: Path):
     assert summary.train_count == 8
     assert summary.val_count == 1
     assert summary.test_count == 1
+
+
+def test_cdf_refinement_dataset_has_variable_topology_and_rejections(tmp_path: Path):
+    dataset = tmp_path / "dataset_refinement"
+    build_dataset("configs/cdf/base_indoor_generation_v001.yaml", dataset, num_samples=50)
+    summary = validate_dataset(dataset)
+
+    assert summary.passed
+    assert summary.accepted_count == 50
+    assert summary.rejected_count >= 5
+    assert summary.topology_family_count >= 5
+    assert summary.graph_node_shape_unique_count >= 20
+    assert summary.mesh_size_label_coverage >= 0.95
+    assert summary.rejected_ratio >= 0.10

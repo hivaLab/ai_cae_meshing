@@ -89,7 +89,8 @@ def _run_explicit_ansa_export(config: dict, mode: str) -> dict:
         base, batchmesh, constants, plan, stage_dir, session_application, native_solid_generation
     )
     final_counts = _collect_counts(base, constants)
-    if int(native_entity_generation["solid_tetra"]["created_count"]) <= 0:
+    expected_solid = int(native_entity_generation["solid_tetra"].get("expected_solid_part_count", 0))
+    if expected_solid > 0 and int(native_entity_generation["solid_tetra"]["created_count"]) <= 0:
         raise RuntimeError(f"ANSA native CTETRA generation produced no solid elements: {native_entity_generation}")
     if int(native_entity_generation["connectors"]["created_count"]) < int(plan.get("summary", {}).get("connection_count", 0)):
         raise RuntimeError(f"ANSA native connector generation did not cover all planned connections: {native_entity_generation}")
@@ -262,15 +263,18 @@ def _run_recipe_batch_sessions(base, batchmesh, constants, plan: dict, stage_dir
     pshells = sorted(base.CollectEntities(constants.NASTRAN, None, "PSHELL", True) or [], key=lambda ent: ent._id)
     targets = ansa_parts if ansa_parts else pshells
     session_records = []
-    for index, part in enumerate(plan.get("parts", [])):
+    target_index = 0
+    for part in plan.get("parts", []):
         if not part.get("batch_mesh", True):
             session_records.append({"part_uid": part["part_uid"], "status": "skipped", "strategy": part["strategy"]})
             continue
-        if index >= len(targets):
+        if target_index >= len(targets):
             raise RuntimeError(f"no ANSA part/property target for recipe part {part['part_uid']}")
-        target = targets[index]
+        target = targets[target_index]
+        target_index += 1
         bm_session = batchmesh.GetNewSession()
         parameters = dict(part["mesh_session_keywords"])
+        refinement_zones = list(part.get("refinement_zones", []))
         set_status = batchmesh.SetSessionParameters(bm_session, parameters)
         if int(set_status) != 0:
             raise RuntimeError(f"ANSA rejected batch mesh parameters for {part['part_uid']}: {parameters}")
@@ -290,6 +294,11 @@ def _run_recipe_batch_sessions(base, batchmesh, constants, plan: dict, stage_dir
                 "status": "ran",
                 "strategy": part["strategy"],
                 "target_size": float(part["target_size"]),
+                "part_level_target_size": float(part.get("part_level_target_size", part["target_size"])),
+                "refinement_zone_count": len(refinement_zones),
+                "required_refinement_zone_count": sum(1 for zone in refinement_zones if zone.get("required", False)),
+                "refinement_zones": refinement_zones,
+                "refinement_applied_by": "per_part_batchmesh_session_minimum_zone_size",
                 "target_entity_type": target._ansaType(constants.NASTRAN),
                 "target_entity_id": int(target._id),
                 "set_parameters_status": int(set_status),
@@ -659,6 +668,7 @@ def _run_quality_repair_loop(
             continue
         bm_session = batchmesh.GetNewSession()
         parameters = _repair_mesh_parameters(dict(part["mesh_session_keywords"]))
+        refinement_zones = list(part.get("refinement_zones", []))
         set_status = batchmesh.SetSessionParameters(bm_session, parameters)
         add_status = batchmesh.AddPartToSession(target, bm_session)
         run_status = batchmesh.RunSession(bm_session)
@@ -670,6 +680,8 @@ def _run_quality_repair_loop(
                 "status": "repair_ran",
                 "strategy": part["strategy"],
                 "target_size": float(part["target_size"]),
+                "refinement_zone_count": len(refinement_zones),
+                "refinement_zones": refinement_zones,
                 "target_entity_type": source_record["target_entity_type"],
                 "target_entity_id": int(source_record["target_entity_id"]),
                 "set_parameters_status": int(set_status),

@@ -31,6 +31,13 @@ actual template geometry for `plastic_base`, `ribbed_cover`,
 STEP exports are rejected by validation and must not be reported as completed
 CAD examples.
 
+The current AI target is not a uniform mesh. CDF writes `mesh_size_labels` for
+part, face, edge, feature, contact-candidate, and connection targets, including
+local refinement for holes, short edges, thin strips, rib roots, bosses, contact
+faces, and boundary regions. AMG converts the BRepAssemblyNet outputs into
+`refinement_zones` in `mesh_recipe_final.json`; ANSA_BATCH is expected to apply
+those controls or report an explicit manual-review/failure reason.
+
 Real supervised training submissions should use this minimum structure:
 
 ```text

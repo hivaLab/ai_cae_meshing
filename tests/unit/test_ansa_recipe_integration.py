@@ -21,9 +21,13 @@ def test_ansa_recipe_plan_carries_ai_size_material_and_connector_controls():
     assert plan["fallback_enabled"] is False
     assert plan["summary"]["part_count"] == len(assembly["parts"])
     assert plan["summary"]["per_part_size_field_count"] == len(recipe["size_fields"])
+    assert plan["summary"]["refinement_zone_count"] == len(recipe["refinement_zones"])
+    assert plan["summary"]["required_refinement_zone_count"] > 0
+    assert plan["summary"]["parts_with_refinement_zones"] > 0
     assert plan["summary"]["connection_count"] == len(assembly["connections"])
     assert plan["materials"]
     assert all("perimeter_length" in part["mesh_session_keywords"] for part in plan["parts"])
+    assert any(part["refinement_zone_count"] > 0 and part["target_size"] <= part["part_level_target_size"] for part in plan["parts"])
     assert plan["native_entity_generation"]["solid_tetra"]["entity_type"] == "SOLID"
     assert plan["native_entity_generation"]["solid_tetra"]["element_type"] == "CTETRA"
     assert plan["native_entity_generation"]["solid_tetra"]["method"] == "batchmesh_volume_scenario"

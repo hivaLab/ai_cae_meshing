@@ -54,7 +54,8 @@ Required model behavior:
 
 - Detect shell-mesh-suitable parts.
 - Preserve important boundaries and holes.
-- Predict mesh size field.
+- Predict local mesh-size/refinement controls for holes, short edges, thin
+  strips, ribs, bosses, contact faces, and critical boundaries.
 - Assign shell property and thickness.
 - Generate BDF shell mesh with valid material/property references.
 - Report regions that need manual cleanup or review.
@@ -173,7 +174,8 @@ target classes.
 The model should predict:
 
 - Mesh representation: shell, mass-only, connector, approved-exclude, manual review.
-- Mesh size field.
+- Local mesh-size/refinement controls for part, face, edge, feature,
+  contact-candidate, and connection targets.
 - Feature preservation or defeature decisions.
 - Thickness assignment or thickness region class.
 - Boundary preservation flags.

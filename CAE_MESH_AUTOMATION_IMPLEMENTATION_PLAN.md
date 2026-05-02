@@ -3256,9 +3256,10 @@ LG/OEM CAD validation.
   meshes, but this oracle must not be reported as production mesh automation.
 - If ANSA is unavailable or fails, production meshing fails explicitly.
 - `FINAL_DELIVERY_REPORT.md` must use truthful status labels such as
-  `SYNTHETIC_BOOTSTRAP_ACCEPTED`, `ANSA_SMOKE_PASSED`, and
-  `LG_PRODUCTION_NOT_VALIDATED`; generic `ACCEPTED` is not sufficient unless a
-  real LG/OEM CAD/Mesh regression has been supplied and passed.
+  `REFINEMENT_SYNTHETIC_BOOTSTRAP_ACCEPTED`, `ANSA_SMOKE_PASSED`,
+  `SYNTHETIC_ANSA_REGRESSION_ACCEPTED`, and `LG_PRODUCTION_NOT_VALIDATED`;
+  generic `ACCEPTED` is not sufficient unless a real LG/OEM CAD/Mesh regression
+  has been supplied and passed.
 - Every CAD product/part must be represented in FE output as explicit mesh,
   connector, mass, approved-exclude, or manual-review/failure. Silent omission
   is a validation failure.
@@ -3278,6 +3279,32 @@ B-Rep geometry contains actual template features. `plastic_base`,
 `cylindrical_body` must have topology evidence in the STEP file. Builder
 failures or unsupported templates must fail or be rejected; box fallback is not
 permitted. Synthetic success is reported as
-`FEATURE_SYNTHETIC_BOOTSTRAP_ACCEPTED`, while real LG/OEM production validation
+`REFINEMENT_SYNTHETIC_BOOTSTRAP_ACCEPTED`, while real LG/OEM production validation
 remains `LG_PRODUCTION_NOT_VALIDATED` until external CAD/Mesh pairs are
 validated.
+
+## AI-ANSA Refinement Pipeline Addendum
+
+Uniform part-level mesh size is not the production target. The learning target
+and AMG output must be region-aware:
+
+- Dataset labels use `mesh_size_labels` for part, face, edge, feature,
+  contact-candidate, and connection targets.
+- Holes, short edges, thin strips, rib roots, bosses, contact faces, and
+  boundary/load regions must produce local refinement targets smaller than the
+  parent part baseline when applicable.
+- `mesh_recipe_final.json` must include `refinement_zones` with explicit target
+  uid/type, local size, growth rate, boundary-preservation flag, ANSA control
+  type, and reason.
+- BRepAssemblyNet must expose recipe-compatible heads for `face_size`,
+  `edge_size`, `contact_size`, and `feature_refinement_class`; part-level size is
+  only an auxiliary coarse control.
+- ANSA integration must record refinement zone counts and application metadata.
+  A required zone that cannot be mapped to ANSA controls must become
+  manual-review/failure, not a silent pass.
+- Synthetic bootstrap acceptance requires at least five topology families,
+  variable part/face/edge/contact graph shapes, retained rejected/failure
+  samples, and high feature-level mesh-size label coverage.
+- Real supervised production claims require engineer-reviewed CAD/ANSA mesh
+  pairs. Without those pairs the report must state
+  `REAL_SUPERVISED_DATASET_NOT_AVAILABLE`.

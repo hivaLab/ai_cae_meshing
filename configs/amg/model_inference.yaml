@@ -1,5 +1,5 @@
 seed: 20260430
-backend: LOCAL_PROCEDURAL
+backend: ANSA_BATCH
 recipe_guard:
   min_confidence: 0.55
   preserve_named_boundaries: true

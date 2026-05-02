@@ -3,7 +3,7 @@ from __future__ import annotations
 import torch
 
 from cae_mesh_common.graph.hetero_graph import HeteroGraph
-from training_pipeline.data.dataset import PART_STRATEGY_CLASSES
+from training_pipeline.data.dataset import FEATURE_REFINEMENT_CLASSES, PART_STRATEGY_CLASSES
 from training_pipeline.data.normalization import normalize_graph_batch
 from training_pipeline.models.brep_assembly_net import BRepAssemblyNet
 
@@ -16,8 +16,11 @@ def predict_recipe_signals(model: dict, graph: HeteroGraph, assembly: dict) -> d
 
     part_nodes = graph.node_sets["part"]
     part_strategy_logits = outputs["part_strategy"]
-    normalized_size = outputs["size_field"].squeeze(-1)
+    normalized_size = outputs["part_size"].squeeze(-1)
     pred_sizes = torch.clamp(normalized_size * float(model["target_std"]) + float(model["target_mean"]), min=2.0)
+    face_sizes = _denormalized_size(outputs["face_size"], model)
+    edge_sizes = _denormalized_size(outputs["edge_size"], model)
+    contact_sizes = _denormalized_size(outputs["contact_size"], model)
     confidences = _part_confidences(model, outputs)
 
     part_strategies = []
@@ -40,16 +43,22 @@ def predict_recipe_signals(model: dict, graph: HeteroGraph, assembly: dict) -> d
             }
         )
 
+    refinement_zones = _predicted_refinement_zones(graph, outputs, face_sizes, edge_sizes, contact_sizes)
     return {
         "base_size": round(float(torch.mean(pred_sizes).item()), 4),
         "part_strategies": part_strategies,
         "size_fields": size_fields,
+        "refinement_zones": refinement_zones,
         "connections": assembly.get("connections", []),
         "confidence": round(sum(confidences) / len(confidences), 4),
         "neural_outputs": {
             "part_strategy_logits": part_strategy_logits.tolist(),
             "face_semantic_logits": outputs["face_semantic"].tolist(),
             "edge_semantic_logits": outputs["edge_semantic"].tolist(),
+            "feature_refinement_class_logits": outputs["feature_refinement_class"].tolist(),
+            "face_size": face_sizes.tolist(),
+            "edge_size": edge_sizes.tolist(),
+            "contact_size": contact_sizes.tolist(),
             "connection_candidate_logits": outputs["connection_candidate"].tolist(),
             "failure_risk": outputs["failure_risk"].squeeze(-1).tolist(),
             "repair_action_logits": outputs["repair_action"].tolist(),
@@ -77,6 +86,96 @@ def _part_confidences(artifact: dict, outputs: dict[str, torch.Tensor]) -> list[
     trained = float(artifact.get("confidence", 0.5))
     combined = 0.35 * part_conf + 0.25 * repair_conf + 0.20 * risk_conf + 0.20 * trained
     return [round(max(0.05, min(0.99, float(value))), 4) for value in combined]
+
+
+def _denormalized_size(values: torch.Tensor, artifact: dict) -> torch.Tensor:
+    return torch.clamp(values.squeeze(-1) * float(artifact["target_std"]) + float(artifact["target_mean"]), min=0.5)
+
+
+def _predicted_refinement_zones(
+    graph: HeteroGraph,
+    outputs: dict[str, torch.Tensor],
+    face_sizes: torch.Tensor,
+    edge_sizes: torch.Tensor,
+    contact_sizes: torch.Tensor,
+) -> list[dict]:
+    zones = []
+    face_classes = torch.argmax(outputs["feature_refinement_class"], dim=1)
+    face_confidences = torch.softmax(outputs["feature_refinement_class"], dim=1).max(dim=1).values
+    for index, node in enumerate(graph.node_sets["face"]):
+        cls = FEATURE_REFINEMENT_CLASSES[int(face_classes[index].item())]
+        zones.append(
+            _zone(
+                zone_uid=f"ai_face_zone_{node['uid']}",
+                target_type="face",
+                target_uid=node["uid"],
+                size=float(face_sizes[index].item()),
+                reason=f"ai_{cls}_face_refinement",
+                control_type="surface_mesh_size_control",
+                preserve_boundary=cls in {"hole", "thin_region", "rib_root", "boss", "contact", "boundary", "curvature"},
+                confidence=float(face_confidences[index].item()),
+                source_feature_type=cls,
+            )
+        )
+    for index, node in enumerate(graph.node_sets["edge"]):
+        zones.append(
+            _zone(
+                zone_uid=f"ai_edge_zone_{node['uid']}",
+                target_type="edge",
+                target_uid=node["uid"],
+                size=float(edge_sizes[index].item()),
+                reason="ai_edge_refinement",
+                control_type="edge_length_control",
+                preserve_boundary=True,
+                confidence=0.75,
+                source_feature_type="edge",
+            )
+        )
+    for index, node in enumerate(graph.node_sets["contact_candidate"]):
+        zones.append(
+            _zone(
+                zone_uid=f"ai_contact_zone_{node['uid']}",
+                target_type="contact_candidate",
+                target_uid=node["uid"],
+                size=float(contact_sizes[index].item()),
+                reason="ai_contact_or_connection_refinement",
+                control_type="contact_surface_size_control",
+                preserve_boundary=True,
+                confidence=0.85,
+                source_feature_type="contact",
+            )
+        )
+    return zones
+
+
+def _zone(
+    *,
+    zone_uid: str,
+    target_type: str,
+    target_uid: str,
+    size: float,
+    reason: str,
+    control_type: str,
+    preserve_boundary: bool,
+    confidence: float,
+    source_feature_type: str,
+) -> dict:
+    size = round(max(0.5, float(size)), 4)
+    return {
+        "zone_uid": zone_uid,
+        "target_type": target_type,
+        "target_uid": target_uid,
+        "size_mm": size,
+        "min_size_mm": round(max(0.25, size * 0.55), 4),
+        "max_size_mm": round(max(size, size * 1.75), 4),
+        "growth_rate": 1.25,
+        "preserve_boundary": bool(preserve_boundary),
+        "ansa_control_type": control_type,
+        "reason": reason,
+        "source_feature_type": source_feature_type,
+        "confidence": round(max(0.05, min(0.99, confidence)), 4),
+        "required": bool(preserve_boundary),
+    }
 
 
 def _class_name(logits: torch.Tensor, artifact: dict, head: str, default_classes: list[str]) -> str:

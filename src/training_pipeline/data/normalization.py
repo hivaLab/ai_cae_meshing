@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import torch
 
+SIZE_TARGET_KEYS = ["part_size", "size_field", "face_size", "edge_size", "contact_size"]
+
 
 def compute_node_feature_stats(graph_batch: dict[str, object]) -> dict[str, dict[str, list[float]]]:
     stats = {}
@@ -34,7 +36,10 @@ def normalize_graph_batch(graph_batch: dict[str, object], stats: dict[str, dict[
 
 def normalize_size_targets(batch: dict[str, object], target_mean: float, target_std: float) -> dict[str, object]:
     result = dict(batch)
-    raw = torch.as_tensor(batch["size_field"], dtype=torch.float32)
-    result["size_field_raw"] = raw
-    result["size_field"] = (raw - float(target_mean)) / float(target_std)
+    for key in SIZE_TARGET_KEYS:
+        if key not in batch:
+            continue
+        raw = torch.as_tensor(batch[key], dtype=torch.float32)
+        result[f"{key}_raw"] = raw
+        result[key] = (raw - float(target_mean)) / float(target_std)
     return result

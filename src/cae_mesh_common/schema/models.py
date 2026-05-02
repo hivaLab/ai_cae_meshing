@@ -41,6 +41,7 @@ class MeshRecipe:
     part_strategies: list[dict[str, Any]]
     size_fields: list[dict[str, Any]]
     connections: list[dict[str, Any]]
+    refinement_zones: list[dict[str, Any]] = field(default_factory=list)
     guard: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -50,6 +51,7 @@ class MeshRecipe:
             "backend": self.backend,
             "part_strategies": self.part_strategies,
             "size_fields": self.size_fields,
+            "refinement_zones": self.refinement_zones,
             "connections": self.connections,
             "guard": self.guard,
         }

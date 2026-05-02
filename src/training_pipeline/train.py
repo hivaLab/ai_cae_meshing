@@ -17,6 +17,7 @@ from training_pipeline.data.dataset import (
     FACE_SEMANTIC_CLASSES,
     PART_STRATEGY_CLASSES,
     REPAIR_ACTION_CLASSES,
+    FEATURE_REFINEMENT_CLASSES,
 )
 from training_pipeline.data.normalization import compute_node_feature_stats, normalize_graph_batch, normalize_size_targets
 from training_pipeline.losses.multitask_loss import multitask_loss
@@ -35,8 +36,9 @@ def train_model(config_path: Path | str, dataset_dir: Path | str, output_dir: Pa
     train_batch = _load_split_batch(dataset_dir, "train")
     val_batch = _load_split_batch(dataset_dir, "val")
     node_feature_stats = compute_node_feature_stats(train_batch["graph"])
-    target_mean = float(torch.mean(train_batch["size_field"]).item())
-    target_std = float(torch.std(train_batch["size_field"]).item())
+    size_values = _combined_size_targets(train_batch)
+    target_mean = float(torch.mean(size_values).item())
+    target_std = float(torch.std(size_values).item())
     if target_std == 0.0:
         target_std = 1.0
     train_batch = _prepare_batch(train_batch, node_feature_stats, target_mean, target_std)
@@ -134,19 +136,24 @@ def _metrics(
     target_mean: float | None = None,
     target_std: float | None = None,
 ) -> dict[str, float]:
-    size_pred = outputs["size_field"].squeeze(-1)
-    size_target = targets["size_field"]
-    if target_mean is not None and target_std is not None:
-        size_pred = size_pred * target_std + target_mean
-        size_target = targets["size_field_raw"]
+    size_pred, size_target = _combined_size_predictions(outputs, targets, target_mean, target_std)
     result = {
         f"{prefix}_mae": float(torch.mean(torch.abs(size_pred - size_target)).item()),
         f"{prefix}_rmse": float(torch.sqrt(torch.mean((size_pred - size_target) ** 2)).item()),
         f"{prefix}_size_field_mae_percent": float(torch.mean(torch.abs(size_pred - size_target) / torch.clamp(size_target, min=1e-9)).item()),
+        f"{prefix}_refinement_size_mae_percent": float(torch.mean(torch.abs(size_pred - size_target) / torch.clamp(size_target, min=1e-9)).item()),
         f"{prefix}_failure_risk_mae": float(torch.mean(torch.abs(outputs["failure_risk"].squeeze(-1) - targets["failure_risk"])).item()),
     }
-    for key in ["part_strategy", "face_semantic", "edge_semantic", "connection_candidate", "repair_action"]:
+    for key in ["part_strategy", "face_semantic", "edge_semantic", "connection_candidate", "repair_action", "feature_refinement_class"]:
         result[f"{prefix}_{key}_accuracy"] = _accuracy(outputs[key], targets[key])
+    for key in ["part_size", "face_size", "edge_size", "contact_size"]:
+        if key in targets and len(targets[key]) > 0:
+            pred = outputs[key].squeeze(-1)
+            target = targets[key]
+            if target_mean is not None and target_std is not None:
+                pred = pred * target_std + target_mean
+                target = targets[f"{key}_raw"]
+            result[f"{prefix}_{key}_mae_percent"] = float(torch.mean(torch.abs(pred - target) / torch.clamp(target, min=1e-9)).item())
     result[f"{prefix}_part_strategy_macro_f1"] = _macro_f1(outputs["part_strategy"], targets["part_strategy"])
     result[f"{prefix}_face_semantic_mean_iou"] = _mean_iou(outputs["face_semantic"], targets["face_semantic"])
     result[f"{prefix}_edge_semantic_macro_f1"] = _macro_f1(outputs["edge_semantic"], targets["edge_semantic"])
@@ -156,6 +163,42 @@ def _metrics(
     result[f"{prefix}_failure_risk_recall"] = _threshold_recall(outputs["failure_risk"].squeeze(-1), targets["failure_risk"])
     result[f"{prefix}_repair_action_top1_accuracy"] = result[f"{prefix}_repair_action_accuracy"]
     return result
+
+
+def _combined_size_targets(batch: dict[str, torch.Tensor]) -> torch.Tensor:
+    values = [torch.as_tensor(batch[key], dtype=torch.float32).reshape(-1) for key in ["part_size", "face_size", "edge_size", "contact_size"] if key in batch]
+    if not values:
+        values = [torch.as_tensor(batch["size_field"], dtype=torch.float32).reshape(-1)]
+    return torch.cat(values, dim=0)
+
+
+def _combined_size_predictions(
+    outputs: dict[str, torch.Tensor],
+    targets: dict[str, torch.Tensor],
+    target_mean: float | None,
+    target_std: float | None,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    pred_values = []
+    target_values = []
+    for key in ["part_size", "face_size", "edge_size", "contact_size"]:
+        if key not in outputs or key not in targets or len(targets[key]) == 0:
+            continue
+        pred = outputs[key].squeeze(-1)
+        target = targets[key]
+        if target_mean is not None and target_std is not None:
+            pred = pred * target_std + target_mean
+            target = targets[f"{key}_raw"]
+        pred_values.append(pred)
+        target_values.append(target)
+    if not pred_values:
+        pred = outputs["size_field"].squeeze(-1)
+        target = targets["size_field"]
+        if target_mean is not None and target_std is not None:
+            pred = pred * target_std + target_mean
+            target = targets["size_field_raw"]
+        pred_values.append(pred)
+        target_values.append(target)
+    return torch.cat(pred_values, dim=0), torch.cat(target_values, dim=0)
 
 
 def _accuracy(logits: torch.Tensor, target: torch.Tensor) -> float:
@@ -219,13 +262,14 @@ def _threshold_recall(pred_scores: torch.Tensor, target_scores: torch.Tensor, th
 
 
 def _confidence_from_metrics(metrics: dict[str, float]) -> float:
-    size_score = max(0.0, 1.0 - metrics.get("val_size_field_mae_percent", 1.0))
+    size_score = max(0.0, 1.0 - metrics.get("val_refinement_size_mae_percent", metrics.get("val_size_field_mae_percent", 1.0)))
     class_keys = [
         "val_part_strategy_accuracy",
         "val_face_semantic_accuracy",
         "val_edge_semantic_accuracy",
         "val_connection_candidate_accuracy",
         "val_repair_action_accuracy",
+        "val_feature_refinement_class_accuracy",
     ]
     class_score = sum(metrics.get(key, 0.0) for key in class_keys) / len(class_keys)
     return float(max(0.05, min(0.99, 0.5 * size_score + 0.5 * class_score)))
@@ -240,7 +284,12 @@ def _head_schema() -> dict[str, list[str] | str]:
         "part_strategy": PART_STRATEGY_CLASSES,
         "face_semantic": FACE_SEMANTIC_CLASSES,
         "edge_semantic": EDGE_SEMANTIC_CLASSES,
-        "size_field": "part_node_regression_mm",
+        "part_size": "part_node_regression_mm_auxiliary",
+        "face_size": "face_node_refinement_regression_mm",
+        "edge_size": "edge_node_refinement_regression_mm",
+        "contact_size": "contact_candidate_refinement_regression_mm",
+        "feature_refinement_class": FEATURE_REFINEMENT_CLASSES,
+        "size_field": "deprecated_part_node_regression_mm_alias",
         "connection_candidate": CONNECTION_CLASSES,
         "failure_risk": "part_node_regression_probability",
         "repair_action": REPAIR_ACTION_CLASSES,

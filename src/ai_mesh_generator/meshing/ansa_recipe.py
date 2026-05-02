@@ -22,6 +22,7 @@ def build_ansa_recipe_plan(assembly: dict[str, Any], recipe: dict[str, Any]) -> 
     base_size = _positive_float(recipe.get("base_size", 10.0), 10.0)
     strategy_by_part = {item.get("part_uid"): _normalize_strategy(str(item.get("strategy", "shell"))) for item in recipe.get("part_strategies", [])}
     size_by_part = {item.get("part_uid"): _positive_float(item.get("target_size"), base_size) for item in recipe.get("size_fields", [])}
+    zones_by_part = _refinement_zones_by_part(parts, assembly.get("connections", []), recipe.get("refinement_zones", []))
 
     part_plans: list[dict[str, Any]] = []
     strategy_counts: dict[str, int] = {}
@@ -29,7 +30,12 @@ def build_ansa_recipe_plan(assembly: dict[str, Any], recipe: dict[str, Any]) -> 
         part_uid = str(part["part_uid"])
         strategy = strategy_by_part.get(part_uid, _normalize_strategy(str(part.get("strategy", "shell"))))
         strategy_counts[strategy] = strategy_counts.get(strategy, 0) + 1
-        target_size = round(size_by_part.get(part_uid, base_size), 4)
+        requested_target_size = round(size_by_part.get(part_uid, base_size), 4)
+        refinement_zones = zones_by_part.get(part_uid, [])
+        effective_target_size = min(
+            [requested_target_size] + [float(zone["size_mm"]) for zone in refinement_zones if not zone.get("skipped")]
+        )
+        target_size = round(effective_target_size, 4)
         material_id = str(part["material_id"])
         mid = material_ids[material_id]
         thickness = max(0.05, float(part.get("nominal_thickness", 1.0)))
@@ -51,11 +57,14 @@ def build_ansa_recipe_plan(assembly: dict[str, Any], recipe: dict[str, Any]) -> 
                 "material_numeric_id": mid,
                 "nominal_thickness": round(thickness, 6),
                 "target_size": target_size,
+                "part_level_target_size": requested_target_size,
                 "min_size": round(max(0.25, target_size * 0.15), 4),
                 "max_size": round(max(target_size, target_size * 1.65), 4),
                 "quality_profile": _quality_profile(strategy, thickness),
                 "geometry_box": part_box,
                 "mesh_session_keywords": _mesh_session_keywords(target_size),
+                "refinement_zones": refinement_zones,
+                "refinement_zone_count": len(refinement_zones),
                 "batch_mesh": strategy not in {"mass_only", "connector", "approved_exclude", "exclude"},
             }
         )
@@ -72,6 +81,7 @@ def build_ansa_recipe_plan(assembly: dict[str, Any], recipe: dict[str, Any]) -> 
         "materials": materials,
         "parts": part_plans,
         "connections": connection_plans,
+        "refinement_zones": list(recipe.get("refinement_zones", [])),
         "connector_property": {
             "property_id": connector_pid,
             "property_type": "PBUSH",
@@ -126,6 +136,9 @@ def build_ansa_recipe_plan(assembly: dict[str, Any], recipe: dict[str, Any]) -> 
             "connection_count": len(connection_plans),
             "strategy_counts": strategy_counts,
             "per_part_size_field_count": len(part_plans),
+            "refinement_zone_count": len(recipe.get("refinement_zones", [])),
+            "required_refinement_zone_count": sum(1 for zone in recipe.get("refinement_zones", []) if zone.get("required", False)),
+            "parts_with_refinement_zones": sum(1 for part in part_plans if part["refinement_zone_count"] > 0),
         },
     }
 
@@ -149,6 +162,10 @@ def write_ansa_control_files(plan: dict[str, Any], stage_dir: Path | str) -> dic
                 "global_keywords": plan["ansa_session"]["global_keywords"],
                 "per_part_keywords": {
                     part["part_uid"]: part["mesh_session_keywords"] for part in plan.get("parts", [])
+                },
+                "refinement_zones": plan.get("refinement_zones", []),
+                "per_part_refinement_zones": {
+                    part["part_uid"]: part.get("refinement_zones", []) for part in plan.get("parts", [])
                 },
             },
             indent=2,
@@ -247,6 +264,61 @@ def _connection_plan(connections: list[dict[str, Any]], boxes: dict[str, dict[st
             }
         )
     return planned
+
+
+def _refinement_zones_by_part(parts: list[dict[str, Any]], connections: list[dict[str, Any]], zones: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    part_by_uid = {str(part["part_uid"]): part for part in parts}
+    face_to_part: dict[str, str] = {}
+    edge_to_part: dict[str, str] = {}
+    feature_to_part: dict[str, str] = {}
+    for part in parts:
+        part_uid = str(part["part_uid"])
+        for face in part.get("face_signatures", []):
+            face_to_part[str(face["face_uid"])] = part_uid
+        for feature in part.get("features", []):
+            feature_to_part[str(feature["feature_uid"])] = part_uid
+        for edge in part.get("topology_edges", []):
+            edge_to_part[str(edge.get("edge_uid") or edge.get("uid"))] = part_uid
+        for local in [
+            "x_y0_z0",
+            "x_yw_z0",
+            "x_y0_zh",
+            "x_yw_zh",
+            "y_x0_z0",
+            "y_xl_z0",
+            "y_x0_zh",
+            "y_xl_zh",
+            "z_x0_y0",
+            "z_xl_y0",
+            "z_x0_yw",
+            "z_xl_yw",
+        ]:
+            edge_to_part[f"{part_uid}_edge_{local}"] = part_uid
+    connection_to_parts: dict[str, list[str]] = {}
+    for connection in connections:
+        uid = str(connection.get("connection_uid", ""))
+        if uid:
+            connection_to_parts[uid] = [str(connection["part_uid_a"]), str(connection["part_uid_b"])]
+
+    result: dict[str, list[dict[str, Any]]] = {uid: [] for uid in part_by_uid}
+    for zone in zones:
+        target_type = str(zone.get("target_type", ""))
+        target_uid = str(zone.get("target_uid", ""))
+        part_uids: list[str] = []
+        if target_type == "part" and target_uid in part_by_uid:
+            part_uids = [target_uid]
+        elif target_type == "face":
+            part_uids = [face_to_part[target_uid]] if target_uid in face_to_part else []
+        elif target_type == "edge":
+            part_uids = [edge_to_part[target_uid]] if target_uid in edge_to_part else []
+        elif target_type == "feature":
+            part_uids = [feature_to_part[target_uid]] if target_uid in feature_to_part else []
+        elif target_type in {"contact_candidate", "connection"}:
+            key = target_uid.removeprefix("contact_")
+            part_uids = [uid for uid in connection_to_parts.get(key, []) if uid in part_by_uid]
+        for part_uid in part_uids:
+            result.setdefault(part_uid, []).append(zone)
+    return result
 
 
 def _assembly_boxes(parts: list[dict[str, Any]]) -> dict[str, dict[str, object]]:

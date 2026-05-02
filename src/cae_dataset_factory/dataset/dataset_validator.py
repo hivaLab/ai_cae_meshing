@@ -25,9 +25,21 @@ class DatasetValidationSummary:
     missing_artifacts: int
     step_brep_failures: int
     split_mismatch_count: int
+    topology_family_count: int = 0
+    graph_node_shape_unique_count: int = 0
+    mesh_size_label_coverage: float = 0.0
+    rejected_ratio: float = 0.0
 
     @property
     def passed(self) -> bool:
+        diversity_ok = True
+        if self.accepted_count >= 50:
+            diversity_ok = (
+                self.topology_family_count >= 5
+                and self.graph_node_shape_unique_count >= 20
+                and self.mesh_size_label_coverage >= 0.95
+                and self.rejected_ratio >= 0.10
+            )
         return (
             self.accepted_count > 0
             and self.bdf_failures == 0
@@ -35,6 +47,7 @@ class DatasetValidationSummary:
             and self.missing_artifacts == 0
             and self.step_brep_failures == 0
             and self.split_mismatch_count == 0
+            and diversity_ok
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -50,6 +63,10 @@ class DatasetValidationSummary:
             "missing_artifacts": self.missing_artifacts,
             "step_brep_failures": self.step_brep_failures,
             "split_mismatch_count": self.split_mismatch_count,
+            "topology_family_count": self.topology_family_count,
+            "graph_node_shape_unique_count": self.graph_node_shape_unique_count,
+            "mesh_size_label_coverage": self.mesh_size_label_coverage,
+            "rejected_ratio": self.rejected_ratio,
             "passed": self.passed,
         }
 
@@ -62,11 +79,16 @@ def validate_dataset(dataset_dir: Path | str) -> DatasetValidationSummary:
     bdf_failures = 0
     schema_failures = 0
     step_brep_failures = 0
+    topology_families: set[str] = set()
+    graph_node_shapes: set[tuple[int, int, int, int, int, int]] = set()
+    mesh_size_labeled = 0
+    mesh_size_expected = 0
     for _, row in index.iterrows():
         for column in ["input_zip", "bdf_path", "graph_path", "label_path", "label_json_path", "recipe_path", "qa_metrics_path"]:
             if not Path(row[column]).exists():
                 missing += 1
         sample_dir = Path(row["sample_dir"])
+        topology_families.add(str(row.get("topology_family", "unknown")))
         required_sample_artifacts = [
             sample_dir / "input_package/geometry/assembly.step",
             sample_dir / "input_package/metadata/manifest.json",
@@ -101,7 +123,23 @@ def validate_dataset(dataset_dir: Path | str) -> DatasetValidationSummary:
         else:
             step_brep_failures += 1
         if Path(row["graph_path"]).exists():
-            load_graph(row["graph_path"])
+            graph = load_graph(row["graph_path"])
+            graph_node_shapes.add(
+                (
+                    len(graph.node_sets.get("part", [])),
+                    len(graph.node_sets.get("face", [])),
+                    len(graph.node_sets.get("edge", [])),
+                    len(graph.node_sets.get("contact_candidate", [])),
+                    len(graph.node_sets.get("connection", [])),
+                    sum(len(edges) for edges in graph.edge_sets.values()),
+                )
+            )
+            mesh_size_expected += (
+                len(graph.node_sets.get("part", []))
+                + len(graph.node_sets.get("face", []))
+                + len(graph.node_sets.get("edge", []))
+                + len(graph.node_sets.get("contact_candidate", []))
+            )
         for path, schema in [
             (sample_dir / "input_package/metadata/manifest.json", "input_package.schema.json"),
             (sample_dir / "input_package/metadata/product_tree.json", "product_tree.schema.json"),
@@ -115,8 +153,20 @@ def validate_dataset(dataset_dir: Path | str) -> DatasetValidationSummary:
                     validate_json_file(path, schema)
                 except Exception:
                     schema_failures += 1
+        label_path = Path(row["label_json_path"])
+        if label_path.exists():
+            try:
+                labels = json.loads(label_path.read_text(encoding="utf-8"))
+                size_records = labels.get("mesh_size_labels", [])
+                mesh_size_labeled += sum(
+                    1
+                    for item in size_records
+                    if item.get("target_type") in {"part", "face", "edge", "contact_candidate"}
+                )
+            except Exception:
+                schema_failures += 1
         result = validate_bdf(row["bdf_path"])
-        if not result.passed:
+        if bool(row.get("accepted", False)) and not result.passed:
             bdf_failures += 1
     train_ids = read_split(dataset_dir, "train") if (dataset_dir / "splits/train.txt").exists() else []
     val_ids = read_split(dataset_dir, "val") if (dataset_dir / "splits/val.txt").exists() else []
@@ -125,7 +175,8 @@ def validate_dataset(dataset_dir: Path | str) -> DatasetValidationSummary:
     split_mismatch_count = 0
     if len(split_ids) != len(set(split_ids)):
         split_mismatch_count += 1
-    if set(split_ids) != set(index["sample_id"]):
+    accepted_ids = set(index[index["accepted"]]["sample_id"])
+    if set(split_ids) != accepted_ids:
         split_mismatch_count += 1
     expected_splits = manifest.get("splits", {})
     if expected_splits:
@@ -147,6 +198,10 @@ def validate_dataset(dataset_dir: Path | str) -> DatasetValidationSummary:
         missing_artifacts=missing,
         step_brep_failures=step_brep_failures,
         split_mismatch_count=split_mismatch_count,
+        topology_family_count=len(topology_families),
+        graph_node_shape_unique_count=len(graph_node_shapes),
+        mesh_size_label_coverage=round(mesh_size_labeled / mesh_size_expected, 6) if mesh_size_expected else 0.0,
+        rejected_ratio=round((len(index) - int(index["accepted"].sum())) / max(len(index), 1), 6),
     )
     (dataset_dir / "dataset_validation.json").write_text(json.dumps(summary.to_dict(), indent=2, sort_keys=True), encoding="utf-8")
     return summary

@@ -4,6 +4,8 @@ import json
 import zipfile
 from pathlib import Path
 
+import yaml
+
 from ai_mesh_generator.cad.healer import heal_geometry
 from ai_mesh_generator.input.training_submission import validate_training_submission_dir
 from ai_mesh_generator.output.result_packager import validate_result_package
@@ -87,3 +89,10 @@ def test_real_training_submission_schema_requires_acceptance_and_quality(tmp_pat
     assert result["valid"] is True
     assert result["material_constants_required"] is False
     assert result["acceptance_rows"][0]["acceptance_status"] == "accepted"
+
+
+def test_production_inference_config_does_not_select_local_procedural_backend():
+    config = yaml.safe_load(Path("configs/amg/model_inference.yaml").read_text(encoding="utf-8"))
+
+    assert config["backend"] == "ANSA_BATCH"
+    assert config["backend"] != "LOCAL_PROCEDURAL"

@@ -51,7 +51,7 @@ The generated dataset must contain:
 
 1. Input package files
 2. Feature-bearing synthetic AP242 B-Rep assembly geometry data
-3. Part, face, edge, connection, size-field, failure-risk, and repair-action labels
+3. Part, face, edge, contact, feature-level mesh-size, failure-risk, and repair-action labels
 4. Synthetic-oracle mesh data
 5. BDF files
 6. QA metrics
@@ -182,7 +182,7 @@ The implementation is complete when:
 10. Unit tests pass.
 11. Integration tests pass.
 12. End-to-end tests pass.
-13. `FINAL_DELIVERY_REPORT.md` summarizes implementation results, dataset statistics, model metrics, AMG validation metrics, and truthful status classes such as `FEATURE_SYNTHETIC_BOOTSTRAP_ACCEPTED`, `ANSA_SMOKE_PASSED`, and `LG_PRODUCTION_NOT_VALIDATED`.
+13. `FINAL_DELIVERY_REPORT.md` summarizes implementation results, dataset statistics, model metrics, AMG validation metrics, and truthful status classes such as `REFINEMENT_SYNTHETIC_BOOTSTRAP_ACCEPTED`, `ANSA_SMOKE_PASSED`, `SYNTHETIC_ANSA_REGRESSION_ACCEPTED`, and `LG_PRODUCTION_NOT_VALIDATED`.
 
 ## Truthfulness requirements
 

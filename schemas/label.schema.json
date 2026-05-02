@@ -2,12 +2,31 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Training labels",
   "type": "object",
-  "required": ["sample_id", "part_labels", "face_labels", "edge_labels", "size_field_labels", "failure_risks", "repair_actions"],
+  "required": ["sample_id", "part_labels", "face_labels", "edge_labels", "mesh_size_labels", "failure_risks", "repair_actions"],
   "properties": {
     "sample_id": {"type": "string"},
     "part_labels": {"type": "array"},
     "face_labels": {"type": "array"},
     "edge_labels": {"type": "array"},
+    "mesh_size_labels": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["target_uid", "target_type", "source_feature_type", "target_size_mm", "min_size_mm", "max_size_mm", "refinement_reason", "required", "confidence_source"],
+        "properties": {
+          "target_uid": {"type": "string"},
+          "target_type": {"enum": ["part", "face", "edge", "feature", "contact_candidate", "connection"]},
+          "source_feature_type": {"type": "string"},
+          "target_size_mm": {"type": "number", "exclusiveMinimum": 0},
+          "min_size_mm": {"type": "number", "exclusiveMinimum": 0},
+          "max_size_mm": {"type": "number", "exclusiveMinimum": 0},
+          "refinement_reason": {"type": "string"},
+          "required": {"type": "boolean"},
+          "confidence_source": {"type": "string"}
+        },
+        "additionalProperties": true
+      }
+    },
     "size_field_labels": {"type": "array"},
     "failure_risks": {"type": "array"},
     "repair_actions": {"type": "array"}

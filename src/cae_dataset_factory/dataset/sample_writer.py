@@ -18,8 +18,8 @@ from cae_dataset_factory.labeling.connection_oracle import connection_labels
 from cae_dataset_factory.labeling.edge_semantic_oracle import edge_labels
 from cae_dataset_factory.labeling.face_semantic_oracle import face_labels
 from cae_dataset_factory.labeling.failure_labeler import failure_risks
+from cae_dataset_factory.labeling.mesh_size_oracle import legacy_part_size_labels, mesh_size_labels
 from cae_dataset_factory.labeling.part_strategy_oracle import part_strategy
-from cae_dataset_factory.labeling.size_field_oracle import size_for_part
 from cae_dataset_factory.meshing.mesh_recipe_writer import write_mesh_recipe
 
 
@@ -27,13 +27,8 @@ def build_oracle_labels(assembly: dict[str, Any]) -> dict[str, Any]:
     part_labels = [{"part_uid": part["part_uid"], "strategy": part_strategy(part)} for part in assembly["parts"]]
     face_records = [record for part in assembly["parts"] for record in face_labels(part)]
     edge_records = [record for part in assembly["parts"] for record in edge_labels(part)]
-    defects_by_part: dict[str, int] = {}
-    for defect in assembly.get("defects", []):
-        defects_by_part[defect["part_uid"]] = defects_by_part.get(defect["part_uid"], 0) + 1
-    size_records = [
-        {"part_uid": part["part_uid"], "target_size": size_for_part(part, defects_by_part.get(part["part_uid"], 0))}
-        for part in assembly["parts"]
-    ]
+    mesh_size_records = mesh_size_labels(assembly)
+    size_records = legacy_part_size_labels(mesh_size_records)
     repair_actions = [
         {"target_uid": defect["part_uid"], "action": defect["repair_action"], "defect_uid": defect["defect_uid"]}
         for defect in assembly.get("defects", [])
@@ -43,6 +38,7 @@ def build_oracle_labels(assembly: dict[str, Any]) -> dict[str, Any]:
         "part_labels": part_labels,
         "face_labels": face_records,
         "edge_labels": edge_records,
+        "mesh_size_labels": mesh_size_records,
         "size_field_labels": size_records,
         "connection_labels": connection_labels(assembly.get("connections", [])),
         "failure_risks": failure_risks(assembly),
@@ -51,7 +47,13 @@ def build_oracle_labels(assembly: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_oracle_recipe(assembly: dict[str, Any], labels: dict[str, Any]) -> dict[str, Any]:
-    base_size = sum(item["target_size"] for item in labels["size_field_labels"]) / len(labels["size_field_labels"])
+    part_size_labels = [item for item in labels["mesh_size_labels"] if item["target_type"] == "part"]
+    base_size = sum(item["target_size_mm"] for item in part_size_labels) / len(part_size_labels)
+    refinement_zones = [
+        _refinement_zone_from_label(item)
+        for item in labels["mesh_size_labels"]
+        if item["target_type"] != "part" and (item.get("required") or item["target_type"] in {"contact_candidate", "connection"})
+    ]
     return {
         "recipe_id": f"recipe_{assembly['sample_id']}",
         "sample_id": assembly["sample_id"],
@@ -65,6 +67,7 @@ def build_oracle_recipe(assembly: dict[str, Any], labels: dict[str, Any]) -> dic
             {"part_uid": item["part_uid"], "target_size": item["target_size"], "confidence": 1.0}
             for item in labels["size_field_labels"]
         ],
+        "refinement_zones": refinement_zones,
         "connections": assembly.get("connections", []),
         "guard": {"source": "oracle", "manual_review": []},
     }
@@ -217,10 +220,15 @@ def write_sample(assembly: dict[str, Any], dataset_dir: Path | str, mesh_profile
         "recipe_path": str(recipe_path),
         "qa_metrics_path": str(mesh_result.qa_metrics_path),
         "accepted": mesh_result.accepted,
+        "acceptance_status": "accepted" if mesh_result.accepted else "rejected",
+        "rejection_reason": "" if mesh_result.accepted else "synthetic_oracle_quality_rejected",
+        "topology_family": assembly.get("topology_family", "unknown"),
         "oracle_base_size": recipe["base_size"],
         "part_count": len(assembly["parts"]),
         "connection_count": len(assembly.get("connections", [])),
         "defect_count": len(assembly.get("defects", [])),
+        "mesh_size_label_count": len(labels["mesh_size_labels"]),
+        "refinement_zone_count": len(recipe["refinement_zones"]),
     }
 
 
@@ -230,11 +238,45 @@ def _flatten_labels(labels: dict[str, Any], recipe: dict[str, Any]) -> dict[str,
         "part_label_count": len(labels["part_labels"]),
         "face_label_count": len(labels["face_labels"]),
         "edge_label_count": len(labels["edge_labels"]),
+        "mesh_size_label_count": len(labels["mesh_size_labels"]),
+        "refinement_zone_count": len(recipe.get("refinement_zones", [])),
         "failure_risk_mean": sum(item["risk"] for item in labels["failure_risks"]) / len(labels["failure_risks"]),
         "repair_action_count": len(labels["repair_actions"]),
         "oracle_base_size": recipe["base_size"],
         "labels_json": json.dumps(labels, sort_keys=True),
     }
+
+
+def _refinement_zone_from_label(label: dict[str, Any]) -> dict[str, Any]:
+    target_type = str(label["target_type"])
+    return {
+        "zone_uid": f"zone_{target_type}_{label['target_uid']}",
+        "target_type": target_type,
+        "target_uid": label["target_uid"],
+        "size_mm": label["target_size_mm"],
+        "min_size_mm": label["min_size_mm"],
+        "max_size_mm": label["max_size_mm"],
+        "growth_rate": 1.25,
+        "preserve_boundary": bool(label.get("required", False)),
+        "ansa_control_type": _ansa_control_type(target_type, str(label.get("refinement_reason", ""))),
+        "reason": label["refinement_reason"],
+        "source_feature_type": label.get("source_feature_type", ""),
+        "required": bool(label.get("required", False)),
+    }
+
+
+def _ansa_control_type(target_type: str, reason: str) -> str:
+    if target_type == "edge":
+        return "edge_length_control"
+    if target_type == "face":
+        return "surface_mesh_size_control"
+    if target_type == "contact_candidate":
+        return "contact_surface_size_control"
+    if target_type == "connection":
+        return "washer_or_connector_size_control"
+    if "hole" in reason:
+        return "hole_perimeter_size_control"
+    return "feature_local_size_control"
 
 
 def _manufacturing_process(part: dict[str, Any]) -> str:

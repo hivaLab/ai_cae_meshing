@@ -21,7 +21,11 @@ def test_brep_assembly_net_forward_shapes_and_loss():
     assert outputs["face_semantic"].shape == (66, 5)
     assert outputs["edge_semantic"].shape == (132, 4)
     assert outputs["connection_candidate"].shape[1] == 2
+    assert outputs["part_size"].shape == (11, 1)
     assert outputs["size_field"].shape == (11, 1)
+    assert outputs["face_size"].shape == (66, 1)
+    assert outputs["edge_size"].shape == (132, 1)
+    assert outputs["feature_refinement_class"].shape == (66, 9)
     loss = multitask_loss(outputs, batch)
     assert torch.isfinite(loss)
 
@@ -42,14 +46,19 @@ def test_brep_assembly_net_rejects_wrong_node_feature_shape():
 
 
 def test_collate_graph_batch_offsets_edges_and_concatenates_targets():
-    batch = collate_graph_batch([_graph_item("a", 0), _graph_item("b", 1)])
+    first = _graph_item("a", 0)
+    second = _graph_item("b", 1)
+    batch = collate_graph_batch([first, second])
     assert batch["sample_id"] == ["a", "b"]
-    assert batch["graph"]["node_features"]["part"].shape[0] == 22
-    assert batch["graph"]["node_features"]["face"].shape[0] == 132
-    assert batch["part_strategy"].shape == (22,)
+    expected_parts = first["part_strategy"].shape[0] + second["part_strategy"].shape[0]
+    expected_faces = first["face_semantic"].shape[0] + second["face_semantic"].shape[0]
+    assert batch["graph"]["node_features"]["part"].shape[0] == expected_parts
+    assert batch["graph"]["node_features"]["face"].shape[0] == expected_faces
+    assert batch["part_strategy"].shape == (expected_parts,)
+    assert batch["face_size"].shape == (expected_faces,)
     edge_index = batch["graph"]["edge_index"]["part__has_face__face"]
-    assert int(edge_index[0].max().item()) == 21
-    assert int(edge_index[1].max().item()) == 131
+    assert int(edge_index[0].max().item()) == expected_parts - 1
+    assert int(edge_index[1].max().item()) == expected_faces - 1
 
 
 def _graph_item(sample_id: str, sample_index: int) -> dict[str, object]:

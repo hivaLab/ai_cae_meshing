@@ -46,7 +46,7 @@ def main() -> int:
         num_samples=1000,
         force=True,
     )
-    command_log.append("cdf generate --num-samples 1000 --feature-bearing-synthetic")
+    command_log.append("cdf generate --num-samples 1000 --refinement-synthetic")
 
     dataset_validation = validate_dataset(dataset_dir)
     command_log.append("cdf validate-dataset")
@@ -115,17 +115,27 @@ def main() -> int:
         and cad_status["step_ap242_brep_export"]
         and step_regression["technical_passed"]
     )
+    native_expected = ansa_probe.get("native_entity_generation", {})
+    expected_solid = int(native_expected.get("solid_tetra", {}).get("expected_solid_part_count", 0))
+    expected_mass = int(recipe_summary_from_probe(ansa_probe).get("mass_only_part_count", 0))
+    recipe_summary = recipe_summary_from_probe(ansa_probe)
+    ansa_element_count = int(ansa_probe.get("ansa_batch_counts", {}).get("__ELEMENTS__", 0))
+    ansa_shell_or_solid_count = int(ansa_probe.get("ansa_batch_counts", {}).get("SHELL", 0)) + int(
+        ansa_probe.get("ansa_batch_counts", {}).get("SOLID", 0)
+    )
     ansa_smoke_passed = (
         ansa_probe["attempted"]
         and ansa_probe["passed"]
         and ansa_probe.get("batch_meshing_manager_invoked", False)
         and bool(ansa_probe.get("ansa_recipe_application", {}).get("batch_mesh_sessions", {}).get("session_count", 0))
-        and int(ansa_probe.get("ansa_batch_counts", {}).get("SOLID", 0)) > 0
+        and ansa_element_count > 0
+        and ansa_shell_or_solid_count > 0
         and int(ansa_probe.get("ansa_batch_counts", {}).get("CBUSH", 0)) > 0
-        and int(ansa_probe.get("ansa_batch_counts", {}).get("CONM2", 0)) > 0
-        and int(ansa_probe.get("native_entity_generation", {}).get("solid_tetra", {}).get("created_count", 0)) > 0
+        and int(recipe_summary.get("refinement_zone_count", 0)) > 0
+        and (expected_mass == 0 or int(ansa_probe.get("ansa_batch_counts", {}).get("CONM2", 0)) > 0)
+        and (expected_solid == 0 or int(ansa_probe.get("native_entity_generation", {}).get("solid_tetra", {}).get("created_count", 0)) > 0)
         and int(ansa_probe.get("native_entity_generation", {}).get("connectors", {}).get("created_count", 0)) > 0
-        and int(ansa_probe.get("native_entity_generation", {}).get("masses", {}).get("created_count", 0)) > 0
+        and (expected_mass == 0 or int(ansa_probe.get("native_entity_generation", {}).get("masses", {}).get("created_count", 0)) > 0)
     )
     workflow_status = (
         "ANSA_SMOKE_PASSED"
@@ -161,10 +171,12 @@ def main() -> int:
         },
         "ansa_backend": ansa_status,
         "ansa_execution_probe": ansa_probe,
-        "synthetic_bootstrap_status": "FEATURE_SYNTHETIC_BOOTSTRAP_ACCEPTED" if synthetic_bootstrap_passed else "FAILED",
+        "synthetic_bootstrap_status": "REFINEMENT_SYNTHETIC_BOOTSTRAP_ACCEPTED" if synthetic_bootstrap_passed else "FAILED",
         "lg_production_validation_status": "LG_PRODUCTION_NOT_VALIDATED",
+        "real_supervised_dataset_status": "REAL_SUPERVISED_DATASET_NOT_AVAILABLE",
         "known_limitations": [
-            "The 1,000-sample dataset is deterministic feature-bearing synthetic bootstrap data and is not evidence of LG/OEM production performance.",
+            "The 1,000 accepted samples plus retained rejected samples are deterministic refinement synthetic bootstrap data and are not evidence of general CAD production performance.",
+            "Synthetic-oracle BDF artifacts are excluded from claims of engineer-approved high-quality training mesh ground truth.",
             "The built-in STEP ingestion regression uses local feature-bearing golden fixtures unless --cad-dir is supplied; fixture success is not real CAD validation.",
             "ANSA_BATCH is the only production AMG backend; no local procedural fallback is used for production meshing.",
             "LG/OEM production validation requires supplied CAD/Mesh pairs and acceptance metadata.",
@@ -256,6 +268,10 @@ def artifact_summary(artifact: dict) -> dict:
     }
 
 
+def recipe_summary_from_probe(ansa_probe: dict) -> dict:
+    return ansa_probe.get("ansa_recipe_application", {}).get("summary", {}) or {}
+
+
 def render_report(report: dict) -> str:
     dataset = report["dataset"]["manifest"]
     validation = report["dataset"]["validation"]
@@ -291,9 +307,14 @@ def render_report(report: dict) -> str:
             f"- Dataset backend: {dataset['backend']}",
             f"- Accepted samples: {dataset['accepted_count']}",
             f"- Rejected samples: {dataset['rejected_count']}",
+            f"- Total retained samples: {dataset.get('total_sample_count', dataset['accepted_count'] + dataset['rejected_count'])}",
             f"- Splits: train {dataset['splits']['train']} / val {dataset['splits']['val']} / test {dataset['splits']['test']}",
             f"- Acceptance rate: {dataset['acceptance_rate']:.4f}",
             f"- Dataset validation passed: {validation['passed']}",
+            f"- Topology families: {validation.get('topology_family_count', 0)}",
+            f"- Unique graph node shapes: {validation.get('graph_node_shape_unique_count', 0)}",
+            f"- Mesh-size label coverage: {validation.get('mesh_size_label_coverage', 0.0):.6f}",
+            f"- Rejected sample ratio: {validation.get('rejected_ratio', 0.0):.6f}",
             f"- STEP AP242 B-Rep failures: {validation['step_brep_failures']}",
             "- STEP feature-bearing validation: enforced for synthetic samples",
             f"- Graph artifact validation passed: {graph_artifacts['passed']}",
@@ -322,6 +343,11 @@ def render_report(report: dict) -> str:
             f"- Test MAE: {evaluation['mae']:.6f}",
             f"- Test RMSE: {evaluation['rmse']:.6f}",
             f"- Size MAE percent: {evaluation['size_field_mae_percent']:.6f}",
+            f"- Refinement size MAE percent: {evaluation.get('refinement_size_mae_percent', 0.0):.6f}",
+            f"- Face size MAE percent: {evaluation.get('face_size_mae_percent', 0.0):.6f}",
+            f"- Edge size MAE percent: {evaluation.get('edge_size_mae_percent', 0.0):.6f}",
+            f"- Contact size MAE percent: {evaluation.get('contact_size_mae_percent', 0.0):.6f}",
+            f"- Feature refinement class accuracy: {evaluation.get('feature_refinement_class_accuracy', 0.0):.6f}",
             f"- PartStrategy macro F1: {evaluation['part_strategy_macro_f1']:.6f}",
             f"- FaceSemantic mean IoU: {evaluation['face_semantic_mean_iou']:.6f}",
             f"- EdgeSemantic macro F1: {evaluation['edge_semantic_macro_f1']:.6f}",
@@ -351,8 +377,11 @@ def render_report(report: dict) -> str:
             f"- ANSA import counts: {ansa_probe.get('ansa_import_counts', {})}",
             f"- ANSA batch counts: {ansa_probe.get('ansa_batch_counts', {})}",
             f"- AI recipe batch sessions: {batch_sessions.get('session_count', 0)}",
-            f"- Per-part size fields planned: {recipe_summary.get('per_part_size_field_count', 0)}",
-            f"- BMM size-field sessions applied: {batch_sessions.get('session_count', 0)}",
+            f"- Per-part size controls planned: {recipe_summary.get('per_part_size_field_count', 0)}",
+            f"- Refinement zones planned: {recipe_summary.get('refinement_zone_count', 0)}",
+            f"- Required refinement zones planned: {recipe_summary.get('required_refinement_zone_count', 0)}",
+            f"- Parts with refinement zones: {recipe_summary.get('parts_with_refinement_zones', 0)}",
+            f"- BMM refinement/size-control sessions applied: {batch_sessions.get('session_count', 0)}",
             f"- Materials written to deck: {deck_application.get('material_cards_written', 0)}",
             f"- PSHELL properties updated: {deck_application.get('pshell_cards_updated', 0)}",
             f"- Solver-deck element fallback enabled: {deck_application.get('element_creation_enabled', False)}",
@@ -368,8 +397,9 @@ def render_report(report: dict) -> str:
             *[f"- {item}" for item in report["known_limitations"]],
             "",
             "## Truthful Status",
-            f"- Feature synthetic bootstrap status: {report['synthetic_bootstrap_status']}",
+            f"- Refinement synthetic bootstrap status: {report['synthetic_bootstrap_status']}",
             f"- LG production validation status: {report['lg_production_validation_status']}",
+            f"- Real supervised dataset status: {report['real_supervised_dataset_status']}",
             "",
             f"## Final Acceptance Status\n\n{report['final_acceptance_status'].upper()}",
             "",
@@ -428,6 +458,10 @@ def update_status(report: dict) -> None:
             f"- STEP ingestion production validation accepted: {step_regression['accepted']}",
             f"- STEP ingestion regression samples: {step_regression['passed_count']} / {step_regression.get('source_count', step_regression['sample_count'])}",
             f"- Split mismatches: {validation['split_mismatch_count']}",
+            f"- Topology families: {validation.get('topology_family_count', 0)}",
+            f"- Unique graph node shapes: {validation.get('graph_node_shape_unique_count', 0)}",
+            f"- Mesh-size label coverage: {validation.get('mesh_size_label_coverage', 0.0):.6f}",
+            f"- Rejected sample ratio: {validation.get('rejected_ratio', 0.0):.6f}",
             f"- Graph artifact validation passed: {graph_artifacts['passed']}",
             f"- graph.pt files: {graph_artifacts['graph_pt_count']}",
             f"- brep_graph.json files: {graph_artifacts['brep_graph_json_count']}",
@@ -438,6 +472,7 @@ def update_status(report: dict) -> None:
             f"- Accepted samples: {dataset['accepted_count']}",
             f"- Dataset backend: {dataset['backend']}",
             f"- Rejected samples: {dataset['rejected_count']}",
+            f"- Total retained samples: {dataset.get('total_sample_count', dataset['accepted_count'] + dataset['rejected_count'])}",
             f"- Splits: train {dataset['splits']['train']} / val {dataset['splits']['val']} / test {dataset['splits']['test']}",
             f"- Acceptance rate: {dataset['acceptance_rate']:.4f}",
             "",
@@ -449,6 +484,11 @@ def update_status(report: dict) -> None:
             f"- Test MAE: {report['evaluation']['mae']:.6f}",
             f"- Test RMSE: {report['evaluation']['rmse']:.6f}",
             f"- Size MAE percent: {report['evaluation']['size_field_mae_percent']:.6f}",
+            f"- Refinement size MAE percent: {report['evaluation'].get('refinement_size_mae_percent', 0.0):.6f}",
+            f"- Face size MAE percent: {report['evaluation'].get('face_size_mae_percent', 0.0):.6f}",
+            f"- Edge size MAE percent: {report['evaluation'].get('edge_size_mae_percent', 0.0):.6f}",
+            f"- Contact size MAE percent: {report['evaluation'].get('contact_size_mae_percent', 0.0):.6f}",
+            f"- Feature refinement class accuracy: {report['evaluation'].get('feature_refinement_class_accuracy', 0.0):.6f}",
             f"- PartStrategy macro F1: {report['evaluation']['part_strategy_macro_f1']:.6f}",
             f"- FaceSemantic mean IoU: {report['evaluation']['face_semantic_mean_iou']:.6f}",
             f"- EdgeSemantic macro F1: {report['evaluation']['edge_semantic_macro_f1']:.6f}",
@@ -474,8 +514,11 @@ def update_status(report: dict) -> None:
             f"- ANSA import counts: {ansa_probe.get('ansa_import_counts', {})}",
             f"- ANSA batch counts: {ansa_probe.get('ansa_batch_counts', {})}",
             f"- AI recipe batch sessions: {batch_sessions.get('session_count', 0)}",
-            f"- Per-part size fields planned: {recipe_summary.get('per_part_size_field_count', 0)}",
-            f"- BMM size-field sessions applied: {batch_sessions.get('session_count', 0)}",
+            f"- Per-part size controls planned: {recipe_summary.get('per_part_size_field_count', 0)}",
+            f"- Refinement zones planned: {recipe_summary.get('refinement_zone_count', 0)}",
+            f"- Required refinement zones planned: {recipe_summary.get('required_refinement_zone_count', 0)}",
+            f"- Parts with refinement zones: {recipe_summary.get('parts_with_refinement_zones', 0)}",
+            f"- BMM refinement/size-control sessions applied: {batch_sessions.get('session_count', 0)}",
             f"- Materials written to deck: {deck_application.get('material_cards_written', 0)}",
             f"- PSHELL properties updated: {deck_application.get('pshell_cards_updated', 0)}",
             f"- Solver-deck element fallback enabled: {deck_application.get('element_creation_enabled', False)}",
@@ -491,8 +534,9 @@ def update_status(report: dict) -> None:
             *[f"- {item}" for item in report["known_limitations"]],
             "",
             "## Truthful Status",
-            f"- Feature synthetic bootstrap status: {report['synthetic_bootstrap_status']}",
+            f"- Refinement synthetic bootstrap status: {report['synthetic_bootstrap_status']}",
             f"- LG production validation status: {report['lg_production_validation_status']}",
+            f"- Real supervised dataset status: {report['real_supervised_dataset_status']}",
             "",
             "## Final Acceptance Status",
             "",

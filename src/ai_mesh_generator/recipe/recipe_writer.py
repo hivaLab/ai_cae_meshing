@@ -12,6 +12,7 @@ def build_mesh_recipe(sample_id: str, prediction: dict, guarded: dict, backend: 
         "base_size": prediction["base_size"],
         "part_strategies": guarded["part_strategies"],
         "size_fields": guarded["size_fields"],
+        "refinement_zones": guarded.get("refinement_zones", []),
         "connections": guarded["connections"],
         "guard": guarded["guard"],
         "ai_prediction": prediction,

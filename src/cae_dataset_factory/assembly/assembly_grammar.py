@@ -31,19 +31,7 @@ class AssemblyGrammar:
     def generate(self, sample_index: int) -> dict[str, Any]:
         sample_id = f"sample_{sample_index:06d}"
         rng = random.Random(self.seed + sample_index)
-        template_plan = [
-            PlasticBaseTemplate(),
-            RibbedCoverTemplate(),
-            SheetMetalBoxTemplate(),
-            BracketTemplate(),
-            BracketTemplate(),
-            SheetMetalBoxTemplate(),
-            PcbDummyTemplate(),
-            MotorDummyTemplate(),
-            ScrewTemplate(),
-            ScrewTemplate(),
-            ScrewTemplate(),
-        ]
+        family_name, template_plan = _template_family(sample_index)
         parts = []
         face_signatures = []
         for index, template in enumerate(template_plan):
@@ -68,6 +56,7 @@ class AssemblyGrammar:
         connections = synthesize_screw_connections(parts)
         return {
             "sample_id": sample_id,
+            "topology_family": family_name,
             "schema_version": "0.1.0",
             "units": "mm",
             "parts": parts,
@@ -77,3 +66,104 @@ class AssemblyGrammar:
             "boundary_named_sets": {"fixed_support": [parts[0]["part_uid"]], "load_faces": [parts[1]["part_uid"]]},
             "face_signatures": face_signatures,
         }
+
+
+def _template_family(sample_index: int):
+    families = [
+        (
+            "appliance_shell_assembly",
+            [
+                PlasticBaseTemplate(),
+                RibbedCoverTemplate(),
+                SheetMetalBoxTemplate(),
+                BracketTemplate(),
+                BracketTemplate(),
+                SheetMetalBoxTemplate(),
+                PcbDummyTemplate(),
+                MotorDummyTemplate(),
+                ScrewTemplate(),
+                ScrewTemplate(),
+                ScrewTemplate(),
+            ],
+        ),
+        (
+            "thin_sheet_bracket_frame",
+            [
+                SheetMetalBoxTemplate(),
+                BracketTemplate(),
+                BracketTemplate(),
+                BracketTemplate(),
+                BracketTemplate(),
+                ScrewTemplate(),
+                ScrewTemplate(),
+                PcbDummyTemplate(),
+            ],
+        ),
+        (
+            "ribbed_plastic_cover_stack",
+            [
+                PlasticBaseTemplate(),
+                RibbedCoverTemplate(),
+                RibbedCoverTemplate(),
+                BracketTemplate(),
+                ScrewTemplate(),
+                ScrewTemplate(),
+                ScrewTemplate(),
+                ScrewTemplate(),
+            ],
+        ),
+        (
+            "cylindrical_housing_support",
+            [
+                SheetMetalBoxTemplate(),
+                MotorDummyTemplate(),
+                MotorDummyTemplate(),
+                BracketTemplate(),
+                BracketTemplate(),
+                PcbDummyTemplate(),
+                ScrewTemplate(),
+                ScrewTemplate(),
+                ScrewTemplate(),
+            ],
+        ),
+        (
+            "furniture_like_frame",
+            [
+                BracketTemplate(),
+                BracketTemplate(),
+                BracketTemplate(),
+                BracketTemplate(),
+                BracketTemplate(),
+                BracketTemplate(),
+                ScrewTemplate(),
+                ScrewTemplate(),
+                ScrewTemplate(),
+                ScrewTemplate(),
+            ],
+        ),
+        (
+            "box_enclosure_module",
+            [
+                SheetMetalBoxTemplate(),
+                SheetMetalBoxTemplate(),
+                SheetMetalBoxTemplate(),
+                PlasticBaseTemplate(),
+                RibbedCoverTemplate(),
+                PcbDummyTemplate(),
+                MotorDummyTemplate(),
+                ScrewTemplate(),
+                ScrewTemplate(),
+            ],
+        ),
+    ]
+    family_name, templates = families[sample_index % len(families)]
+    variant = (sample_index // len(families)) % 6
+    templates = list(templates)
+    for index in range(variant):
+        if index % 3 == 0:
+            templates.append(ScrewTemplate())
+        elif index % 3 == 1:
+            templates.append(BracketTemplate())
+        else:
+            templates.append(SheetMetalBoxTemplate())
+    return f"{family_name}_v{variant}", templates

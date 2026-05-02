@@ -40,7 +40,7 @@ def main() -> int:
             {
                 "report": str((args.output_dir / "ANSA_REGRESSION_REPORT.json").resolve()),
                 "markdown": str((ROOT / "ANSA_REGRESSION_REPORT.md").resolve()),
-                "status": "ANSA_REGRESSION_ACCEPTED" if report["summary"]["accepted"] else "FAILED",
+                "status": "SYNTHETIC_ANSA_REGRESSION_ACCEPTED" if report["summary"]["accepted"] else "FAILED",
                 "sample_count": report["summary"]["sample_count"],
                 "passed_count": report["summary"]["passed_count"],
                 "failed_count": report["summary"]["failed_count"],

@@ -16,10 +16,15 @@ INDEX_COLUMNS = [
     "recipe_path",
     "qa_metrics_path",
     "accepted",
+    "acceptance_status",
+    "rejection_reason",
+    "topology_family",
     "oracle_base_size",
     "part_count",
     "connection_count",
     "defect_count",
+    "mesh_size_label_count",
+    "refinement_zone_count",
 ]
 
 

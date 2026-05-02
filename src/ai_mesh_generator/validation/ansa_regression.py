@@ -308,7 +308,7 @@ def render_regression_report(report: dict[str, Any]) -> str:
         f"Native CTETRA total: {summary['native_ctetra_total']} / expected {summary['expected_solid_total']}",
         f"Native CBUSH total: {summary['native_cbush_total']} / expected {summary['expected_connector_total']}",
         f"Native CONM2 total: {summary['native_conm2_total']} / expected {summary['expected_mass_total']}",
-        f"Acceptance: {'ANSA_REGRESSION_ACCEPTED' if summary['accepted'] else 'FAILED'}",
+        f"Acceptance: {'SYNTHETIC_ANSA_REGRESSION_ACCEPTED' if summary['accepted'] else 'FAILED'}",
         "",
         "## Sample Results",
         "",
@@ -370,7 +370,7 @@ def render_delivery_section(report: dict[str, Any]) -> str:
             f"- Native CBUSH total: {summary['native_cbush_total']} / expected {summary['expected_connector_total']}",
             f"- Native CONM2 total: {summary['native_conm2_total']} / expected {summary['expected_mass_total']}",
             f"- Total runtime seconds: {summary['total_runtime_seconds']}",
-            f"- Regression acceptance: {'ANSA_REGRESSION_ACCEPTED' if summary['accepted'] else 'FAILED'}",
+            f"- Synthetic regression acceptance: {'SYNTHETIC_ANSA_REGRESSION_ACCEPTED' if summary['accepted'] else 'FAILED'}",
             "",
         ]
     )
@@ -386,6 +386,20 @@ def update_delivery_documents(report: dict[str, Any], root: Path) -> None:
         content = replace_or_insert_section(content, "## ANSA Production Regression", section, "## Known Limitations")
         content = replace_final_acceptance(content, bool(report["summary"]["accepted"]))
         path.write_text(content, encoding="utf-8")
+    json_path = root / "runs" / "full_delivery" / "FINAL_DELIVERY_REPORT.json"
+    if json_path.exists():
+        payload = json.loads(json_path.read_text(encoding="utf-8"))
+        payload["ansa_regression"] = {
+            "report_path": str((root / "ANSA_REGRESSION_REPORT.md").resolve()),
+            "json_report_path": str((root / "runs" / "ansa_regression" / "ANSA_REGRESSION_REPORT.json").resolve()),
+            "summary": report["summary"],
+            "acceptance_status": "SYNTHETIC_ANSA_REGRESSION_ACCEPTED" if report["summary"]["accepted"] else "FAILED",
+        }
+        if report["summary"]["accepted"] and payload.get("final_acceptance_status") != "FAILED":
+            payload["final_acceptance_status"] = "SYNTHETIC_ANSA_REGRESSION_ACCEPTED"
+        else:
+            payload["final_acceptance_status"] = "FAILED"
+        json_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
 
 
 def replace_or_insert_section(content: str, heading: str, section: str, before_heading: str) -> str:
@@ -405,5 +419,5 @@ def replace_final_acceptance(content: str, regression_accepted: bool) -> str:
         return content
     end = next((index for index in range(start + 1, len(lines)) if lines[index].startswith("## ")), len(lines))
     previous_block = "\n".join(lines[start:end]).upper()
-    status = "ANSA_REGRESSION_ACCEPTED" if regression_accepted and "FAILED" not in previous_block else "FAILED"
+    status = "SYNTHETIC_ANSA_REGRESSION_ACCEPTED" if regression_accepted and "FAILED" not in previous_block else "FAILED"
     return "\n".join(lines[: start + 1] + ["", status, ""] + lines[end:]).rstrip() + "\n"

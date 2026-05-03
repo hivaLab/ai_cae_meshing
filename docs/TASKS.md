@@ -451,7 +451,7 @@ failure manifests use AMG_MANIFEST_SM_V1
 
 ### T-502_AMG_DETERMINISTIC_MANIFEST
 
-Status: TODO
+Status: DONE
 
 Goal:
 

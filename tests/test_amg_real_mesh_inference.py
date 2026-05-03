@@ -195,7 +195,7 @@ def _write_checkpoint(dataset_root: Path, output_dir: Path, *, type_bias: int | 
     model = _zero_model(sample.graph.arrays["part_features"].shape[1])
     if type_bias is not None:
         with torch.no_grad():
-            model.feature_type_head.bias[type_bias] = 10.0
+            model.feature_type_head.bias[type_bias] = 50.0
     output_dir.mkdir(parents=True, exist_ok=True)
     checkpoint = output_dir / "checkpoint.pt"
     training_config = output_dir / "training_config.json"
@@ -261,6 +261,18 @@ def test_checkpoint_load_and_deterministic_held_out_selection() -> None:
     assert samples[0].sample_id == "sample_000006"
     assert samples[-1].sample_id == "sample_000025"
     assert isinstance(model, AmgGraphModel)
+
+
+def test_split_selection_uses_requested_split_without_default_limit() -> None:
+    dataset = _write_dataset("split_selector", sample_count=25)
+    (dataset / "splits" / "test.txt").write_text(
+        "".join(f"sample_{index:06d}\n" for index in range(3, 8)),
+        encoding="utf-8",
+    )
+
+    samples = select_inference_samples(dataset, split="test", limit=None)
+
+    assert [sample.sample_id for sample in samples] == [f"sample_{index:06d}" for index in range(3, 8)]
 
 
 def test_predicted_manifest_validates_and_bounds_controls() -> None:

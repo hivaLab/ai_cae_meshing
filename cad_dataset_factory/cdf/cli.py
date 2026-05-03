@@ -24,6 +24,7 @@ def build_parser() -> argparse.ArgumentParser:
     generate.add_argument("--seed", type=int, default=None, help="Deterministic sampling seed")
     generate.add_argument("--require-ansa", action="store_true", help="Require real ANSA oracle reports for acceptance")
     generate.add_argument("--ansa-executable", default=None, help="Explicit ANSA executable/batch file path")
+    generate.add_argument("--profile", default="flat_hole_pilot_v1", help="Generation profile, e.g. sm_mixed_benchmark_v1")
 
     validate = subparsers.add_parser("validate", help="Validate accepted CDF dataset samples")
     validate.add_argument("--dataset", required=True, help="Dataset root directory")
@@ -55,6 +56,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 seed=args.seed,
                 require_ansa=args.require_ansa,
                 env=env,
+                profile=args.profile,
             )
             _print_result(
                 {

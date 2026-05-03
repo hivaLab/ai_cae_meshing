@@ -21,9 +21,11 @@ PART_CLASSES = (
 )
 FEATURE_TYPES = ("HOLE", "SLOT", "CUTOUT", "BEND", "FLANGE")
 FEATURE_CANDIDATE_COLUMN_COUNT = 14
+FEATURE_TYPE_ID_COLUMN = 0
 EXPECTED_ACTION_MASK_COLUMN = 13
 ROLE_ID_COLUMN = 1
 UNKNOWN_ROLE_ID = 0
+FEATURE_TYPE_PRIOR_LOGIT = 20.0
 
 
 @dataclass(frozen=True)
@@ -93,6 +95,17 @@ def _action_mask(candidate_features: torch.Tensor) -> torch.Tensor:
     if unknown_roles.any():
         mask[unknown_roles, SUPPRESS_ACTION_INDEX] = False
     return mask
+
+
+def _feature_type_prior(candidate_features: torch.Tensor, feature_type_count: int) -> torch.Tensor:
+    prior = candidate_features.new_zeros((candidate_features.shape[0], feature_type_count))
+    if candidate_features.shape[0] == 0:
+        return prior
+    type_indices = candidate_features[:, FEATURE_TYPE_ID_COLUMN].round().to(dtype=torch.int64) - 1
+    valid = torch.logical_and(type_indices >= 0, type_indices < feature_type_count)
+    if valid.any():
+        prior[valid, type_indices[valid]] = FEATURE_TYPE_PRIOR_LOGIT
+    return prior
 
 
 def build_graph_batch(samples: Any) -> GraphBatch:
@@ -175,9 +188,13 @@ class AmgGraphModel(nn.Module):
             fused = self.feature_fusion(torch.cat([candidate_hidden, candidate_part_hidden], dim=-1))
         else:
             fused = candidate_hidden.new_empty((0, self.dimensions.hidden_dim))
+        feature_type_logits = self.feature_type_head(fused) + _feature_type_prior(
+            batch.feature_candidate_features,
+            self.dimensions.feature_type_count,
+        )
         return AmgModelOutput(
             part_class_logits=self.part_class_head(part_hidden),
-            feature_type_logits=self.feature_type_head(fused),
+            feature_type_logits=feature_type_logits,
             feature_action_logits=self.feature_action_head(fused),
             log_h=self.log_h_head(fused),
             division_values=self.division_head(fused),

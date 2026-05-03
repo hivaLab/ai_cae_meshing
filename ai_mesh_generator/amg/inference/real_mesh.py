@@ -52,8 +52,9 @@ class RealInferenceConfig:
     ansa_executable: Path = Path(DEFAULT_ANSA_EXECUTABLE)
     training_config_path: Path | None = None
     batch_script: Path = DEFAULT_BATCH_SCRIPT
-    limit: int = 20
+    limit: int | None = 20
     sample_ids: tuple[str, ...] = ()
+    split: str | None = None
     timeout_sec_per_sample: int = 180
     max_retries: int = 2
 
@@ -176,21 +177,25 @@ def _split_ids(dataset_root: Path, split: str) -> list[str]:
 def select_inference_samples(
     dataset_root: str | Path,
     *,
-    limit: int = 20,
+    limit: int | None = 20,
     sample_ids: Sequence[str] | None = None,
+    split: str | None = None,
 ) -> list[AmgDatasetSample]:
-    """Select explicit samples, non-empty val split samples, or the final held-out records."""
+    """Select explicit samples, a requested split, non-empty val split samples, or the final held-out records."""
 
     root = Path(dataset_root)
     accepted = _accepted_sample_paths(root)
     if sample_ids:
         selected_ids = list(sample_ids)
+    elif split:
+        selected_ids = _split_ids(root, split)
     else:
         val_ids = _split_ids(root, "val")
-        selected_ids = val_ids if val_ids else list(accepted)[-limit:]
-    if limit <= 0:
+        selected_ids = val_ids if val_ids else list(accepted)[-(limit or 20) :]
+    if limit is not None and limit <= 0:
         raise AmgRealInferenceError("invalid_limit", "limit must be positive")
-    selected_ids = selected_ids[:limit]
+    if limit is not None:
+        selected_ids = selected_ids[:limit]
     if not selected_ids:
         raise AmgRealInferenceError("empty_inference_selection", "no samples selected for inference", root)
     samples: list[AmgDatasetSample] = []
@@ -716,7 +721,7 @@ def run_real_mesh_inference(config: RealInferenceConfig) -> RealInferenceResult:
         raise AmgRealInferenceError("ansa_executable_not_found", f"ANSA executable does not exist: {executable}", executable)
     if not batch_script.is_file():
         raise AmgRealInferenceError("batch_script_not_found", f"ANSA batch script does not exist: {batch_script}", batch_script)
-    samples = select_inference_samples(config.dataset_root, limit=config.limit, sample_ids=config.sample_ids)
+    samples = select_inference_samples(config.dataset_root, limit=config.limit, sample_ids=config.sample_ids, split=config.split)
     model = load_trained_checkpoint(config.checkpoint_path, config.training_config_path, samples[0])
     config.output_dir.mkdir(parents=True, exist_ok=True)
     results = [
@@ -774,7 +779,8 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--out", default="runs/amg_inference_real_pilot")
     parser.add_argument("--ansa-executable", default=os.environ.get("ANSA_EXECUTABLE", DEFAULT_ANSA_EXECUTABLE))
     parser.add_argument("--batch-script", default=DEFAULT_BATCH_SCRIPT.as_posix())
-    parser.add_argument("--limit", type=int, default=20)
+    parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument("--split", default=None, help="Dataset split name to run, e.g. test")
     parser.add_argument("--sample-id", dest="sample_ids", action="append", default=[])
     parser.add_argument("--timeout-sec", type=int, default=180)
     parser.add_argument("--max-retries", type=int, default=2)
@@ -794,8 +800,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 output_dir=Path(args.out),
                 ansa_executable=Path(args.ansa_executable),
                 batch_script=Path(args.batch_script),
-                limit=args.limit,
+                limit=args.limit if args.limit is not None else (None if args.split else 20),
                 sample_ids=tuple(args.sample_ids),
+                split=args.split,
                 timeout_sec_per_sample=args.timeout_sec,
                 max_retries=args.max_retries,
             )

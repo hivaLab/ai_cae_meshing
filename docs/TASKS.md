@@ -788,7 +788,7 @@ python -m pytest passed with 195 passed and 1 skipped.
 
 ### T-706_REAL_PIPELINE_SCALE_UP_AND_GENERALIZATION_BENCHMARK
 
-Status: TODO
+Status: DONE
 
 Goal:
 
@@ -814,4 +814,62 @@ Required preconditions:
 T-705 real inference gate is complete.
 ANSA v25.1.0 executable/license remains available.
 The current pilot limitations are recorded: mostly SM_FLAT_PANEL with one HOLE_UNKNOWN candidate per sample.
+```
+
+Completion evidence:
+
+```text
+Benchmark root: runs\t706_mixed_benchmark
+Dataset: runs\t706_mixed_benchmark\dataset
+Training: runs\t706_mixed_benchmark\training
+Inference: runs\t706_mixed_benchmark\inference
+Benchmark report: runs\t706_mixed_benchmark\benchmark_report.json
+
+CDF generation command:
+python -m cad_dataset_factory.cdf.cli generate --config configs\cdf_sm_ansa_v1.default.json --out runs\t706_mixed_benchmark\dataset --count 150 --seed 706 --require-ansa --ansa-executable C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat --profile sm_mixed_benchmark_v1
+Result: SUCCESS, accepted_count=150, rejected_count=1.
+
+CDF validation command:
+python -m cad_dataset_factory.cdf.cli validate --dataset runs\t706_mixed_benchmark\dataset --require-ansa
+Result: SUCCESS, accepted_count=150, error_count=0.
+
+AMG training command:
+python -m ai_mesh_generator.amg.training.real --dataset runs\t706_mixed_benchmark\dataset --out runs\t706_mixed_benchmark\training --epochs 10 --batch-size 16 --seed 706
+Result: SUCCESS, label_coverage_ratio=1.0, candidate_count=240, manifest_feature_count=240.
+
+AMG inference command:
+python -m ai_mesh_generator.amg.inference.real_mesh --dataset runs\t706_mixed_benchmark\dataset --checkpoint runs\t706_mixed_benchmark\training\checkpoint.pt --out runs\t706_mixed_benchmark\inference --ansa-executable C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat --split test
+Result: SUCCESS, attempted_count=23, success_count=23, failed_count=0.
+
+Benchmark report command:
+python -m ai_mesh_generator.amg.benchmark.real_pipeline --dataset runs\t706_mixed_benchmark\dataset --training runs\t706_mixed_benchmark\training --inference runs\t706_mixed_benchmark\inference --out runs\t706_mixed_benchmark\benchmark_report.json
+Result: SUCCESS.
+
+Coverage:
+part_class histogram: SM_FLAT_PANEL=120, SM_L_BRACKET=30.
+feature_type histogram: HOLE=60, SLOT=60, CUTOUT=60, BEND=30, FLANGE=30.
+splits: train=105, val=22, test=23.
+after-retry VALID_MESH rate: 1.0.
+```
+
+### T-707_REAL_PIPELINE_FAMILY_EXPANSION_AND_ROBUSTNESS
+
+Status: TODO
+
+Goal:
+
+```text
+Expand the real pipeline benchmark beyond SM_FLAT_PANEL and SM_L_BRACKET to additional bent
+families and harder feature combinations, while preserving fail-closed real ANSA validation.
+```
+
+Acceptance:
+
+```text
+CDF produces real ANSA-accepted samples for SM_SINGLE_FLANGE, SM_U_CHANNEL, and SM_HAT_CHANNEL
+or records exact BLOCKED evidence for each unsupported family.
+AMG trains and runs real ANSA inference on a held-out split from the expanded family dataset.
+The benchmark report includes per-family VALID_MESH rate, failure histograms, and representative
+ANSA reports for every failed family/feature combination.
+No deterministic rule fallback, mock adapter, placeholder mesh, synthetic target, or skipped family is counted as success.
 ```

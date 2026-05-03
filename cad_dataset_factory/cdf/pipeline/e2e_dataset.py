@@ -15,7 +15,15 @@ import numpy as np
 from jsonschema import Draft202012Validator
 
 from cad_dataset_factory.cdf.brep import extract_brep_graph_with_candidates, write_brep_graph, write_graph_schema
-from cad_dataset_factory.cdf.cadgen import FlatPanelFeatureSpec, FlatPanelSpec, build_flat_panel_part, write_flat_panel_outputs
+from cad_dataset_factory.cdf.cadgen import (
+    BentPartSpec,
+    FlatPanelFeatureSpec,
+    FlatPanelSpec,
+    build_bent_part,
+    build_flat_panel_part,
+    write_bent_part_outputs,
+    write_flat_panel_outputs,
+)
 from cad_dataset_factory.cdf.config import load_cdf_config
 from cad_dataset_factory.cdf.dataset import build_sample_acceptance, write_dataset_index, write_sample_directory
 from cad_dataset_factory.cdf.domain import (
@@ -24,6 +32,7 @@ from cad_dataset_factory.cdf.domain import (
     FeatureRole,
     FeatureTruthDocument,
     MeshPolicy,
+    PartClass,
 )
 from cad_dataset_factory.cdf.labels import build_amg_manifest, build_aux_labels
 from cad_dataset_factory.cdf.labels.sizing import h0_from_midsurface_area, length_bounds_from_h0
@@ -49,6 +58,21 @@ FAILED_EXIT_CODE = 1
 VALIDATION_FAILED_EXIT_CODE = 3
 SUCCESS_EXIT_CODE = 0
 REAL_MESH_RELATIVE_PATH = Path("meshes") / "ansa_oracle_mesh.bdf"
+DEFAULT_PROFILE = "flat_hole_pilot_v1"
+MIXED_BENCHMARK_PROFILE = "sm_mixed_benchmark_v1"
+PROFILE_CASE_HOLE = "flat_hole"
+PROFILE_CASE_SLOT = "flat_slot"
+PROFILE_CASE_CUTOUT = "flat_cutout"
+PROFILE_CASE_COMBO = "flat_combo"
+PROFILE_CASE_L_BRACKET = "l_bracket"
+MIXED_BENCHMARK_CASE_COUNTS = (
+    (PROFILE_CASE_HOLE, 30),
+    (PROFILE_CASE_SLOT, 30),
+    (PROFILE_CASE_CUTOUT, 30),
+    (PROFILE_CASE_COMBO, 30),
+    (PROFILE_CASE_L_BRACKET, 30),
+)
+MIXED_BENCHMARK_REQUIRED_CASES = tuple(case for case, _count in MIXED_BENCHMARK_CASE_COUNTS)
 REQUIRED_CONTRACTS = (
     "AMG_MANIFEST_SM_V1.schema.json",
     "AMG_BREP_GRAPH_SM_V1.schema.json",
@@ -135,13 +159,46 @@ def _copy_contracts(dataset_root: Path) -> None:
             shutil.copyfile(source, target_root / filename)
 
 
-def _write_splits(dataset_root: Path, accepted_samples: list[dict[str, Any]]) -> None:
+def _target_cases_for_profile(profile: str, count: int) -> list[str]:
+    if profile == DEFAULT_PROFILE:
+        return [PROFILE_CASE_HOLE for _ in range(count)]
+    if profile == MIXED_BENCHMARK_PROFILE:
+        required_count = sum(case_count for _case, case_count in MIXED_BENCHMARK_CASE_COUNTS)
+        if count != required_count:
+            raise CdfPipelineError(
+                "invalid_profile_count",
+                f"{MIXED_BENCHMARK_PROFILE} requires count={required_count} for the closed benchmark mix",
+            )
+        cases: list[str] = []
+        remaining = {case: case_count for case, case_count in MIXED_BENCHMARK_CASE_COUNTS}
+        while any(case_count > 0 for case_count in remaining.values()):
+            for case, _case_count in MIXED_BENCHMARK_CASE_COUNTS:
+                if remaining[case] > 0:
+                    cases.append(case)
+                    remaining[case] -= 1
+        return cases
+    raise CdfPipelineError("unsupported_profile", f"unsupported CDF generation profile: {profile}")
+
+
+def _write_splits(dataset_root: Path, accepted_samples: list[dict[str, Any]], profile: str = DEFAULT_PROFILE) -> None:
     splits = dataset_root / "splits"
     splits.mkdir(parents=True, exist_ok=True)
     sample_ids = [str(sample["sample_id"]) for sample in accepted_samples]
-    content = "".join(f"{sample_id}\n" for sample_id in sample_ids)
+    if profile == MIXED_BENCHMARK_PROFILE and sample_ids:
+        train_count = int(0.70 * len(sample_ids))
+        val_count = int(0.15 * len(sample_ids))
+        split_map = {
+            "train": sample_ids[:train_count],
+            "val": sample_ids[train_count : train_count + val_count],
+            "test": sample_ids[train_count + val_count :],
+        }
+    else:
+        split_map = {"train": sample_ids, "val": [], "test": []}
     for split_name in ("train", "val", "test"):
-        (splits / f"{split_name}.txt").write_text(content if split_name == "train" else "", encoding="utf-8")
+        (splits / f"{split_name}.txt").write_text(
+            "".join(f"{sample_id}\n" for sample_id in split_map[split_name]),
+            encoding="utf-8",
+        )
 
 
 def _write_dataset_stats(
@@ -153,6 +210,7 @@ def _write_dataset_stats(
     rejected_samples: list[dict[str, Any]],
     require_ansa: bool,
     seed: int,
+    profile: str = DEFAULT_PROFILE,
     reason: str | None = None,
     runtime_sec: float | None = None,
 ) -> dict[str, Any]:
@@ -170,6 +228,7 @@ def _write_dataset_stats(
         "rejection_reason_counts": rejection_reason_counts,
         "require_ansa": require_ansa,
         "seed": seed,
+        "profile": profile,
         "reason": reason,
     }
     if runtime_sec is not None:
@@ -199,10 +258,13 @@ def _write_dataset_documents(
     rejected_samples: list[dict[str, Any]],
     require_ansa: bool,
     seed: int,
+    profile: str = DEFAULT_PROFILE,
     reason: str | None = None,
     runtime_sec: float | None = None,
 ) -> None:
-    write_dataset_index(dataset_root, accepted_samples, rejected_samples, dict(config))
+    config_used = dict(config)
+    config_used["generation_profile"] = profile
+    write_dataset_index(dataset_root, accepted_samples, rejected_samples, config_used)
     _write_rejected_index(dataset_root, rejected_samples)
     _write_dataset_stats(
         dataset_root,
@@ -212,10 +274,11 @@ def _write_dataset_documents(
         rejected_samples=rejected_samples,
         require_ansa=require_ansa,
         seed=seed,
+        profile=profile,
         reason=reason,
         runtime_sec=runtime_sec,
     )
-    _write_splits(dataset_root, accepted_samples)
+    _write_splits(dataset_root, accepted_samples, profile)
     _copy_contracts(dataset_root)
 
 
@@ -227,6 +290,7 @@ def _blocked_result(
     require_ansa: bool,
     seed: int,
     reason: str,
+    profile: str = DEFAULT_PROFILE,
 ) -> GenerateDatasetResult:
     rejected = [
         {
@@ -244,6 +308,7 @@ def _blocked_result(
         rejected_samples=rejected,
         require_ansa=require_ansa,
         seed=seed,
+        profile=profile,
         reason=reason,
     )
     return GenerateDatasetResult(
@@ -288,23 +353,24 @@ def _feature_policy(config: Mapping[str, Any]) -> dict[str, Any]:
     return policy
 
 
-def _candidate_spec(sample_id: str, attempt_index: int, rng: random.Random) -> FlatPanelSpec:
-    width_mm = 140.0 + 5.0 * (attempt_index % 4)
-    height_mm = 90.0 + 5.0 * (attempt_index % 3)
+def _flat_panel_spec(
+    sample_id: str,
+    attempt_index: int,
+    rng: random.Random,
+    profile_case: str,
+) -> FlatPanelSpec:
+    width_mm = 150.0 + 5.0 * (attempt_index % 4)
+    height_mm = 95.0 + 5.0 * (attempt_index % 3)
     thickness_mm = 1.2
-    radius_mm = 4.0
-    margin = 30.0
-    center = (
-        rng.uniform(margin, width_mm - margin),
-        rng.uniform(margin, height_mm - margin),
-    )
-    return FlatPanelSpec(
-        sample_id=sample_id,
-        part_name=f"SMT_SM_FLAT_PANEL_T120_P{attempt_index:06d}",
-        width_mm=width_mm,
-        height_mm=height_mm,
-        thickness_mm=thickness_mm,
-        features=[
+    features: list[FlatPanelFeatureSpec]
+    if profile_case == PROFILE_CASE_HOLE:
+        radius_mm = 4.0
+        margin = 30.0
+        center = (
+            rng.uniform(margin, width_mm - margin),
+            rng.uniform(margin, height_mm - margin),
+        )
+        features = [
             FlatPanelFeatureSpec(
                 feature_id="HOLE_UNKNOWN_0001",
                 type="HOLE",
@@ -312,7 +378,85 @@ def _candidate_spec(sample_id: str, attempt_index: int, rng: random.Random) -> F
                 center_uv_mm=center,
                 radius_mm=radius_mm,
             )
-        ],
+        ]
+    elif profile_case == PROFILE_CASE_SLOT:
+        features = [
+            FlatPanelFeatureSpec(
+                feature_id="SLOT_UNKNOWN_0001",
+                type="SLOT",
+                role=FeatureRole.UNKNOWN,
+                center_uv_mm=(width_mm * 0.50, height_mm * 0.50),
+                width_mm=8.0,
+                length_mm=28.0,
+            )
+        ]
+    elif profile_case == PROFILE_CASE_CUTOUT:
+        features = [
+            FlatPanelFeatureSpec(
+                feature_id="CUTOUT_PASSAGE_0001",
+                type="CUTOUT",
+                role=FeatureRole.PASSAGE,
+                center_uv_mm=(width_mm * 0.50, height_mm * 0.50),
+                width_mm=30.0,
+                height_mm=18.0,
+            )
+        ]
+    elif profile_case == PROFILE_CASE_COMBO:
+        width_mm = 185.0 + 5.0 * (attempt_index % 4)
+        height_mm = 105.0 + 5.0 * (attempt_index % 3)
+        features = [
+            FlatPanelFeatureSpec(
+                feature_id="HOLE_UNKNOWN_0001",
+                type="HOLE",
+                role=FeatureRole.UNKNOWN,
+                center_uv_mm=(35.0, height_mm * 0.50),
+                radius_mm=4.0,
+            ),
+            FlatPanelFeatureSpec(
+                feature_id="SLOT_UNKNOWN_0001",
+                type="SLOT",
+                role=FeatureRole.UNKNOWN,
+                center_uv_mm=(90.0, height_mm * 0.50),
+                width_mm=8.0,
+                length_mm=28.0,
+            ),
+            FlatPanelFeatureSpec(
+                feature_id="CUTOUT_PASSAGE_0001",
+                type="CUTOUT",
+                role=FeatureRole.PASSAGE,
+                center_uv_mm=(145.0, height_mm * 0.50),
+                width_mm=30.0,
+                height_mm=18.0,
+            ),
+        ]
+    else:
+        raise CdfPipelineError("unsupported_profile_case", f"unsupported flat-panel profile case: {profile_case}", sample_id)
+    return FlatPanelSpec(
+        sample_id=sample_id,
+        part_name=f"SMT_SM_FLAT_PANEL_T120_P{attempt_index:06d}",
+        width_mm=width_mm,
+        height_mm=height_mm,
+        thickness_mm=thickness_mm,
+        features=features,
+    )
+
+
+def _candidate_spec(sample_id: str, attempt_index: int, rng: random.Random) -> FlatPanelSpec:
+    return _flat_panel_spec(sample_id, attempt_index, rng, PROFILE_CASE_HOLE)
+
+
+def _bent_part_spec(sample_id: str, attempt_index: int, profile_case: str) -> BentPartSpec:
+    if profile_case != PROFILE_CASE_L_BRACKET:
+        raise CdfPipelineError("unsupported_profile_case", f"unsupported bent-part profile case: {profile_case}", sample_id)
+    return BentPartSpec(
+        sample_id=sample_id,
+        part_name=f"SMT_SM_L_BRACKET_T120_P{attempt_index:06d}",
+        part_class=PartClass.SM_L_BRACKET,
+        length_mm=120.0 + 5.0 * (attempt_index % 4),
+        web_width_mm=80.0 + 5.0 * (attempt_index % 3),
+        flange_width_mm=40.0,
+        thickness_mm=1.2,
+        inner_radius_mm=1.0,
     )
 
 
@@ -409,10 +553,18 @@ def _build_candidate_attempt(
     attempt_index: int,
     rng: random.Random,
     config: Mapping[str, Any],
+    profile_case: str = PROFILE_CASE_HOLE,
 ) -> None:
-    spec = _candidate_spec(sample_id, attempt_index, rng)
-    generated = build_flat_panel_part(spec)
-    write_flat_panel_outputs(attempt_dir, generated)
+    if profile_case in {PROFILE_CASE_HOLE, PROFILE_CASE_SLOT, PROFILE_CASE_CUTOUT, PROFILE_CASE_COMBO}:
+        spec = _flat_panel_spec(sample_id, attempt_index, rng, profile_case)
+        generated = build_flat_panel_part(spec)
+        write_flat_panel_outputs(attempt_dir, generated)
+    elif profile_case == PROFILE_CASE_L_BRACKET:
+        spec = _bent_part_spec(sample_id, attempt_index, profile_case)
+        generated = build_bent_part(spec)
+        write_bent_part_outputs(attempt_dir, generated)
+    else:
+        raise CdfPipelineError("unsupported_profile_case", f"unsupported profile case: {profile_case}", sample_id)
     graph = extract_brep_graph_with_candidates(attempt_dir / "cad" / "input.step")
     _write_graph_outputs(attempt_dir, graph)
 
@@ -421,13 +573,18 @@ def _build_candidate_attempt(
         raise CdfPipelineError("feature_truth_matching_failed", "generated truth must match graph candidates", sample_id)
     matches = match_feature_truth_to_candidates(generated.feature_truth, graph)
     entity_signatures = _entity_signatures_from_matches(generated.feature_truth, graph, matches)
-    mesh_policy = _mesh_policy(float(spec.width_mm), float(spec.height_mm), config)
+    part_width = generated.feature_truth.part.width_mm
+    part_height = generated.feature_truth.part.height_mm
+    if part_width is None or part_height is None:
+        raise CdfPipelineError("missing_part_extents", "generated feature truth must include width_mm and height_mm", sample_id)
+    midsurface_area_mm2 = float(part_width) * float(part_height)
+    mesh_policy = _mesh_policy(float(part_width), float(part_height), config)
     manifest = build_amg_manifest(
         feature_truth=generated.feature_truth,
         entity_signatures=entity_signatures,
         mesh_policy=mesh_policy,
         feature_policy=_feature_policy(config),
-        midsurface_area_mm2=float(spec.width_mm) * float(spec.height_mm),
+        midsurface_area_mm2=midsurface_area_mm2,
     )
     aux_labels = build_aux_labels(sample_id, manifest, mesh_policy)
     write_sample_directory(
@@ -458,6 +615,93 @@ def _promote_accepted_sample(attempt_dir: Path, sample_dir: Path, sample_id: str
     }
 
 
+def _blocked_result_with_rejections(
+    dataset_root: Path,
+    *,
+    config: Mapping[str, Any],
+    requested_count: int,
+    require_ansa: bool,
+    seed: int,
+    profile: str,
+    reason: str,
+    rejected_samples: list[dict[str, Any]],
+    runtime_sec: float | None = None,
+) -> GenerateDatasetResult:
+    _write_dataset_documents(
+        dataset_root,
+        config=config,
+        status=BLOCKED,
+        requested_count=requested_count,
+        accepted_samples=[],
+        rejected_samples=rejected_samples,
+        require_ansa=require_ansa,
+        seed=seed,
+        profile=profile,
+        reason=reason,
+        runtime_sec=runtime_sec,
+    )
+    return GenerateDatasetResult(
+        status=BLOCKED,
+        dataset_root=dataset_root,
+        requested_count=requested_count,
+        accepted_count=0,
+        rejected_count=len(rejected_samples),
+        exit_code=BLOCKED_EXIT_CODE,
+        reason=reason,
+        rejected_samples=tuple(rejected_samples),
+    )
+
+
+def _run_mixed_profile_probe_matrix(
+    *,
+    dataset_root: Path,
+    config: Mapping[str, Any],
+    ansa_config: AnsaRunnerConfig,
+    env: Mapping[str, str] | None,
+    seed: int,
+) -> list[dict[str, Any]]:
+    rng = random.Random(seed + 700_600)
+    rejected: list[dict[str, Any]] = []
+    for case_index, profile_case in enumerate(MIXED_BENCHMARK_REQUIRED_CASES, start=1):
+        sample_id = f"probe_{profile_case}"
+        probe_dir = dataset_root / "work" / "profile_probe" / f"{case_index:02d}_{profile_case}" / sample_id
+        if probe_dir.exists():
+            shutil.rmtree(probe_dir)
+        try:
+            _build_candidate_attempt(
+                attempt_dir=probe_dir,
+                sample_id=sample_id,
+                attempt_index=case_index,
+                rng=rng,
+                config=config,
+                profile_case=profile_case,
+            )
+            ansa_result = run_ansa_oracle(
+                AnsaRunRequest(
+                    sample_dir=probe_dir,
+                    config=ansa_config,
+                    env=dict(env or os.environ),
+                ),
+                execute=True,
+            )
+            if ansa_result.status != "COMPLETED":
+                raise CdfPipelineError(ansa_result.error_code or "ansa_probe_not_completed", f"ANSA status {ansa_result.status}", sample_id)
+            _require_real_oracle_acceptance(probe_dir)
+        except (CdfPipelineError, AnsaReportParseError, AnsaRunnerError, OSError, ValueError) as exc:
+            code = getattr(exc, "code", type(exc).__name__)
+            rejected.append(
+                {
+                    "sample_attempt_id": f"profile_probe_{case_index:02d}",
+                    "sample_id": sample_id,
+                    "profile_case": profile_case,
+                    "stage": "PROFILE_PROBE",
+                    "rejection_reason": str(code),
+                    "message": str(exc),
+                }
+            )
+    return rejected
+
+
 def generate_dataset(
     *,
     config_path: str | Path | None,
@@ -466,12 +710,14 @@ def generate_dataset(
     seed: int | None = None,
     require_ansa: bool = False,
     env: Mapping[str, str] | None = None,
+    profile: str = DEFAULT_PROFILE,
 ) -> GenerateDatasetResult:
     """Generate a CDF dataset, counting only real ANSA-accepted samples as accepted."""
 
     started = time.monotonic()
     if count <= 0:
         raise CdfPipelineError("invalid_count", "count must be positive")
+    target_cases = _target_cases_for_profile(profile, count)
     dataset_root = Path(out_dir)
     dataset_root.mkdir(parents=True, exist_ok=True)
     config = load_cdf_config(config_path)
@@ -486,9 +732,30 @@ def generate_dataset(
             require_ansa=require_ansa,
             seed=resolved_seed,
             reason=blocked_reason,
+            profile=profile,
         )
 
     ansa_config = AnsaRunnerConfig.model_validate(config.get("ansa_oracle", {}))
+    if profile == MIXED_BENCHMARK_PROFILE and require_ansa:
+        probe_rejections = _run_mixed_profile_probe_matrix(
+            dataset_root=dataset_root,
+            config=config,
+            ansa_config=ansa_config,
+            env=env,
+            seed=resolved_seed,
+        )
+        if probe_rejections:
+            return _blocked_result_with_rejections(
+                dataset_root,
+                config=config,
+                requested_count=count,
+                require_ansa=require_ansa,
+                seed=resolved_seed,
+                profile=profile,
+                reason="mixed_profile_probe_failed",
+                rejected_samples=probe_rejections,
+                runtime_sec=time.monotonic() - started,
+            )
     validation = config.get("validation", {})
     max_attempts_per_sample = int(validation.get("max_generation_attempts_per_sample", 50)) if isinstance(validation, Mapping) else 50
     max_attempts = max(count, count * max_attempts_per_sample)
@@ -498,6 +765,7 @@ def generate_dataset(
     for attempt_index in range(1, max_attempts + 1):
         if len(accepted) >= count:
             break
+        profile_case = target_cases[len(accepted)]
         sample_id = f"sample_{len(accepted) + 1:06d}"
         attempt_id = f"attempt_{attempt_index:06d}"
         attempt_dir = work_root / attempt_id / sample_id
@@ -510,6 +778,7 @@ def generate_dataset(
                 attempt_index=attempt_index,
                 rng=rng,
                 config=config,
+                profile_case=profile_case,
             )
             ansa_result = run_ansa_oracle(
                 AnsaRunRequest(
@@ -528,6 +797,7 @@ def generate_dataset(
                 {
                     "sample_attempt_id": attempt_id,
                     "sample_id": sample_id,
+                    "profile_case": profile_case,
                     "stage": "GENERATE",
                     "rejection_reason": str(code),
                     "message": str(exc),
@@ -545,6 +815,7 @@ def generate_dataset(
         rejected_samples=rejected,
         require_ansa=require_ansa,
         seed=resolved_seed,
+        profile=profile,
         reason=reason,
         runtime_sec=time.monotonic() - started,
     )

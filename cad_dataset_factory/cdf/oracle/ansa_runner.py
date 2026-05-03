@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 import subprocess
+import base64
+import json
 from pathlib import Path
 from typing import Any, Literal, Mapping
 
@@ -125,6 +127,35 @@ def _result_paths(paths: Mapping[str, Path], executable: Path | None = None) -> 
     return result
 
 
+def encode_ansa_process_payload(payload: Mapping[str, Any]) -> str:
+    """Encode a small JSON payload for ANSA ``-process_string`` transport."""
+
+    raw = json.dumps(dict(payload), sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def build_ansa_script_command(
+    *,
+    executable: Path,
+    script_path: Path,
+    payload: Mapping[str, Any],
+    entrypoint: str = "main",
+) -> list[str]:
+    """Build the ANSA v25 no-GUI Python script invocation used by CDF."""
+
+    return [
+        _path_arg(executable),
+        "-b",
+        "-nogui",
+        "--confirm-license-agreement",
+        "-exec",
+        f"load_script:{_path_arg(script_path)}",
+        "-exec",
+        entrypoint,
+        f"-process_string:{encode_ansa_process_payload(payload)}",
+    ]
+
+
 def _validate_sample_inputs(paths: Mapping[str, Path]) -> None:
     if not paths["sample_dir"].is_dir():
         raise AnsaRunnerError("missing_sample_dir", f"sample_dir does not exist: {paths['sample_dir']}")
@@ -137,28 +168,17 @@ def build_ansa_batch_command(request: AnsaRunRequest) -> list[str]:
 
     paths = _request_paths(request)
     executable = resolve_ansa_executable(request.config.ansa_executable, request.env)
-    return [
-        _path_arg(executable),
-        "-b",
-        "-exec",
-        _path_arg(paths["batch_script"]),
-        "--sample-dir",
-        _path_arg(paths["sample_dir"]),
-        "--manifest",
-        _path_arg(paths["manifest"]),
-        "--execution-report",
-        _path_arg(paths["execution_report"]),
-        "--quality-report",
-        _path_arg(paths["quality_report"]),
-        "--batch-mesh-session",
-        request.config.batch_mesh_session,
-        "--quality-profile",
-        request.config.quality_profile,
-        "--solver-deck",
-        request.config.solver_deck,
-        "--save-ansa-database",
-        "true" if request.config.save_ansa_database else "false",
-    ]
+    payload = {
+        "sample_dir": _path_arg(paths["sample_dir"]),
+        "manifest": _path_arg(paths["manifest"]),
+        "execution_report": _path_arg(paths["execution_report"]),
+        "quality_report": _path_arg(paths["quality_report"]),
+        "batch_mesh_session": request.config.batch_mesh_session,
+        "quality_profile": request.config.quality_profile,
+        "solver_deck": request.config.solver_deck,
+        "save_ansa_database": "true" if request.config.save_ansa_database else "false",
+    }
+    return build_ansa_script_command(executable=executable, script_path=paths["batch_script"], payload=payload)
 
 
 def preflight_ansa_run(request: AnsaRunRequest) -> AnsaRunResult:

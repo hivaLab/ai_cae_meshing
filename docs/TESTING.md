@@ -12,11 +12,13 @@ cad_kernel
 brep_graph
   B-rep extraction, coedge topology, feature candidate detection tests.
 
-oracle_mock
-  ANSA command builder and mocked report parser tests. No ANSA license required.
+oracle_contract_negative
+  ANSA command builder, parser, and validation rejection tests. No ANSA license required.
+  These tests may use failed reports or mocks, but they cannot prove dataset acceptance.
 
 requires_ansa
-  Real ANSA smoke and quality tests. Skipped unless ANSA_EXECUTABLE is configured.
+  Real ANSA runtime, oracle, dataset generation, and quality tests.
+  Skipped unless ANSA_EXECUTABLE is configured.
 
 model_smoke
   Dataset loader, batching, model forward/loss/checkpoint smoke tests.
@@ -36,7 +38,7 @@ Pure tests only:
 python -m pytest -m "not requires_ansa and not cad_kernel"
 ```
 
-ANSA smoke tests:
+Real ANSA tests:
 
 ```bash
 export ANSA_EXECUTABLE=/path/to/ansa64.sh
@@ -103,9 +105,9 @@ retry policy modifies only allowed controls
 MESH_FAILED is produced after retry exhaustion
 ```
 
-## 7. ANSA report parser tests
+## 7. ANSA report parser and rejection tests
 
-Use mocked JSON reports for these cases:
+Use schema-valid failed JSON reports for parser and rejection cases:
 
 ```text
 all pass
@@ -116,7 +118,12 @@ batch mesh failure
 hard failed elements > 0
 feature boundary size error too large
 bend row error too large
+controlled_failure_reason present
+mock or unavailable ansa_version
+placeholder mesh path
 ```
+
+These fixtures must never be used as accepted dataset samples.
 
 ## 8. Quality gates by phase
 
@@ -137,14 +144,20 @@ P3:
   feature truth matching tests pass
 
 P4:
-  mocked ANSA parser tests pass
-  requires_ansa smoke passes when ANSA is configured
+  ANSA parser and rejection tests pass
+  requires_ansa real one-sample gate passes when ANSA is configured
 
 P5:
   AMG rule-only pipeline smoke passes
 
 P6:
   dataset loader and model smoke tests pass
+
+P7:
+  cdf generate creates real ANSA-accepted samples
+  cdf validate --require-ansa passes
+  AMG training consumes only real accepted samples
+  AMG inference-to-ANSA produces real quality-passing meshes or explicit MESH_FAILED/OUT_OF_SCOPE reports
 ```
 
 ## 9. Test data policy
@@ -153,5 +166,6 @@ P6:
 - Keep small deterministic fixtures under tests/fixtures/.
 - Do not commit large generated datasets.
 - Large datasets go under datasets/ and should be ignored by git unless explicitly packaged.
-- Mocked ANSA reports are allowed in tests/fixtures/ansa_reports/.
+- Failed ANSA reports are allowed in tests/fixtures/ansa_reports/ for parser and rejection tests.
+- Mock adapters and placeholder outputs are allowed only when a test asserts that production validation rejects them, or when testing AMG method mapping without claiming acceptance.
 ```

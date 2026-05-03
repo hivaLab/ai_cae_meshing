@@ -5,9 +5,9 @@ Last updated: 2026-05-03 KST
 ## 1. 현재 상태
 
 ```text
-Project state        : T-701 fail-closed CDF CLI implemented; real accepted-sample gate blocked
+Project state        : T-702 real ANSA binding complete; 1 real ANSA-accepted CDF sample gate passed
 Active phase         : P7_REAL_PIPELINE_COMPLETION
-Active task          : T-701_CDF_E2E_DATASET_CLI_FAIL_CLOSED
+Active task          : T-703_CDF_ACCEPTED_DATASET_PILOT
 Primary source docs  : AMG.md, CDF.md
 Execution backend    : ANSA Batch Mesh, through adapter/script boundary
 Dataset factory      : CDF-SM-ANSA-V1
@@ -43,8 +43,8 @@ Model target         : AMG_MANIFEST_SM_V1
 | AMG dataset loader | DONE | T-601 complete |
 | AMG model skeleton | DONE | T-602 complete |
 | AMG training-loop smoke | DONE | T-603 complete; not production training |
-| CDF real dataset CLI | BLOCKED | T-701 fail-closed CLI exists; real ANSA accepted-sample gate not available |
-| CDF real ANSA API binding | TODO | T-702; skeleton/unavailable path is not a success path |
+| CDF real dataset CLI | DONE | T-701 complete; real ANSA accepted-sample gate passed for 1 sample |
+| CDF real ANSA API binding | DONE | T-702 complete; ANSA v25.1.0 batch/script path runs import/skin/batch mesh/export |
 | CDF accepted dataset pilot | TODO | T-703; requires real ANSA accepted samples |
 | AMG real dataset training | TODO | T-704; must use manifest labels from accepted samples |
 | AMG real inference to ANSA mesh | TODO | T-705; must produce real quality-passing meshes |
@@ -53,19 +53,20 @@ Model target         : AMG_MANIFEST_SM_V1
 
 | blocker | severity | resolution |
 |---|---:|---|
-| ANSA executable path not configured | medium | pure tests and mocked reports proceed; real ANSA tests use `requires_ansa` marker |
+| ANSA executable path not configured | resolved | real ANSA path verified: `C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat` |
 | CAD kernel behavior not validated | resolved | P2 CAD smoke paths and T-501 AMG geometry validation path exist; deeper heuristics remain future refinement |
 | CDF/TASKS requested obsolete `CDF_ANSA_ORACLE_REPORT_SM_V1.schema.json` name | resolved | use canonical `CDF_ANSA_EXECUTION_REPORT_SM_V1` and `CDF_ANSA_QUALITY_REPORT_SM_V1` |
 | AMG graph node type listed `FEATURE` while CDF/CONTRACTS listed `FEATURE_CANDIDATE` | resolved | use canonical `FEATURE_CANDIDATE` |
-| Real CDF accepted dataset does not exist | high | T-701/T-703 must generate ANSA-validated accepted samples; disabled or mocked oracle samples do not count |
-| Real ANSA internal API binding is not implemented | high | T-702 must replace skeleton unavailable functions before accepted sample generation can be complete |
+| Real CDF accepted dataset does not exist | medium | T-701 gate produced 1 accepted sample; T-703 must scale this to at least 100 accepted samples |
+| Real ANSA internal API binding is not implemented | resolved | T-702 replaced skeleton unavailable path with real ANSA import/skin/batch mesh/export workflow |
 | AMG has not trained on real accepted labels | high | T-704 must train from labels/amg_manifest.json and reports from T-703, not smoke targets |
+| Stale mock-oriented ANSA documentation could hide real-gate requirements | resolved | ANSA_INTEGRATION.md, TESTING.md, ROADMAP.md, and NEXT_AGENT_PROMPT.md now state that mocks/test doubles cannot count as P7 success |
 
 ## 4. 다음 작업
 
 ```text
-T-701_CDF_E2E_DATASET_CLI_FAIL_CLOSED
-  Implement cdf generate/validate orchestration and fail closed when real ANSA oracle artifacts are unavailable.
+T-703_CDF_ACCEPTED_DATASET_PILOT
+  Generate at least 100 real ANSA-accepted CDF samples with strict validation and no mock/placeholder acceptance.
 ```
 
 ## 5. 상태 업데이트 규칙
@@ -629,6 +630,44 @@ Blockers:
 
 Next:
   - T-701_CDF_E2E_DATASET_CLI_FAIL_CLOSED
+
+## Session 2026-05-03 T-702
+
+Completed:
+  - T-701_CDF_E2E_DATASET_CLI_FAIL_CLOSED promoted to DONE after real ANSA accepted-sample gate passed.
+  - T-702_CDF_REAL_ANSA_API_BINDING implemented for ANSA v25.1.0 no-GUI batch/script execution.
+
+Changed files:
+  - cad_dataset_factory/cdf/cli.py
+  - cad_dataset_factory/cdf/oracle/__init__.py
+  - cad_dataset_factory/cdf/oracle/ansa_probe.py
+  - cad_dataset_factory/cdf/oracle/ansa_runner.py
+  - cad_dataset_factory/cdf/oracle/ansa_scripts/cdf_ansa_api_layer.py
+  - cad_dataset_factory/cdf/oracle/ansa_scripts/cdf_ansa_oracle.py
+  - cad_dataset_factory/cdf/oracle/ansa_scripts/cdf_ansa_probe.py
+  - cad_dataset_factory/cdf/pipeline/e2e_dataset.py
+  - tests/test_cdf_ansa_runner.py
+  - tests/test_cdf_ansa_runtime_probe.py
+  - docs/NEXT_AGENT_PROMPT.md
+  - docs/STATUS.md
+  - docs/TASKS.md
+
+Tests:
+  - command: python -m pytest
+  - result: PASS, 176 passed and 1 skipped in 6.54s
+  - command: $env:ANSA_EXECUTABLE='C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat'; python -m pytest -m requires_ansa
+  - result: PASS, 1 passed in 13.98s
+  - command: python -m cad_dataset_factory.cdf.cli generate --config configs\cdf_sm_ansa_v1.default.json --out runs\e2e_cdf --count 1 --seed 1 --require-ansa --ansa-executable C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat
+  - result: SUCCESS, accepted_count=1
+  - command: python -m cad_dataset_factory.cdf.cli validate --dataset runs\e2e_cdf --require-ansa
+  - result: SUCCESS, error_count=0
+
+Blockers:
+  - none for the 1-sample real ANSA gate.
+  - T-703 must measure pass rate and runtime at pilot scale; current proof is one accepted flat-panel sample.
+
+Next:
+  - T-703_CDF_ACCEPTED_DATASET_PILOT
 
 ## Session 2026-05-03 T-701
 

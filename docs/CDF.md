@@ -1980,7 +1980,7 @@ test_ansa_command_line_build
   ANSA license 불필요.
 
 test_ansa_report_parser
-  목적: mocked ANSA JSON report를 정확히 parsing하는지 확인한다.
+  목적: schema-valid failed ANSA JSON report를 정확히 parsing하는지 확인한다.
   ANSA license 불필요.
 
 test_ansa_oracle_smoke_requires_ansa

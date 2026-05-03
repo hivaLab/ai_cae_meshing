@@ -303,12 +303,14 @@ def _entity_signatures_from_matches(
     for match in matches:
         feature = feature_by_id[match["feature_id"]]
         metadata = metadata_by_id[match["detected_feature_id"]]
+        raw_signature = metadata["geometry_signature"]
+        signature = raw_signature if isinstance(raw_signature, dict) else {"geometry_signature": str(raw_signature)}
         signatures.append(
             FeatureEntitySignature(
                 feature_id=feature.feature_id,
                 type=feature.type,
                 role=feature.role,
-                signature=metadata["geometry_signature"],
+                signature=signature,
             )
         )
     return EntitySignaturesDocument(

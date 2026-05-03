@@ -130,7 +130,7 @@ Contracts            : JSON files, not Python imports across packages
 
 ```text
 ANSA unavailable:
-  Run all pure tests and mocked report parser tests.
+  Run pure tests and parser/rejection tests, but keep real-pipeline tasks BLOCKED.
 
 CadQuery/OCP unstable:
   Keep P0/P1 pure rules independent of CAD kernel.

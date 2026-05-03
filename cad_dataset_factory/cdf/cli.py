@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Sequence
 
 from cad_dataset_factory.cdf.pipeline import CdfPipelineError, generate_dataset, validate_dataset
+from cad_dataset_factory.cdf.oracle import run_ansa_probe
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -21,10 +23,16 @@ def build_parser() -> argparse.ArgumentParser:
     generate.add_argument("--count", type=int, required=True, help="Accepted sample target count")
     generate.add_argument("--seed", type=int, default=None, help="Deterministic sampling seed")
     generate.add_argument("--require-ansa", action="store_true", help="Require real ANSA oracle reports for acceptance")
+    generate.add_argument("--ansa-executable", default=None, help="Explicit ANSA executable/batch file path")
 
     validate = subparsers.add_parser("validate", help="Validate accepted CDF dataset samples")
     validate.add_argument("--dataset", required=True, help="Dataset root directory")
     validate.add_argument("--require-ansa", action="store_true", help="Require real ANSA oracle reports and mesh artifacts")
+
+    probe = subparsers.add_parser("ansa-probe", help="Probe installed ANSA batch/Python runtime")
+    probe.add_argument("--ansa-executable", required=True, help="Explicit ANSA executable/batch file path")
+    probe.add_argument("--out", default="runs/ansa_probe/ansa_runtime_probe.json", help="Probe report JSON path")
+    probe.add_argument("--timeout-sec", type=int, default=90, help="Probe timeout in seconds")
     return parser
 
 
@@ -37,12 +45,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         if args.command == "generate":
+            env = dict(os.environ)
+            if args.ansa_executable:
+                env["ANSA_EXECUTABLE"] = str(args.ansa_executable)
             result = generate_dataset(
                 config_path=args.config,
                 out_dir=args.out,
                 count=args.count,
                 seed=args.seed,
                 require_ansa=args.require_ansa,
+                env=env,
             )
             _print_result(
                 {
@@ -67,6 +79,17 @@ def main(argv: Sequence[str] | None = None) -> int:
                 }
             )
             return result.exit_code
+        if args.command == "ansa-probe":
+            result = run_ansa_probe(ansa_executable=args.ansa_executable, out=args.out, timeout_sec=args.timeout_sec)
+            _print_result(
+                {
+                    "status": result.status,
+                    "output_path": Path(result.output_path).as_posix(),
+                    "returncode": result.returncode,
+                    "error_code": result.error_code,
+                }
+            )
+            return 0 if result.status == "OK" else 2
     except CdfPipelineError as exc:
         _print_result({"status": "FAILED", "code": exc.code, "message": str(exc)})
         return 1

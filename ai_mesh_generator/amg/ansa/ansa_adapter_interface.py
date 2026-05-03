@@ -1,4 +1,8 @@
-"""AMG-side ANSA adapter interface and deterministic mock implementation."""
+"""AMG-side ANSA adapter interface and unit-test adapter.
+
+The mock adapter is only for method-mapping tests. It is not an ANSA oracle and
+must never be used as evidence for accepted CDF samples or real AMG mesh output.
+"""
 
 from __future__ import annotations
 
@@ -49,7 +53,11 @@ class AnsaAdapter(Protocol):
 
 
 class MockAnsaAdapter:
-    """Deterministic test adapter that records operations and writes placeholder outputs."""
+    """Deterministic unit-test adapter that records operations.
+
+    Output files written by this adapter are deliberately non-production
+    placeholders and must be rejected by real dataset validation.
+    """
 
     def __init__(
         self,

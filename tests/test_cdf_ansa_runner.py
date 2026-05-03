@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import base64
+import json
 
 import pytest
 
@@ -17,6 +19,13 @@ from cad_dataset_factory.cdf.oracle import (
 )
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def _decode_process_payload(command: list[str]) -> dict:
+    payload_arg = next(item for item in command if item.startswith("-process_string:"))
+    encoded = payload_arg[len("-process_string:") :]
+    padded = encoded + "=" * (-len(encoded) % 4)
+    return json.loads(base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8"))
 
 
 def _sample_dir(name: str = "sample_000401", *, with_manifest: bool = True) -> Path:
@@ -76,17 +85,15 @@ def test_command_builder_includes_sample_and_report_paths() -> None:
 
     command = build_ansa_batch_command(request)
 
-    assert command[:3] == [executable.resolve().as_posix(), "-b", "-exec"]
-    assert "--sample-dir" in command
-    assert (_sample_dir().resolve().as_posix()) in command
-    assert "--manifest" in command
-    assert (_sample_dir().resolve() / "labels" / "amg_manifest.json").as_posix() in command
-    assert "--execution-report" in command
-    assert "ansa_execution_report.json" in " ".join(command)
-    assert "--quality-report" in command
-    assert "ansa_quality_report.json" in " ".join(command)
-    assert "--batch-mesh-session" in command
-    assert "AMG_SHELL_CONST_THICKNESS_V1" in command
+    assert command[:4] == [executable.resolve().as_posix(), "-b", "-nogui", "--confirm-license-agreement"]
+    assert "-exec" in command
+    assert any(item.startswith("load_script:") for item in command)
+    payload = _decode_process_payload(command)
+    assert payload["sample_dir"] == _sample_dir().resolve().as_posix()
+    assert payload["manifest"] == (_sample_dir().resolve() / "labels" / "amg_manifest.json").as_posix()
+    assert payload["execution_report"].endswith("ansa_execution_report.json")
+    assert payload["quality_report"].endswith("ansa_quality_report.json")
+    assert payload["batch_mesh_session"] == "AMG_SHELL_CONST_THICKNESS_V1"
 
 
 def test_missing_manifest_raises_ansa_runner_error() -> None:

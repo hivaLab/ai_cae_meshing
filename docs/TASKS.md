@@ -543,7 +543,7 @@ metrics are reported
 
 ## P7_REAL_PIPELINE_COMPLETION
 
-Status: TODO
+Status: IN_PROGRESS
 
 Purpose:
 
@@ -563,7 +563,7 @@ the task is BLOCKED or IN_PROGRESS, not DONE.
 
 ### T-701_CDF_E2E_DATASET_CLI_FAIL_CLOSED
 
-Status: BLOCKED
+Status: DONE
 
 Goal:
 
@@ -603,17 +603,18 @@ ANSA executable and license must be available for the accepted-sample gate.
 CadQuery/OCP must be available for CAD/STEP generation and B-rep extraction.
 ```
 
-Current blocker:
+Completion evidence:
 
 ```text
-Fail-closed CLI orchestration is implemented, but T-701 cannot be marked DONE until
-the requires_ansa gate creates real accepted samples. ANSA_EXECUTABLE is not configured
-in the current environment, and the internal ANSA API layer is still skeleton-only.
+Fail-closed CLI orchestration is implemented and the real ANSA gate created one
+accepted sample with reports/ansa_execution_report.json accepted=true,
+reports/ansa_quality_report.json accepted=true, zero hard failed elements, and
+meshes/ansa_oracle_mesh.bdf. Strict cdf validate --require-ansa passed.
 ```
 
 ### T-702_CDF_REAL_ANSA_API_BINDING
 
-Status: TODO
+Status: DONE
 
 Goal:
 
@@ -638,6 +639,17 @@ Installed ANSA version scripting API documentation or introspection access.
 ANSA_EXECUTABLE configured and runnable in batch/script mode.
 ```
 
+Completion evidence:
+
+```text
+cdf ansa-probe succeeded against
+C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat.
+ANSA internal script imports ansa/base/batchmesh/constants/mesh/session/utils,
+runs STEP import, geometry cleanup, Skin midsurface extraction, batch mesh,
+quality report writing, NASTRAN BDF export, and ANSA database export.
+python -m pytest -m requires_ansa passed with the real ANSA executable.
+```
+
 ### T-703_CDF_ACCEPTED_DATASET_PILOT
 
 Status: TODO
@@ -651,10 +663,12 @@ Generate a real accepted CDF pilot dataset with ANSA oracle enabled and no mocke
 Acceptance:
 
 ```text
-cdf generate produces at least 100 accepted samples with fixed seed.
-cdf validate passes every accepted sample.
-accepted samples have zero hard failed elements and feature boundary size error max <= 0.50.
-dataset_index.json, dataset_stats.json, splits, graph files, labels, meshes, and reports are complete.
+cdf generate produces at least 100 accepted samples with fixed seed and real ANSA execution.
+cdf validate --require-ansa passes every accepted sample.
+accepted samples have execution accepted=true, quality accepted=true,
+num_hard_failed_elements=0, real non-empty BDF mesh, and no mock/unavailable/controlled-failure reports.
+dataset_index.json, dataset_stats.json, rejected_index.json, splits, graph files, labels, meshes, and reports are complete.
+dataset_stats records accepted_count, rejected_count, attempted_count, runtime, and rejection reason counts.
 ```
 
 Required preconditions:
@@ -662,6 +676,21 @@ Required preconditions:
 ```text
 T-701 and T-702 complete.
 ANSA pass rate is high enough to finish within configured generation attempts.
+```
+
+Mathematical closure:
+
+```text
+Let A be the set of accepted sample ids in dataset_index.json.
+T-703 is DONE only if |A| >= 100 and for every sample s in A:
+  execution_s.accepted = true
+  quality_s.accepted = true
+  quality_s.num_hard_failed_elements = 0
+  sample_acceptance_s.accepted_by.ansa_oracle = true
+  size(mesh_s) > 0
+  execution_s.ansa_version not in {unavailable, mock-ansa}
+  controlled_failure_reason not in execution_s.outputs
+If any predicate is false, s is not an accepted training sample.
 ```
 
 ### T-704_AMG_REAL_DATASET_TRAINING

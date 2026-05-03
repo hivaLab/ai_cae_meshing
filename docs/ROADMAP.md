@@ -112,18 +112,18 @@ feature input columns contain expected_action_mask but no target_action_id
 
 ```text
 - external ANSA batch command builder
-- ANSA internal script skeleton
+- ANSA internal script and real ANSA binding
 - report parser
-- mocked ANSA report tests
-- requires_ansa smoke test
+- parser/rejection tests
+- requires_ansa real gate
 ```
 
 Exit criteria:
 
 ```text
-mocked oracle pass/fail reports parse correctly
-requires_ansa smoke test can run one sample when ANSA_EXECUTABLE is configured
-accepted samples have zero hard failed elements in reports
+failed oracle reports parse correctly
+requires_ansa real gate can run one sample when ANSA_EXECUTABLE is configured
+accepted samples have real BDF meshes and zero hard failed elements in reports
 ```
 
 ## 7. Phase P5: AMG rule-only pipeline
@@ -173,15 +173,18 @@ model output passes rule projector before manifest serialization
 
 ```text
 - CDF generated dataset package
-- AMG training on generated dataset
+- real ANSA-accepted CDF pilot dataset
+- AMG training on accepted manifest labels
 - unseen generated STEP inference
-- ANSA quality validation
+- real ANSA quality validation
 ```
 
 Exit criteria:
 
 ```text
-accepted generated samples can be loaded by AMG
-first-pass and retry success metrics are reported
+T-703 generates at least 100 real ANSA-accepted samples and strict validation passes
+T-704 trains AMG only on real accepted CDF labels and writes checkpoint/metrics
+T-705 runs AMG inference through real ANSA and reports VALID_MESH, OUT_OF_SCOPE, or MESH_FAILED
+first-pass and retry success metrics are reported from real ANSA outputs
 model metrics and mesh quality metrics are stored in reproducible reports
 ```

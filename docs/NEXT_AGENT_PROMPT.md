@@ -29,20 +29,20 @@ Current state:
 - T-302_FEATURE_CANDIDATE_DETECTOR is complete.
 - T-303_TRUTH_MATCHING_REPORT is complete.
 - T-401_ANSA_COMMAND_RUNNER is complete.
+- T-402_ANSA_INTERNAL_SCRIPT_SKELETON is complete.
 - Latest required test command: python -m pytest
 
 Next task:
-- T-402_ANSA_INTERNAL_SCRIPT_SKELETON
+- T-403_ANSA_REPORT_PARSER
 
-Work only on T-402_ANSA_INTERNAL_SCRIPT_SKELETON scope:
-- Create cdf_ansa_oracle.py under cad_dataset_factory/cdf/oracle/ansa_scripts.
-- Add an ANSA API-layer placeholder module under ansa_scripts only.
-- Script must parse command-line args from the T-401 command runner.
-- Script must write ansa_execution_report.json even on controlled failure.
-- Keep all ANSA API imports confined to ansa_scripts directories.
+Work only on T-403_ANSA_REPORT_PARSER scope:
+- Parse CDF ANSA execution and quality reports into typed objects.
+- Validate mocked execution and quality report documents against existing contracts.
+- Extract pass/fail status, quality hard fail count, and feature boundary error summaries.
+- Keep parser pure Python and independent of real ANSA.
 
 Do not implement in this session:
-- Full real ANSA oracle execution beyond controlled skeleton behavior.
+- Full real ANSA oracle execution.
 - AMG model training or inference.
 - Full dataset generation at scale.
 - New B-rep feature detection or truth matching heuristics.
@@ -54,7 +54,7 @@ Implementation requirements:
 - Keep ANSA API imports confined to ansa_scripts directories.
 - Do not add graph target_action_id or target numeric control columns.
 - Keep CadQuery/OCP as optional cad dependency, not a core hard dependency.
-- Reuse the T-401 command-line arguments and report paths.
+- Reuse CDF_ANSA_EXECUTION_REPORT_SM_V1 and CDF_ANSA_QUALITY_REPORT_SM_V1 contracts.
 - Run python -m pytest before finishing.
 - Update docs/STATUS.md, docs/TASKS.md, and docs/NEXT_AGENT_PROMPT.md with completed work, tests run, and the next task.
 
@@ -71,9 +71,9 @@ At the end, report:
 ## Expected next-session output
 
 ```text
-- T-402 ANSA internal script skeleton is implemented or explicitly blocked.
-- cdf_ansa_oracle.py parses T-401 command args and writes controlled failure reports.
-- ANSA imports remain confined to ansa_scripts.
+- T-403 ANSA report parser is implemented or explicitly blocked.
+- Mock execution and quality report pass/fail tests pass.
+- Quality hard fail count and feature boundary errors are extracted.
 - Existing P0/P1/P2 tests continue to pass.
 - STATUS.md, TASKS.md, and NEXT_AGENT_PROMPT.md are updated for the following task.
 ```

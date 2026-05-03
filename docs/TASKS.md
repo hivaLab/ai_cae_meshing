@@ -394,7 +394,7 @@ missing ANSA_EXECUTABLE produces structured skip/error
 
 ### T-402_ANSA_INTERNAL_SCRIPT_SKELETON
 
-Status: TODO
+Status: DONE
 
 Goal:
 

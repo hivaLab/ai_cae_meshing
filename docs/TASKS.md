@@ -432,7 +432,7 @@ feature boundary errors are extracted
 
 ### T-501_AMG_INPUT_VALIDATION
 
-Status: TODO
+Status: DONE
 
 Goal:
 

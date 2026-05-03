@@ -5,9 +5,9 @@ Last updated: 2026-05-03 KST
 ## 1. 현재 상태
 
 ```text
-Project state        : T-702 real ANSA binding complete; 1 real ANSA-accepted CDF sample gate passed
+Project state        : T-703 CDF accepted dataset pilot complete; 100 real ANSA-accepted samples validated
 Active phase         : P7_REAL_PIPELINE_COMPLETION
-Active task          : T-703_CDF_ACCEPTED_DATASET_PILOT
+Active task          : T-704_AMG_REAL_DATASET_TRAINING
 Primary source docs  : AMG.md, CDF.md
 Execution backend    : ANSA Batch Mesh, through adapter/script boundary
 Dataset factory      : CDF-SM-ANSA-V1
@@ -45,7 +45,7 @@ Model target         : AMG_MANIFEST_SM_V1
 | AMG training-loop smoke | DONE | T-603 complete; not production training |
 | CDF real dataset CLI | DONE | T-701 complete; real ANSA accepted-sample gate passed for 1 sample |
 | CDF real ANSA API binding | DONE | T-702 complete; ANSA v25.1.0 batch/script path runs import/skin/batch mesh/export |
-| CDF accepted dataset pilot | TODO | T-703; requires real ANSA accepted samples |
+| CDF accepted dataset pilot | DONE | T-703 complete; 100 real ANSA-accepted samples validated in `runs/pilot_cdf_100` |
 | AMG real dataset training | TODO | T-704; must use manifest labels from accepted samples |
 | AMG real inference to ANSA mesh | TODO | T-705; must produce real quality-passing meshes |
 
@@ -57,7 +57,7 @@ Model target         : AMG_MANIFEST_SM_V1
 | CAD kernel behavior not validated | resolved | P2 CAD smoke paths and T-501 AMG geometry validation path exist; deeper heuristics remain future refinement |
 | CDF/TASKS requested obsolete `CDF_ANSA_ORACLE_REPORT_SM_V1.schema.json` name | resolved | use canonical `CDF_ANSA_EXECUTION_REPORT_SM_V1` and `CDF_ANSA_QUALITY_REPORT_SM_V1` |
 | AMG graph node type listed `FEATURE` while CDF/CONTRACTS listed `FEATURE_CANDIDATE` | resolved | use canonical `FEATURE_CANDIDATE` |
-| Real CDF accepted dataset does not exist | medium | T-701 gate produced 1 accepted sample; T-703 must scale this to at least 100 accepted samples |
+| Real CDF accepted dataset does not exist | resolved | T-703 generated and validated 100 real ANSA-accepted samples in `runs/pilot_cdf_100` |
 | Real ANSA internal API binding is not implemented | resolved | T-702 replaced skeleton unavailable path with real ANSA import/skin/batch mesh/export workflow |
 | AMG has not trained on real accepted labels | high | T-704 must train from labels/amg_manifest.json and reports from T-703, not smoke targets |
 | Stale mock-oriented ANSA documentation could hide real-gate requirements | resolved | ANSA_INTEGRATION.md, TESTING.md, ROADMAP.md, and NEXT_AGENT_PROMPT.md now state that mocks/test doubles cannot count as P7 success |
@@ -65,8 +65,8 @@ Model target         : AMG_MANIFEST_SM_V1
 ## 4. 다음 작업
 
 ```text
-T-703_CDF_ACCEPTED_DATASET_PILOT
-  Generate at least 100 real ANSA-accepted CDF samples with strict validation and no mock/placeholder acceptance.
+T-704_AMG_REAL_DATASET_TRAINING
+  Train AMG on the real accepted CDF pilot dataset using `labels/amg_manifest.json` supervision only.
 ```
 
 ## 5. 상태 업데이트 규칙
@@ -102,6 +102,41 @@ Blockers:
 Next:
   - T-YYY ...
 ```
+
+## Session 2026-05-03 T-703
+
+Completed:
+  - T-703_CDF_ACCEPTED_DATASET_PILOT
+
+Changed files:
+  - cad_dataset_factory/cdf/pipeline/e2e_dataset.py
+  - tests/test_cdf_e2e_dataset_cli.py
+  - docs/STATUS.md
+  - docs/TASKS.md
+  - docs/NEXT_AGENT_PROMPT.md
+
+Tests:
+  - command: python -m pytest
+  - result: PASS, 176 passed and 1 skipped in 7.20s
+  - command: python -m cad_dataset_factory.cdf.cli ansa-probe --ansa-executable C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat --out runs\ansa_probe\ansa_runtime_probe.json --timeout-sec 90
+  - result: PASS, status=OK
+  - command: python -m cad_dataset_factory.cdf.cli generate --config configs\cdf_sm_ansa_v1.default.json --out runs\pilot_cdf_100 --count 100 --seed 1 --require-ansa --ansa-executable C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat
+  - result: SUCCESS, accepted_count=100, rejected_count=2, attempted_count=102, runtime_sec=1234.132632
+  - command: python -m cad_dataset_factory.cdf.cli validate --dataset runs\pilot_cdf_100 --require-ansa
+  - result: SUCCESS, accepted_count=100, error_count=0
+
+Evidence:
+  - dataset: runs/pilot_cdf_100
+  - first accepted sample: sample_000001, ANSA_v25.1.0, hard_failed=0, mesh_bytes=6826
+  - last accepted sample: sample_000100, ANSA_v25.1.0, hard_failed=0, mesh_bytes=6560
+  - rejected reasons: feature_truth_matching_failed=2
+
+Blockers:
+  - none for T-703.
+  - T-704 must now replace synthetic smoke targets with manifest-label supervision from this real accepted dataset.
+
+Next:
+  - T-704_AMG_REAL_DATASET_TRAINING
 
 ## Session 2026-05-03
 

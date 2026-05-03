@@ -27,117 +27,90 @@ Current state:
 - T-601 through T-603 are complete, but T-602/T-603 are model skeleton/smoke only.
 - T-701_CDF_E2E_DATASET_CLI_FAIL_CLOSED is complete.
 - T-702_CDF_REAL_ANSA_API_BINDING is complete for ANSA v25.1.0.
+- T-703_CDF_ACCEPTED_DATASET_PILOT is complete.
 - Latest pure regression: python -m pytest -> 176 passed, 1 skipped.
-- Latest real ANSA marker gate:
-  $env:ANSA_EXECUTABLE='C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat'; python -m pytest -m requires_ansa
-  -> 1 passed.
-- Latest real accepted gate:
-  python -m cad_dataset_factory.cdf.cli generate --config configs\cdf_sm_ansa_v1.default.json --out runs\e2e_cdf --count 1 --seed 1 --require-ansa --ansa-executable C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat
-  -> SUCCESS, accepted_count=1.
-  python -m cad_dataset_factory.cdf.cli validate --dataset runs\e2e_cdf --require-ansa
-  -> SUCCESS, error_count=0.
+- Latest real ANSA probe:
+  python -m cad_dataset_factory.cdf.cli ansa-probe --ansa-executable C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat --out runs\ansa_probe\ansa_runtime_probe.json --timeout-sec 90
+  -> status=OK.
+- Latest real pilot dataset:
+  python -m cad_dataset_factory.cdf.cli generate --config configs\cdf_sm_ansa_v1.default.json --out runs\pilot_cdf_100 --count 100 --seed 1 --require-ansa --ansa-executable C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat
+  -> SUCCESS, accepted_count=100, rejected_count=2, attempted_count=102, runtime_sec=1234.132632.
+  python -m cad_dataset_factory.cdf.cli validate --dataset runs\pilot_cdf_100 --require-ansa
+  -> SUCCESS, accepted_count=100, error_count=0.
 
 Verified ANSA executable:
 - C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat
 
+Real accepted dataset for T-704:
+- runs\pilot_cdf_100
+- 100 accepted samples
+- rejection_reason_counts.feature_truth_matching_failed = 2
+- accepted samples have real ANSA_v25.1.0 reports, zero hard failed elements, and non-empty BDF meshes.
+
 Next task:
-- T-703_CDF_ACCEPTED_DATASET_PILOT
+- T-704_AMG_REAL_DATASET_TRAINING
 
-Work only on T-703_CDF_ACCEPTED_DATASET_PILOT scope:
-- Generate a real CDF pilot dataset with at least 100 accepted samples using the verified ANSA executable.
-- Do not count mock, disabled-oracle, controlled-failure, placeholder, dry-run, or synthetic-target samples as accepted.
-- Do not mark T-703 DONE from unit tests or smoke tests alone.
-- Keep the task IN_PROGRESS or BLOCKED unless strict validation proves the accepted pilot dataset is real.
+Work only on T-704_AMG_REAL_DATASET_TRAINING scope:
+- Train AMG on real CDF accepted samples using file contracts only.
+- Use `runs\pilot_cdf_100` as the initial real pilot dataset.
+- Use `labels/amg_manifest.json` as label-side supervision.
+- Do not use synthetic smoke targets as the success path.
+- Do not add target_action_id or target numeric control columns to graph inputs.
+- Do not import `cad_dataset_factory` from AMG source.
+- Do not use `cad/reference_midsurface.step` as a model input.
 
-Closed execution plan:
-1. Baseline
-   - Confirm the current T-702 changes are committed or intentionally left uncommitted by the user.
-   - Run python -m pytest.
-   - Run the real ANSA marker gate with ANSA_EXECUTABLE set.
+Implementation targets:
+1. Add an AMG real-training CLI or script entrypoint that loads a dataset root through the existing AMG dataset loader.
+2. Refuse to train unless `cdf validate --require-ansa`-equivalent acceptance evidence is present:
+   - dataset_index accepted samples exist
+   - reports/sample_acceptance.json accepted=true and accepted_by.ansa_oracle=true
+   - reports/ansa_execution_report.json accepted=true
+   - reports/ansa_quality_report.json accepted=true and num_hard_failed_elements=0
+   - meshes/ansa_oracle_mesh.bdf exists and is non-empty
+3. Build supervised targets from `labels/amg_manifest.json`, not from graph target columns:
+   - part class target from manifest part class
+   - feature type target from manifest feature records
+   - feature action target from manifest feature action
+   - numeric targets from manifest controls, bounded by mesh policy
+4. Train the existing T-602 model for a small but real dataset run:
+   - deterministic seed
+   - train/validation split from dataset split files or deterministic fallback if split is empty
+   - checkpoint save/load
+   - metrics JSON with per-head losses and label coverage
+5. The run is a real training pilot, not production-scale convergence. Completion requires loss/metrics/checkpoint over real accepted labels.
 
-2. Runtime preflight
-   - Run cdf ansa-probe against the verified ansa64.bat.
-   - Confirm status=OK, import ansa succeeds, and base/batchmesh APIs needed by T-702 are available.
-   - If probe fails, stop with BLOCKED and record the exact license/API/runtime failure.
+Acceptance for T-704:
+- Training command completes on `runs\pilot_cdf_100`.
+- Checkpoint is written.
+- metrics JSON records sample count, candidate count, manifest-label coverage, train/validation losses, and refusal status for invalid datasets.
+- Training refuses a dataset without real ANSA-accepted samples.
+- `python -m pytest` passes.
+- Any new model/training tests use real-manifest-style fixtures and do not rely on synthetic target columns.
 
-3. Pilot generation
-   - Run:
-     python -m cad_dataset_factory.cdf.cli generate --config configs\cdf_sm_ansa_v1.default.json --out runs\pilot_cdf_100 --count 100 --seed 1 --require-ansa --ansa-executable C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat
-   - The requested count means 100 accepted samples, not 100 attempts.
-   - Candidate attempts may be rejected, but accepted samples must be promoted only after real ANSA execution and quality parsing.
-
-4. Strict validation
-   - Run:
-     python -m cad_dataset_factory.cdf.cli validate --dataset runs\pilot_cdf_100 --require-ansa
-   - Every accepted sample must contain:
-     cad/input.step
-     graph/brep_graph.npz
-     graph/graph_schema.json
-     labels/amg_manifest.json
-     reports/ansa_execution_report.json
-     reports/ansa_quality_report.json
-     meshes/ansa_oracle_mesh.bdf
-     reports/sample_acceptance.json
-   - Every accepted sample must satisfy:
-     accepted_by.ansa_oracle=true
-     execution accepted=true
-     quality accepted=true
-     num_hard_failed_elements=0
-     meshes/ansa_oracle_mesh.bdf exists and is non-empty
-     no controlled_failure_reason
-     ansa_version is neither unavailable nor mock-ansa
-     mesh is not placeholder/mock text
-
-5. Pilot evidence report
-   - Record requested_count, accepted_count, rejected_count, total attempts, runtime, pass rate, rejection reason counts, and ANSA average runtime.
-   - Verify dataset_index.json, dataset_stats.json, rejected_index.json, and split files are deterministic and stable for the fixed seed.
-   - Inspect at least the first and last accepted sample reports for relative paths and real mesh artifacts.
-
-Completion criterion for T-703:
-- DONE only if at least 100 real ANSA-accepted samples exist and cdf validate --require-ansa passes.
-- IN_PROGRESS if generation is running but incomplete.
-- BLOCKED if ANSA runtime/license/API/pass-rate prevents completion; record exact failure reason and do not fake acceptance.
-
-Do not implement in T-703:
-- AMG real training; that is T-704 after the real accepted pilot dataset exists.
+Do not implement in T-704:
 - AMG inference-to-ANSA mesh; that is T-705.
-- New graph target_action_id or target numeric control columns.
-- Using cad/reference_midsurface.step as a model input.
-- Silent fallback that accepts missing ANSA, missing quality report, missing mesh, or failed quality.
+- Production heterogeneous B-rep GNN architecture beyond the current model skeleton unless directly required to train.
+- CDF generation changes except small validation/evidence fixes if a loader invariant exposes a bug.
+- New ANSA execution logic.
 
-Implementation requirements:
-- Use Python >= 3.11.
-- Keep CDF code independent from AMG imports.
-- Keep AMG source independent from CDF package imports; communicate through contract files only.
-- Keep ANSA API imports confined to ansa_scripts directories.
-- Run python -m pytest before finishing.
-- Run the real ANSA gate before marking T-703 DONE.
-- Update docs/STATUS.md, docs/TASKS.md, and docs/NEXT_AGENT_PROMPT.md with completed work, tests run, and the next task.
-
-Known risks to check quantitatively:
-- T-702 has only proven one flat-panel accepted sample. T-703 must measure scale stability.
-- The v1 ANSA binding records manifest controls and uses ANSA Batch Mesh defaults. If quality or feature boundary errors rise, improve real control application instead of adding a fallback.
-- The current CDF generator path is mostly flat-panel. If AMG.md/CDF.md require mixed families for T-703, stop and split T-703 into flat pilot and bent-family pilot with explicit acceptance counts.
-- Real neural-network training remains unproven until T-704.
-
-Stop and report BLOCKED instead of guessing if AMG.md, CDF.md, CONTRACTS.md, DATASET.md, or ANSA runtime evidence conflict.
+Stop and report BLOCKED instead of guessing if AMG.md, CDF.md, CONTRACTS.md, DATASET.md, or the real pilot dataset evidence conflict.
 
 At the end, report:
 1. completed task IDs
 2. changed files
 3. test command and result
-4. real ANSA command and result
-5. pilot dataset counts and validation result
-6. next recommended task
-7. blockers or risks
+4. training command and result
+5. dataset path, sample count, and label coverage
+6. checkpoint and metrics paths
+7. next recommended task
+8. blockers or risks
 ```
 
 ## Expected next-session output
 
 ```text
-- T-703 is DONE only if at least 100 real ANSA-accepted samples are generated and strict validation passes.
-- Otherwise T-703 remains IN_PROGRESS or BLOCKED with exact ANSA failure reasons and no fake accepted samples.
+- T-704 is DONE only if AMG trains on real accepted CDF labels from runs\pilot_cdf_100 and writes checkpoint/metrics.
+- Otherwise T-704 remains IN_PROGRESS or BLOCKED with exact dataset/model/training failure reasons.
 - python -m pytest passes.
-- requires_ansa real gate passes, or exact runtime/license/API blocker is recorded.
-- STATUS.md, TASKS.md, and NEXT_AGENT_PROMPT.md remain aligned with the next real-pipeline task.
+- STATUS.md, TASKS.md, and NEXT_AGENT_PROMPT.md remain aligned with T-705_AMG_REAL_INFERENCE_TO_ANSA_MESH or the next unblocked real-training task.
 ```

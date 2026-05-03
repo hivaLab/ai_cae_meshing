@@ -6,6 +6,7 @@ import json
 import os
 import random
 import shutil
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
@@ -153,19 +154,39 @@ def _write_dataset_stats(
     require_ansa: bool,
     seed: int,
     reason: str | None = None,
+    runtime_sec: float | None = None,
 ) -> dict[str, Any]:
+    rejection_reason_counts: dict[str, int] = {}
+    for rejected in rejected_samples:
+        rejection_reason = str(rejected.get("rejection_reason", "unknown"))
+        rejection_reason_counts[rejection_reason] = rejection_reason_counts.get(rejection_reason, 0) + 1
     stats = {
         "schema": "CDF_DATASET_STATS_SM_V1",
         "status": status,
         "requested_count": requested_count,
         "accepted_count": len(accepted_samples),
         "rejected_count": len(rejected_samples),
+        "attempted_count": len(accepted_samples) + len(rejected_samples),
+        "rejection_reason_counts": rejection_reason_counts,
         "require_ansa": require_ansa,
         "seed": seed,
         "reason": reason,
     }
+    if runtime_sec is not None:
+        stats["runtime_sec"] = round(max(0.0, float(runtime_sec)), 6)
     _write_json(dataset_root / "dataset_stats.json", stats)
     return stats
+
+
+def _write_rejected_index(dataset_root: Path, rejected_samples: list[dict[str, Any]]) -> None:
+    _write_json(
+        dataset_root / "rejected" / "rejected_index.json",
+        {
+            "schema": "CDF_REJECTED_INDEX_SM_V1",
+            "num_rejected": len(rejected_samples),
+            "rejected_samples": rejected_samples,
+        },
+    )
 
 
 def _write_dataset_documents(
@@ -179,8 +200,10 @@ def _write_dataset_documents(
     require_ansa: bool,
     seed: int,
     reason: str | None = None,
+    runtime_sec: float | None = None,
 ) -> None:
     write_dataset_index(dataset_root, accepted_samples, rejected_samples, dict(config))
+    _write_rejected_index(dataset_root, rejected_samples)
     _write_dataset_stats(
         dataset_root,
         status=status,
@@ -190,6 +213,7 @@ def _write_dataset_documents(
         require_ansa=require_ansa,
         seed=seed,
         reason=reason,
+        runtime_sec=runtime_sec,
     )
     _write_splits(dataset_root, accepted_samples)
     _copy_contracts(dataset_root)
@@ -445,6 +469,7 @@ def generate_dataset(
 ) -> GenerateDatasetResult:
     """Generate a CDF dataset, counting only real ANSA-accepted samples as accepted."""
 
+    started = time.monotonic()
     if count <= 0:
         raise CdfPipelineError("invalid_count", "count must be positive")
     dataset_root = Path(out_dir)
@@ -521,6 +546,7 @@ def generate_dataset(
         require_ansa=require_ansa,
         seed=resolved_seed,
         reason=reason,
+        runtime_sec=time.monotonic() - started,
     )
     return GenerateDatasetResult(
         status=status,

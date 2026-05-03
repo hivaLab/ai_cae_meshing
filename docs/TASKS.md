@@ -652,7 +652,7 @@ python -m pytest -m requires_ansa passed with the real ANSA executable.
 
 ### T-703_CDF_ACCEPTED_DATASET_PILOT
 
-Status: TODO
+Status: DONE
 
 Goal:
 
@@ -676,6 +676,17 @@ Required preconditions:
 ```text
 T-701 and T-702 complete.
 ANSA pass rate is high enough to finish within configured generation attempts.
+```
+
+Completion evidence:
+
+```text
+runs/pilot_cdf_100 contains 100 real ANSA-accepted samples.
+cdf validate --dataset runs\pilot_cdf_100 --require-ansa returned SUCCESS with error_count=0.
+dataset_stats.json records accepted_count=100, rejected_count=2, attempted_count=102,
+runtime_sec=1234.132632, and rejection_reason_counts.feature_truth_matching_failed=2.
+sample_000001 and sample_000100 both have execution accepted=true, quality accepted=true,
+ANSA_v25.1.0, zero hard failed elements, and non-empty real BDF meshes.
 ```
 
 Mathematical closure:

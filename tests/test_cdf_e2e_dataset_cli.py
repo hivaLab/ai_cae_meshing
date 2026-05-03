@@ -189,12 +189,16 @@ def test_generate_require_ansa_missing_executable_blocks_without_accepted_sample
 
     index = json.loads((dataset_root / "dataset_index.json").read_text(encoding="utf-8"))
     stats = json.loads((dataset_root / "dataset_stats.json").read_text(encoding="utf-8"))
+    rejected_index = json.loads((dataset_root / "rejected" / "rejected_index.json").read_text(encoding="utf-8"))
     assert result.exit_code == 2
     assert result.status == "BLOCKED"
     assert index["num_accepted"] == 0
     assert index["accepted_samples"] == []
+    assert rejected_index["num_rejected"] == 1
     assert stats["status"] == "BLOCKED"
     assert stats["reason"] == "missing_ansa_executable"
+    assert stats["attempted_count"] == 1
+    assert stats["rejection_reason_counts"] == {"missing_ansa_executable": 1}
     assert not any((dataset_root / "samples").iterdir())
     assert (dataset_root / "splits" / "train.txt").read_text(encoding="utf-8") == ""
 

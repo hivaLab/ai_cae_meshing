@@ -1,1 +1,0 @@
-"""Procedural CAD generation."""

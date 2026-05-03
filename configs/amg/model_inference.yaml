@@ -1,6 +1,0 @@
-seed: 20260430
-backend: ANSA_BATCH
-recipe_guard:
-  min_confidence: 0.55
-  preserve_named_boundaries: true
-  preserve_connection_holes: true

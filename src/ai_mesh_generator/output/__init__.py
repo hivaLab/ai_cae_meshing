@@ -1,1 +1,0 @@
-"""AMG output packaging."""

@@ -1,1 +1,0 @@
-"""AI Mesh Generator package."""

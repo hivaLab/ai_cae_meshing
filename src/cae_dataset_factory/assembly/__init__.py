@@ -1,1 +1,0 @@
-"""Procedural assembly grammar."""

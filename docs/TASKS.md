@@ -469,7 +469,7 @@ growth-rate smoothing is applied
 
 ### T-503_AMG_ANSA_ADAPTER_INTERFACE
 
-Status: TODO
+Status: DONE
 
 Goal:
 

@@ -5,9 +5,9 @@ Last updated: 2026-05-03 KST
 ## 1. 현재 상태
 
 ```text
-Project state        : T-502 AMG deterministic manifest complete
-Active phase         : P5_AMG_RULE_ONLY_PIPELINE
-Active task          : T-503_AMG_ANSA_ADAPTER_INTERFACE
+Project state        : T-503 AMG ANSA adapter interface complete
+Active phase         : P6_AMG_MODEL_BASELINE
+Active task          : T-601_DATASET_LOADER
 Primary source docs  : AMG.md, CDF.md
 Execution backend    : ANSA Batch Mesh, through adapter/script boundary
 Dataset factory      : CDF-SM-ANSA-V1
@@ -39,6 +39,7 @@ Model target         : AMG_MANIFEST_SM_V1
 | CDF ANSA report parser | DONE | T-403 complete |
 | AMG input validation | DONE | T-501 complete |
 | AMG deterministic manifest | DONE | T-502 complete |
+| AMG ANSA adapter interface | DONE | T-503 complete |
 | CDF generator | TODO | after P0 |
 | ANSA oracle | TODO | after pure tests and mock runner |
 | AMG rule-only pipeline | TODO | after contracts and CDF labels |
@@ -56,8 +57,8 @@ Model target         : AMG_MANIFEST_SM_V1
 ## 4. 다음 작업
 
 ```text
-T-503_AMG_ANSA_ADAPTER_INTERFACE
-  Create AMG AnsaAdapter interface and manifest runner skeleton.
+T-601_DATASET_LOADER
+  Load CDF dataset files without importing CDF package.
 ```
 
 ## 5. 상태 업데이트 규칙
@@ -519,3 +520,29 @@ Blockers:
 
 Next:
   - T-503_AMG_ANSA_ADAPTER_INTERFACE
+
+## Session 2026-05-03 T-503
+
+Completed:
+  - T-503_AMG_ANSA_ADAPTER_INTERFACE
+
+Changed files:
+  - ai_mesh_generator/amg/ansa/__init__.py
+  - ai_mesh_generator/amg/ansa/ansa_adapter_interface.py
+  - ai_mesh_generator/amg/ansa/manifest_runner.py
+  - tests/test_amg_ansa_adapter_interface.py
+  - docs/NEXT_AGENT_PROMPT.md
+  - docs/STATUS.md
+  - docs/TASKS.md
+
+Tests:
+  - command: python -m pytest
+  - result: PASS, 143 passed in 3.91s
+
+Blockers:
+  - ANSA executable path not configured; real ANSA tests remain deferred to `requires_ansa`.
+  - T-503 implements the AMG-side adapter boundary and deterministic mock only; real ANSA binding remains out of scope.
+  - AMG dataset loader remains unimplemented and is the next P6 task.
+
+Next:
+  - T-601_DATASET_LOADER

@@ -706,7 +706,7 @@ If any predicate is false, s is not an accepted training sample.
 
 ### T-704_AMG_REAL_DATASET_TRAINING
 
-Status: TODO
+Status: DONE
 
 Goal:
 
@@ -729,6 +729,19 @@ Required preconditions:
 ```text
 T-703 accepted pilot dataset exists.
 Torch model dependency is installed.
+```
+
+Completion evidence:
+
+```text
+AMG real training ran on runs\pilot_cdf_100 using labels/amg_manifest.json supervision.
+Output directory: runs\amg_training_real_pilot
+Checkpoint: runs\amg_training_real_pilot\checkpoint.pt
+Metrics: runs\amg_training_real_pilot\metrics.json
+Training metrics record sample_count=100, candidate_count=100, manifest_feature_count=100,
+matched_target_count=100, label_coverage_ratio=1.0, train_sample_count=80,
+validation_sample_count=20, and split_source=deterministic_80_20_fallback.
+python -m pytest passed with 186 passed and 1 skipped.
 ```
 
 ### T-705_AMG_REAL_INFERENCE_TO_ANSA_MESH

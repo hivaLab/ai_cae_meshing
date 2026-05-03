@@ -5,9 +5,9 @@ Last updated: 2026-05-03 KST
 ## 1. 현재 상태
 
 ```text
-Project state        : T-703 CDF accepted dataset pilot complete; 100 real ANSA-accepted samples validated
+Project state        : T-704 AMG real dataset training complete; checkpoint and metrics written from real CDF labels
 Active phase         : P7_REAL_PIPELINE_COMPLETION
-Active task          : T-704_AMG_REAL_DATASET_TRAINING
+Active task          : T-705_AMG_REAL_INFERENCE_TO_ANSA_MESH
 Primary source docs  : AMG.md, CDF.md
 Execution backend    : ANSA Batch Mesh, through adapter/script boundary
 Dataset factory      : CDF-SM-ANSA-V1
@@ -46,7 +46,7 @@ Model target         : AMG_MANIFEST_SM_V1
 | CDF real dataset CLI | DONE | T-701 complete; real ANSA accepted-sample gate passed for 1 sample |
 | CDF real ANSA API binding | DONE | T-702 complete; ANSA v25.1.0 batch/script path runs import/skin/batch mesh/export |
 | CDF accepted dataset pilot | DONE | T-703 complete; 100 real ANSA-accepted samples validated in `runs/pilot_cdf_100` |
-| AMG real dataset training | TODO | T-704; must use manifest labels from accepted samples |
+| AMG real dataset training | DONE | T-704 complete; trained on `runs/pilot_cdf_100` manifest labels |
 | AMG real inference to ANSA mesh | TODO | T-705; must produce real quality-passing meshes |
 
 ## 3. 현재 blocker
@@ -59,14 +59,14 @@ Model target         : AMG_MANIFEST_SM_V1
 | AMG graph node type listed `FEATURE` while CDF/CONTRACTS listed `FEATURE_CANDIDATE` | resolved | use canonical `FEATURE_CANDIDATE` |
 | Real CDF accepted dataset does not exist | resolved | T-703 generated and validated 100 real ANSA-accepted samples in `runs/pilot_cdf_100` |
 | Real ANSA internal API binding is not implemented | resolved | T-702 replaced skeleton unavailable path with real ANSA import/skin/batch mesh/export workflow |
-| AMG has not trained on real accepted labels | high | T-704 must train from labels/amg_manifest.json and reports from T-703, not smoke targets |
+| AMG has not trained on real accepted labels | resolved | T-704 trained on `runs/pilot_cdf_100` with manifest-label coverage 1.0 |
 | Stale mock-oriented ANSA documentation could hide real-gate requirements | resolved | ANSA_INTEGRATION.md, TESTING.md, ROADMAP.md, and NEXT_AGENT_PROMPT.md now state that mocks/test doubles cannot count as P7 success |
 
 ## 4. 다음 작업
 
 ```text
-T-704_AMG_REAL_DATASET_TRAINING
-  Train AMG on the real accepted CDF pilot dataset using `labels/amg_manifest.json` supervision only.
+T-705_AMG_REAL_INFERENCE_TO_ANSA_MESH
+  Run the trained AMG checkpoint on held-out STEP inputs, project to manifest, execute real ANSA, and validate mesh quality.
 ```
 
 ## 5. 상태 업데이트 규칙
@@ -102,6 +102,41 @@ Blockers:
 Next:
   - T-YYY ...
 ```
+
+## Session 2026-05-03 T-704
+
+Completed:
+  - T-704_AMG_REAL_DATASET_TRAINING
+
+Changed files:
+  - ai_mesh_generator/amg/training/real.py
+  - ai_mesh_generator/amg/training/__init__.py
+  - pyproject.toml
+  - tests/test_amg_real_dataset_training.py
+  - docs/STATUS.md
+  - docs/TASKS.md
+  - docs/NEXT_AGENT_PROMPT.md
+
+Tests:
+  - command: python -m pytest tests\test_amg_real_dataset_training.py
+  - result: PASS, 10 passed in 2.34s
+  - command: python -m ai_mesh_generator.amg.training.real --dataset runs\pilot_cdf_100 --out runs\amg_training_real_pilot --epochs 5 --batch-size 16 --seed 1
+  - result: SUCCESS, sample_count=100, candidate_count=100, manifest_feature_count=100, matched_target_count=100, label_coverage_ratio=1.0
+  - command: python -m pytest
+  - result: PASS, 186 passed and 1 skipped in 7.40s
+
+Evidence:
+  - dataset: runs\pilot_cdf_100
+  - checkpoint: runs\amg_training_real_pilot\checkpoint.pt
+  - metrics: runs\amg_training_real_pilot\metrics.json
+  - train/validation split: 80/20 deterministic fallback
+
+Blockers:
+  - none for T-704.
+  - T-704 is a real-label training pilot over the current CDF coverage; T-705 must prove inference-to-real-ANSA mesh quality.
+
+Next:
+  - T-705_AMG_REAL_INFERENCE_TO_ANSA_MESH
 
 ## Session 2026-05-03 T-703
 

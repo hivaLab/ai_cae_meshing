@@ -24,93 +24,117 @@ Current state:
 - T-301 through T-303 are complete.
 - T-401 through T-403 are complete.
 - T-501 through T-503 are complete.
-- T-601 through T-603 are complete, but T-602/T-603 are model skeleton/smoke only.
+- T-601 through T-603 are complete; T-602/T-603 remain skeleton/smoke foundations only.
 - T-701_CDF_E2E_DATASET_CLI_FAIL_CLOSED is complete.
 - T-702_CDF_REAL_ANSA_API_BINDING is complete for ANSA v25.1.0.
 - T-703_CDF_ACCEPTED_DATASET_PILOT is complete.
-- Latest pure regression: python -m pytest -> 176 passed, 1 skipped.
-- Latest real ANSA probe:
-  python -m cad_dataset_factory.cdf.cli ansa-probe --ansa-executable C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat --out runs\ansa_probe\ansa_runtime_probe.json --timeout-sec 90
-  -> status=OK.
-- Latest real pilot dataset:
-  python -m cad_dataset_factory.cdf.cli generate --config configs\cdf_sm_ansa_v1.default.json --out runs\pilot_cdf_100 --count 100 --seed 1 --require-ansa --ansa-executable C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat
-  -> SUCCESS, accepted_count=100, rejected_count=2, attempted_count=102, runtime_sec=1234.132632.
-  python -m cad_dataset_factory.cdf.cli validate --dataset runs\pilot_cdf_100 --require-ansa
-  -> SUCCESS, accepted_count=100, error_count=0.
+- T-704_AMG_REAL_DATASET_TRAINING is complete.
+- Latest full regression: python -m pytest -> 186 passed, 1 skipped in 7.40s.
 
 Verified ANSA executable:
 - C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat
 
-Real accepted dataset for T-704:
+Real accepted CDF dataset:
 - runs\pilot_cdf_100
 - 100 accepted samples
-- rejection_reason_counts.feature_truth_matching_failed = 2
-- accepted samples have real ANSA_v25.1.0 reports, zero hard failed elements, and non-empty BDF meshes.
+- 2 rejected attempts, reason histogram: feature_truth_matching_failed=2
+- strict validation command:
+  python -m cad_dataset_factory.cdf.cli validate --dataset runs\pilot_cdf_100 --require-ansa
+  -> SUCCESS, accepted_count=100, error_count=0
+
+Real AMG training pilot:
+- command:
+  python -m ai_mesh_generator.amg.training.real --dataset runs\pilot_cdf_100 --out runs\amg_training_real_pilot --epochs 5 --batch-size 16 --seed 1
+- result: SUCCESS
+- checkpoint: runs\amg_training_real_pilot\checkpoint.pt
+- metrics: runs\amg_training_real_pilot\metrics.json
+- sample_count=100
+- candidate_count=100
+- manifest_feature_count=100
+- matched_target_count=100
+- label_coverage_ratio=1.0
+- train_sample_count=80
+- validation_sample_count=20
+- split_source=deterministic_80_20_fallback
 
 Next task:
-- T-704_AMG_REAL_DATASET_TRAINING
+- T-705_AMG_REAL_INFERENCE_TO_ANSA_MESH
 
-Work only on T-704_AMG_REAL_DATASET_TRAINING scope:
-- Train AMG on real CDF accepted samples using file contracts only.
-- Use `runs\pilot_cdf_100` as the initial real pilot dataset.
-- Use `labels/amg_manifest.json` as label-side supervision.
-- Do not use synthetic smoke targets as the success path.
-- Do not add target_action_id or target numeric control columns to graph inputs.
+Work only on T-705_AMG_REAL_INFERENCE_TO_ANSA_MESH scope:
+- Load the T-704 checkpoint and run AMG inference on held-out real samples.
+- Convert model outputs into schema-valid `AMG_MANIFEST_SM_V1` manifests.
+- Execute the manifests through the real ANSA path and validate the resulting meshes.
+- Use deterministic retry policy only for documented AMG retry cases.
+- Do not count dry-run, mock adapter, disabled oracle, placeholder mesh, controlled failure, or unavailable ANSA as success.
 - Do not import `cad_dataset_factory` from AMG source.
+- Do not add target_action_id or target numeric control columns to graph inputs.
 - Do not use `cad/reference_midsurface.step` as a model input.
 
 Implementation targets:
-1. Add an AMG real-training CLI or script entrypoint that loads a dataset root through the existing AMG dataset loader.
-2. Refuse to train unless `cdf validate --require-ansa`-equivalent acceptance evidence is present:
-   - dataset_index accepted samples exist
-   - reports/sample_acceptance.json accepted=true and accepted_by.ansa_oracle=true
-   - reports/ansa_execution_report.json accepted=true
-   - reports/ansa_quality_report.json accepted=true and num_hard_failed_elements=0
-   - meshes/ansa_oracle_mesh.bdf exists and is non-empty
-3. Build supervised targets from `labels/amg_manifest.json`, not from graph target columns:
-   - part class target from manifest part class
-   - feature type target from manifest feature records
-   - feature action target from manifest feature action
-   - numeric targets from manifest controls, bounded by mesh policy
-4. Train the existing T-602 model for a small but real dataset run:
-   - deterministic seed
-   - train/validation split from dataset split files or deterministic fallback if split is empty
-   - checkpoint save/load
-   - metrics JSON with per-head losses and label coverage
-5. The run is a real training pilot, not production-scale convergence. Completion requires loss/metrics/checkpoint over real accepted labels.
+1. Add an AMG inference module and CLI entrypoint, for example:
+   - `ai_mesh_generator/amg/inference/real_mesh.py`
+   - console script `amg-infer-real`
+2. Inputs:
+   - dataset root, default `runs\pilot_cdf_100`
+   - checkpoint path, default `runs\amg_training_real_pilot\checkpoint.pt`
+   - output root, for example `runs\amg_inference_real_pilot`
+   - ANSA executable path
+   - optional explicit sample ids; otherwise use the T-704 deterministic validation subset, currently last 20 accepted samples.
+3. For each held-out sample:
+   - load `graph/brep_graph.npz`, `graph/graph_schema.json`, and config through AMG file contracts only
+   - run `AmgGraphModel`
+   - apply masks and projector
+   - serialize predicted controls into `AMG_MANIFEST_SM_V1`
+   - validate manifest against the contract before ANSA execution
+4. Execute real ANSA:
+   - call the existing AMG manifest runner or CDF ANSA runner boundary, whichever matches AMG.md without importing CDF source into AMG
+   - write execution report, quality report, solver deck/mesh artifact, and per-sample inference report
+   - reject outputs if ANSA is unavailable, mocked, dry-run, skeleton-only, or quality report is not accepted
+5. Retry:
+   - implement only documented deterministic retry cases from AMG.md
+   - after max attempts, write schema-valid `MESH_FAILED` result with explicit reason
+6. Aggregate:
+   - write `inference_summary.json` with sample count, attempted count, success count, retry count, failure reasons, hard-failed element counts, and output paths.
 
-Acceptance for T-704:
-- Training command completes on `runs\pilot_cdf_100`.
-- Checkpoint is written.
-- metrics JSON records sample count, candidate count, manifest-label coverage, train/validation losses, and refusal status for invalid datasets.
-- Training refuses a dataset without real ANSA-accepted samples.
+Acceptance for T-705:
+- At least the held-out validation subset from `runs\pilot_cdf_100` is processed.
+- Every successful sample has:
+  - schema-valid predicted AMG manifest
+  - real ANSA execution report with accepted=true
+  - real ANSA quality report with accepted=true
+  - num_hard_failed_elements=0
+  - non-empty solver deck or mesh artifact
+  - no controlled_failure_reason, unavailable, mock-ansa, dry-run, or placeholder output
+- Failures are explicit `OUT_OF_SCOPE` or `MESH_FAILED` records, not silent fallbacks.
 - `python -m pytest` passes.
-- Any new model/training tests use real-manifest-style fixtures and do not rely on synthetic target columns.
+- A real inference command completes and writes summary evidence.
 
-Do not implement in T-704:
-- AMG inference-to-ANSA mesh; that is T-705.
-- Production heterogeneous B-rep GNN architecture beyond the current model skeleton unless directly required to train.
-- CDF generation changes except small validation/evidence fixes if a loader invariant exposes a bug.
-- New ANSA execution logic.
+Do not implement in T-705:
+- new CDF dataset generation beyond small held-out artifact preparation if needed
+- production heterogeneous GNN architecture redesign
+- model retraining as the main success path
+- target leakage columns in graph inputs
+- mock success paths
 
-Stop and report BLOCKED instead of guessing if AMG.md, CDF.md, CONTRACTS.md, DATASET.md, or the real pilot dataset evidence conflict.
+Stop and report BLOCKED instead of guessing if AMG.md, CDF.md, CONTRACTS.md, DATASET.md, or real ANSA output semantics conflict.
 
 At the end, report:
 1. completed task IDs
 2. changed files
 3. test command and result
-4. training command and result
-5. dataset path, sample count, and label coverage
-6. checkpoint and metrics paths
-7. next recommended task
-8. blockers or risks
+4. inference command and result
+5. dataset/checkpoint/output paths
+6. number of attempted/successful/failed real ANSA inference samples
+7. retry and failure reason summary
+8. next recommended task
+9. blockers or risks
 ```
 
 ## Expected next-session output
 
 ```text
-- T-704 is DONE only if AMG trains on real accepted CDF labels from runs\pilot_cdf_100 and writes checkpoint/metrics.
-- Otherwise T-704 remains IN_PROGRESS or BLOCKED with exact dataset/model/training failure reasons.
+- T-705 is DONE only if AMG checkpoint inference produces real ANSA quality-passing mesh outputs for held-out samples.
+- Otherwise T-705 remains IN_PROGRESS or BLOCKED with exact inference, manifest, ANSA, or quality failure reasons.
 - python -m pytest passes.
-- STATUS.md, TASKS.md, and NEXT_AGENT_PROMPT.md remain aligned with T-705_AMG_REAL_INFERENCE_TO_ANSA_MESH or the next unblocked real-training task.
+- STATUS.md, TASKS.md, and NEXT_AGENT_PROMPT.md remain aligned with the next unblocked real-pipeline task.
 ```

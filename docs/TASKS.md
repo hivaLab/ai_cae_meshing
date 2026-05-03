@@ -321,7 +321,7 @@ resampling terminates or returns structured rejection reason
 
 ### T-301_BREP_GRAPH_EXTRACTOR
 
-Status: TODO
+Status: DONE
 
 Goal:
 

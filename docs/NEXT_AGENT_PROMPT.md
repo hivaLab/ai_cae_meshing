@@ -25,23 +25,26 @@ Current state:
 - T-201_FLAT_PANEL_GENERATOR is complete.
 - T-202_BENT_PART_GENERATORS is complete.
 - T-203_FEATURE_PLACEMENT_SAMPLER is complete.
+- T-301_BREP_GRAPH_EXTRACTOR is complete.
 - Latest required test command: python -m pytest
 
 Next task:
-- T-301_BREP_GRAPH_EXTRACTOR
+- T-302_FEATURE_CANDIDATE_DETECTOR
 
-Work only on T-301_BREP_GRAPH_EXTRACTOR scope:
-- Extract an AMG_BREP_GRAPH_SM_V1-compatible graph from STEP inputs.
-- Produce graph/brep_graph.npz and graph/graph_schema.json with stable node/edge feature column order.
-- Include PART, FACE, EDGE, COEDGE, VERTEX, and FEATURE_CANDIDATE graph entities where available.
-- Validate coedge cycles and adjacency arrays structurally.
+Work only on T-302_FEATURE_CANDIDATE_DETECTOR scope:
+- Add deterministic feature candidate detection on top of the T-301 B-rep graph extractor.
+- Detect HOLE, SLOT, CUTOUT, BEND, and FLANGE candidates where the current STEP topology and geometry helpers support it.
+- Keep FEATURE_CANDIDATE output compatible with AMG_BREP_GRAPH_SM_V1 feature_candidate_columns.
+- Preserve graph_schema.json target leakage protections: no target_action_id or target numeric control columns.
+- Add focused tests using generated flat-panel and bent-part STEP fixtures where possible.
 
 Do not implement in this session:
 - Real ANSA execution.
 - AMG model training or inference.
 - ANSA oracle command runner or ANSA internal scripts.
 - Full dataset generation at scale.
-- Truth matching report logic beyond minimal graph extraction tests.
+- Truth matching reports; leave matching to T-303_TRUTH_MATCHING_REPORT.
+- Dataset-scale random generation beyond existing T-203 placement primitives.
 
 Implementation requirements:
 - Use Python >= 3.11.
@@ -49,6 +52,7 @@ Implementation requirements:
 - Keep ANSA API imports confined to ansa_scripts directories.
 - Do not add graph target_action_id or target numeric control columns.
 - Keep CadQuery/OCP as optional cad dependency, not a core hard dependency.
+- Reuse T-301 graph extraction and writing APIs instead of duplicating STEP import/export logic.
 - Run python -m pytest before finishing.
 - Update docs/STATUS.md, docs/TASKS.md, and docs/NEXT_AGENT_PROMPT.md with completed work, tests run, and the next task.
 
@@ -65,9 +69,9 @@ At the end, report:
 ## Expected next-session output
 
 ```text
-- T-301 B-rep graph extractor is implemented or explicitly blocked.
-- graph_schema.json has required node/edge columns and no target leakage columns.
-- brep_graph.npz stores structurally valid adjacency arrays.
+- T-302 feature candidate detector is implemented or explicitly blocked.
+- FEATURE_CANDIDATE rows are populated deterministically where supported.
+- graph_schema.json remains target-leakage free.
 - Existing P0/P1/P2 tests continue to pass.
 - STATUS.md, TASKS.md, and NEXT_AGENT_PROMPT.md are updated for the following task.
 ```

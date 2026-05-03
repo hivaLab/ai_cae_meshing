@@ -5,9 +5,9 @@ Last updated: 2026-05-03 KST
 ## 1. 현재 상태
 
 ```text
-Project state        : T-203 feature placement sampler complete
+Project state        : T-301 B-rep graph extractor complete
 Active phase         : P3_BREP_GRAPH_AND_MATCHING
-Active task          : T-301_BREP_GRAPH_EXTRACTOR
+Active task          : T-302_FEATURE_CANDIDATE_DETECTOR
 Primary source docs  : AMG.md, CDF.md
 Execution backend    : ANSA Batch Mesh, through adapter/script boundary
 Dataset factory      : CDF-SM-ANSA-V1
@@ -31,6 +31,7 @@ Model target         : AMG_MANIFEST_SM_V1
 | CDF flat panel generator | DONE | T-201 complete |
 | CDF bent part generators | DONE | T-202 complete |
 | CDF feature placement sampler | DONE | T-203 complete |
+| CDF B-rep graph extractor | DONE | T-301 complete |
 | CDF generator | TODO | after P0 |
 | ANSA oracle | TODO | after pure tests and mock runner |
 | AMG rule-only pipeline | TODO | after contracts and CDF labels |
@@ -48,8 +49,8 @@ Model target         : AMG_MANIFEST_SM_V1
 ## 4. 다음 작업
 
 ```text
-T-301_BREP_GRAPH_EXTRACTOR
-  Extract PART/FACE/EDGE/COEDGE/VERTEX/FEATURE_CANDIDATE graph from STEP.
+T-302_FEATURE_CANDIDATE_DETECTOR
+  Detect HOLE, SLOT, CUTOUT, BEND, FLANGE candidates deterministically.
 ```
 
 ## 5. 상태 업데이트 규칙
@@ -313,3 +314,28 @@ Blockers:
 
 Next:
   - T-301_BREP_GRAPH_EXTRACTOR
+
+## Session 2026-05-03 T-301
+
+Completed:
+  - T-301_BREP_GRAPH_EXTRACTOR
+
+Changed files:
+  - pyproject.toml
+  - cad_dataset_factory/cdf/brep/__init__.py
+  - cad_dataset_factory/cdf/brep/graph_extractor.py
+  - tests/test_cdf_brep_graph_extractor.py
+  - docs/NEXT_AGENT_PROMPT.md
+  - docs/STATUS.md
+  - docs/TASKS.md
+
+Tests:
+  - command: python -m pytest
+  - result: PASS, 83 passed in 1.99s
+
+Blockers:
+  - ANSA executable path not configured; real ANSA tests remain deferred to `requires_ansa`.
+  - Deterministic feature candidate detection remains unimplemented and is the next P3 task.
+
+Next:
+  - T-302_FEATURE_CANDIDATE_DETECTOR

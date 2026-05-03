@@ -5,9 +5,9 @@ Last updated: 2026-05-03 KST
 ## 1. 현재 상태
 
 ```text
-Project state        : T-402 ANSA internal script skeleton complete
-Active phase         : P4_ANSA_ORACLE
-Active task          : T-403_ANSA_REPORT_PARSER
+Project state        : T-403 ANSA report parser complete
+Active phase         : P5_AMG_RULE_ONLY_PIPELINE
+Active task          : T-501_AMG_INPUT_VALIDATION
 Primary source docs  : AMG.md, CDF.md
 Execution backend    : ANSA Batch Mesh, through adapter/script boundary
 Dataset factory      : CDF-SM-ANSA-V1
@@ -36,6 +36,7 @@ Model target         : AMG_MANIFEST_SM_V1
 | CDF truth matching report | DONE | T-303 complete |
 | CDF ANSA command runner | DONE | T-401 complete |
 | CDF ANSA internal script skeleton | DONE | T-402 complete |
+| CDF ANSA report parser | DONE | T-403 complete |
 | CDF generator | TODO | after P0 |
 | ANSA oracle | TODO | after pure tests and mock runner |
 | AMG rule-only pipeline | TODO | after contracts and CDF labels |
@@ -53,8 +54,8 @@ Model target         : AMG_MANIFEST_SM_V1
 ## 4. 다음 작업
 
 ```text
-T-403_ANSA_REPORT_PARSER
-  Parse ANSA execution and quality reports into typed objects.
+T-501_AMG_INPUT_VALIDATION
+  Validate input.step, amg_config.json, feature_overrides.json and produce OUT_OF_SCOPE when needed.
 ```
 
 ## 5. 상태 업데이트 규칙
@@ -441,3 +442,28 @@ Blockers:
 
 Next:
   - T-403_ANSA_REPORT_PARSER
+
+## Session 2026-05-03 T-403
+
+Completed:
+  - T-403_ANSA_REPORT_PARSER
+
+Changed files:
+  - cad_dataset_factory/cdf/oracle/__init__.py
+  - cad_dataset_factory/cdf/oracle/ansa_report_parser.py
+  - tests/test_cdf_ansa_report_parser.py
+  - docs/NEXT_AGENT_PROMPT.md
+  - docs/STATUS.md
+  - docs/TASKS.md
+
+Tests:
+  - command: python -m pytest
+  - result: PASS, 118 passed in 4.16s
+
+Blockers:
+  - ANSA executable path not configured; real ANSA tests remain deferred to `requires_ansa`.
+  - AMG/CDF quality threshold values differ in the design docs; T-403 intentionally parses report `accepted` fields and extracts metrics without recomputing threshold-based acceptance.
+  - AMG input validation remains unimplemented and is the next phase task.
+
+Next:
+  - T-501_AMG_INPUT_VALIDATION

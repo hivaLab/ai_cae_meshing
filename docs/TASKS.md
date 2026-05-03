@@ -412,7 +412,7 @@ ANSA imports are confined to ansa_scripts
 
 ### T-403_ANSA_REPORT_PARSER
 
-Status: TODO
+Status: DONE
 
 Goal:
 

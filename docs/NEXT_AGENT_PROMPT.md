@@ -30,16 +30,17 @@ Current state:
 - T-303_TRUTH_MATCHING_REPORT is complete.
 - T-401_ANSA_COMMAND_RUNNER is complete.
 - T-402_ANSA_INTERNAL_SCRIPT_SKELETON is complete.
+- T-403_ANSA_REPORT_PARSER is complete.
 - Latest required test command: python -m pytest
 
 Next task:
-- T-403_ANSA_REPORT_PARSER
+- T-501_AMG_INPUT_VALIDATION
 
-Work only on T-403_ANSA_REPORT_PARSER scope:
-- Parse CDF ANSA execution and quality reports into typed objects.
-- Validate mocked execution and quality report documents against existing contracts.
-- Extract pass/fail status, quality hard fail count, and feature boundary error summaries.
-- Keep parser pure Python and independent of real ANSA.
+Work only on T-501_AMG_INPUT_VALIDATION scope:
+- Validate AMG input.step, amg_config.json, and optional feature_overrides.json.
+- Produce structured OUT_OF_SCOPE AMG_MANIFEST_SM_V1 failure manifests for validation failures.
+- Add single connected solid, constant thickness, and midsurface feasibility validation paths at the AMG boundary.
+- Keep validation deterministic and independent from CDF package imports.
 
 Do not implement in this session:
 - Full real ANSA oracle execution.
@@ -47,6 +48,7 @@ Do not implement in this session:
 - Full dataset generation at scale.
 - New B-rep feature detection or truth matching heuristics.
 - Dataset-scale random generation beyond existing T-203 placement primitives.
+- Deterministic AMG manifest generation beyond validation failure manifests.
 
 Implementation requirements:
 - Use Python >= 3.11.
@@ -54,7 +56,8 @@ Implementation requirements:
 - Keep ANSA API imports confined to ansa_scripts directories.
 - Do not add graph target_action_id or target numeric control columns.
 - Keep CadQuery/OCP as optional cad dependency, not a core hard dependency.
-- Reuse CDF_ANSA_EXECUTION_REPORT_SM_V1 and CDF_ANSA_QUALITY_REPORT_SM_V1 contracts.
+- Reuse AMG_CONFIG_SM_V1, AMG_FEATURE_OVERRIDES_SM_V1, and AMG_MANIFEST_SM_V1 contracts.
+- Use status=OUT_OF_SCOPE for validation failure manifests.
 - Run python -m pytest before finishing.
 - Update docs/STATUS.md, docs/TASKS.md, and docs/NEXT_AGENT_PROMPT.md with completed work, tests run, and the next task.
 
@@ -71,9 +74,9 @@ At the end, report:
 ## Expected next-session output
 
 ```text
-- T-403 ANSA report parser is implemented or explicitly blocked.
-- Mock execution and quality report pass/fail tests pass.
-- Quality hard fail count and feature boundary errors are extracted.
+- T-501 AMG input validation is implemented or explicitly blocked.
+- input.step/amg_config.json/feature_overrides.json validation tests pass.
+- OUT_OF_SCOPE failure manifests validate against AMG_MANIFEST_SM_V1.
 - Existing P0/P1/P2 tests continue to pass.
 - STATUS.md, TASKS.md, and NEXT_AGENT_PROMPT.md are updated for the following task.
 ```

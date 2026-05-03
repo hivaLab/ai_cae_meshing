@@ -507,7 +507,7 @@ reference_midsurface.step is not used as model input
 
 ### T-602_MODEL_SKELETON
 
-Status: TODO
+Status: DONE
 
 Goal:
 

@@ -35,20 +35,21 @@ Current state:
 - T-502_AMG_DETERMINISTIC_MANIFEST is complete.
 - T-503_AMG_ANSA_ADAPTER_INTERFACE is complete.
 - T-601_DATASET_LOADER is complete.
+- T-602_MODEL_SKELETON is complete.
 - Latest required test command: python -m pytest
 
 Next task:
-- T-602_MODEL_SKELETON
+- T-603_TRAINING_LOOP_SMOKE
 
-Work only on T-602_MODEL_SKELETON scope:
-- Create a B-rep graph model skeleton with feature action and numeric control output heads.
-- Consume T-601 dataset loader sample objects or their arrays without importing cad_dataset_factory.
-- Support action masking for feature action prediction.
-- Add numeric heads for log size/control values and division-like controls.
-- Ensure model outputs pass through a rule/projector boundary before manifest serialization.
+Work only on T-603_TRAINING_LOOP_SMOKE scope:
+- Add a small training-loop smoke path using synthetic mocked graph data or T-601-style sample fixtures.
+- Compute losses for part class, feature type, masked feature action, log size/control values, division-like values, and quality risk without NaN.
+- Verify optimizer step, checkpoint save/load, and basic metric reporting.
+- Keep the training smoke fast and deterministic.
 
 Do not implement in this session:
-- Full training loop, optimizer schedule, checkpointing, or dataset-scale training.
+- Full dataset-scale training.
+- Production model architecture beyond the T-602 skeleton.
 - Real ANSA execution or real ANSA API binding.
 - New CDF generation, B-rep detection, or truth matching heuristics.
 - Graph target_action_id or target numeric control columns.
@@ -59,14 +60,14 @@ Implementation requirements:
 - Keep CDF code independent from AMG imports.
 - Keep AMG source independent from CDF package imports; communicate through contract files only.
 - Keep ANSA API imports confined to ansa_scripts directories.
-- Reuse AMG_BREP_GRAPH_SM_V1, AMG_MANIFEST_SM_V1, and existing rule/projector utilities where applicable.
+- Keep Torch under the optional `model` dependency.
 - Run python -m pytest before finishing.
 - Update docs/STATUS.md, docs/TASKS.md, and docs/NEXT_AGENT_PROMPT.md with completed work, tests run, and the next task.
 
 Known risks:
 - ANSA executable path is not configured in this environment; real ANSA tests remain deferred to requires_ansa.
-- T-601 performs file-contract loading only; batching/tensor conversion policy still needs T-602 decisions.
-- CDF_DATASET_INDEX_SM_V1 currently has lightweight structural validation only because no schema file exists.
+- T-602 provides only a lightweight MLP skeleton and projector boundary; full heterogeneous B-rep GNN remains future work.
+- T-603 must avoid adding supervised target columns to graph inputs.
 
 Stop and report BLOCKED instead of guessing if AMG.md, CDF.md, CONTRACTS.md, and DATASET.md conflict.
 
@@ -81,10 +82,10 @@ At the end, report:
 ## Expected next-session output
 
 ```text
-- T-602 AMG model skeleton is implemented or explicitly blocked.
-- Model skeleton accepts T-601 graph samples or model-ready arrays.
-- Feature action head supports masks.
-- Numeric heads emit bounded/projectable control values.
+- T-603 AMG training-loop smoke is implemented or explicitly blocked.
+- Loss computes without NaN.
+- Optimizer step and checkpoint save/load work.
+- Metrics are reported.
 - Existing P0-P6 tests continue to pass.
 - STATUS.md, TASKS.md, and NEXT_AGENT_PROMPT.md are updated for the following task.
 ```

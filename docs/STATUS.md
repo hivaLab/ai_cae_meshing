@@ -5,9 +5,9 @@ Last updated: 2026-05-03 KST
 ## 1. 현재 상태
 
 ```text
-Project state        : T-601 AMG dataset loader complete
+Project state        : T-602 AMG model skeleton complete
 Active phase         : P6_AMG_MODEL_BASELINE
-Active task          : T-602_MODEL_SKELETON
+Active task          : T-603_TRAINING_LOOP_SMOKE
 Primary source docs  : AMG.md, CDF.md
 Execution backend    : ANSA Batch Mesh, through adapter/script boundary
 Dataset factory      : CDF-SM-ANSA-V1
@@ -41,6 +41,7 @@ Model target         : AMG_MANIFEST_SM_V1
 | AMG deterministic manifest | DONE | T-502 complete |
 | AMG ANSA adapter interface | DONE | T-503 complete |
 | AMG dataset loader | DONE | T-601 complete |
+| AMG model skeleton | DONE | T-602 complete |
 | CDF generator | TODO | after P0 |
 | ANSA oracle | TODO | after pure tests and mock runner |
 | AMG rule-only pipeline | TODO | after contracts and CDF labels |
@@ -58,8 +59,8 @@ Model target         : AMG_MANIFEST_SM_V1
 ## 4. 다음 작업
 
 ```text
-T-602_MODEL_SKELETON
-  Create B-rep graph model skeleton with output heads.
+T-603_TRAINING_LOOP_SMOKE
+  Run a small training-loop smoke test on synthetic mocked graph data.
 ```
 
 ## 5. 상태 업데이트 규칙
@@ -572,3 +573,30 @@ Blockers:
 
 Next:
   - T-602_MODEL_SKELETON
+
+## Session 2026-05-03 T-602
+
+Completed:
+  - T-602_MODEL_SKELETON
+
+Changed files:
+  - ai_mesh_generator/amg/model/__init__.py
+  - ai_mesh_generator/amg/model/graph_model.py
+  - ai_mesh_generator/amg/model/projector.py
+  - tests/test_amg_model_skeleton.py
+  - pyproject.toml
+  - docs/NEXT_AGENT_PROMPT.md
+  - docs/STATUS.md
+  - docs/TASKS.md
+
+Tests:
+  - command: python -m pytest
+  - result: PASS, 158 passed in 5.45s
+
+Blockers:
+  - ANSA executable path not configured; real ANSA tests remain deferred to `requires_ansa`.
+  - T-602 intentionally stops at model forward/projector skeleton; loss, optimizer, checkpointing, and training loop remain T-603.
+  - Torch remains an optional `model` dependency, not a core dependency.
+
+Next:
+  - T-603_TRAINING_LOOP_SMOKE

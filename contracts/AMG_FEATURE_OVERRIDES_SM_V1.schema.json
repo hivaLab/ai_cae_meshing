@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "AMG_FEATURE_OVERRIDES_SM_V1.schema.json",
+  "title": "AMG_FEATURE_OVERRIDES_SM_V1",
+  "type": "object",
+  "required": ["schema_version", "features"],
+  "properties": {
+    "schema_version": {"const": "AMG_FEATURE_OVERRIDES_SM_V1"},
+    "features": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["feature_id", "type", "role", "signature"],
+        "properties": {
+          "feature_id": {"type": "string"},
+          "type": {"enum": ["HOLE", "SLOT", "CUTOUT", "BEND", "FLANGE", "OUTER_BOUNDARY"]},
+          "role": {
+            "enum": [
+              "BOLT",
+              "MOUNT",
+              "RELIEF",
+              "DRAIN",
+              "VENT",
+              "PASSAGE",
+              "STRUCTURAL",
+              "UNKNOWN"
+            ]
+          },
+          "signature": {"type": "object"}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

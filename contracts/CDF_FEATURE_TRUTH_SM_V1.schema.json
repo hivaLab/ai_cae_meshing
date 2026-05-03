@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "CDF_FEATURE_TRUTH_SM_V1.schema.json",
+  "title": "CDF_FEATURE_TRUTH_SM_V1",
+  "type": "object",
+  "required": ["schema_version", "sample_id", "part", "features"],
+  "properties": {
+    "schema_version": {"const": "CDF_FEATURE_TRUTH_SM_V1"},
+    "sample_id": {"type": "string"},
+    "part": {
+      "type": "object",
+      "required": ["part_name", "part_class", "unit", "thickness_mm"],
+      "properties": {
+        "part_name": {"type": "string"},
+        "part_class": {
+          "enum": [
+            "SM_FLAT_PANEL",
+            "SM_SINGLE_FLANGE",
+            "SM_L_BRACKET",
+            "SM_U_CHANNEL",
+            "SM_HAT_CHANNEL"
+          ]
+        },
+        "unit": {"const": "mm"},
+        "thickness_mm": {"type": "number", "exclusiveMinimum": 0}
+      },
+      "additionalProperties": false
+    },
+    "features": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["feature_id", "type", "role"],
+        "properties": {
+          "feature_id": {"type": "string"},
+          "type": {"enum": ["HOLE", "SLOT", "CUTOUT", "BEND", "FLANGE", "OUTER_BOUNDARY"]},
+          "role": {
+            "enum": [
+              "BOLT",
+              "MOUNT",
+              "RELIEF",
+              "DRAIN",
+              "VENT",
+              "PASSAGE",
+              "STRUCTURAL",
+              "UNKNOWN"
+            ]
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,7 @@
+{
+  "name": "AMG_SHELL_CONST_THICKNESS_V1",
+  "unit": "mm",
+  "idealization": "midsurface_shell",
+  "element_type": "quad_dominant_shell",
+  "quality_profile": "AMG_QA_SHELL_V1"
+}

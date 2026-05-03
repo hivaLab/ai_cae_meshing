@@ -1,0 +1,15 @@
+{
+  "name": "AMG_QA_SHELL_V1",
+  "unit": "mm",
+  "quad_fraction_min": 0.85,
+  "tria_fraction_max": 0.15,
+  "aspect_ratio_max": 5.0,
+  "skew_angle_deg_max": 60.0,
+  "warpage_deg_max": 15.0,
+  "min_angle_deg_min": 30.0,
+  "max_angle_deg_max": 150.0,
+  "jacobian_min": 0.50,
+  "negative_jacobian_max": 0,
+  "duplicate_elements_max": 0,
+  "unmeshed_face_max": 0
+}

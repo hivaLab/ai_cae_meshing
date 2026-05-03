@@ -12,9 +12,11 @@ DEFERRED
 
 ## P0_BOOTSTRAP_CONTRACTS_AND_RULES
 
+Status: DONE
+
 ### T-001_REPOSITORY_SKELETON
 
-Status: TODO
+Status: DONE
 
 Goal:
 
@@ -43,7 +45,7 @@ README/AGENT docs remain at repository root
 
 ### T-002_CONTRACT_SCHEMA_SKELETON
 
-Status: TODO
+Status: DONE
 
 Goal:
 
@@ -58,8 +60,10 @@ contracts/AMG_MANIFEST_SM_V1.schema.json
 contracts/AMG_BREP_GRAPH_SM_V1.schema.json
 contracts/AMG_CONFIG_SM_V1.schema.json
 contracts/AMG_FEATURE_OVERRIDES_SM_V1.schema.json
+contracts/CDF_CONFIG_SM_ANSA_V1.schema.json
 contracts/CDF_FEATURE_TRUTH_SM_V1.schema.json
-contracts/CDF_ANSA_ORACLE_REPORT_SM_V1.schema.json
+contracts/CDF_ANSA_EXECUTION_REPORT_SM_V1.schema.json
+contracts/CDF_ANSA_QUALITY_REPORT_SM_V1.schema.json
 ```
 
 Acceptance:
@@ -72,7 +76,7 @@ allowed enum values match CONTRACTS.md exactly
 
 ### T-003_CONFIG_SCHEMA_AND_DEFAULTS
 
-Status: TODO
+Status: DONE
 
 Goal:
 
@@ -101,7 +105,7 @@ unit is fixed to mm in v1 configs
 
 ### T-004_MATH_UTILITIES
 
-Status: TODO
+Status: DONE
 
 Goal:
 
@@ -132,7 +136,7 @@ test_smooth_log_sizes_growth_rate
 
 ### T-005_LABEL_RULES_PURE
 
-Status: TODO
+Status: DONE
 
 Goal:
 
@@ -161,7 +165,7 @@ all target sizes satisfy h_min <= h <= h_max
 
 ### T-006_DEPENDENCY_BOUNDARY_TESTS
 
-Status: TODO
+Status: DONE
 
 Goal:
 

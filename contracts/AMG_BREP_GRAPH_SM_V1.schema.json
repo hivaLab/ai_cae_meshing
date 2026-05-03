@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "AMG_BREP_GRAPH_SM_V1.schema.json",
+  "title": "AMG_BREP_GRAPH_SM_V1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "node_types",
+    "edge_types",
+    "feature_candidate_columns"
+  ],
+  "properties": {
+    "schema_version": {"const": "AMG_BREP_GRAPH_SM_V1"},
+    "node_types": {
+      "type": "array",
+      "items": {
+        "enum": ["PART", "FACE", "EDGE", "COEDGE", "VERTEX", "FEATURE_CANDIDATE"]
+      },
+      "uniqueItems": true
+    },
+    "edge_types": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "PART_HAS_FACE",
+          "FACE_HAS_COEDGE",
+          "COEDGE_HAS_EDGE",
+          "EDGE_HAS_VERTEX",
+          "COEDGE_NEXT",
+          "COEDGE_PREV",
+          "COEDGE_MATE",
+          "FACE_ADJACENT_FACE",
+          "FEATURE_CONTAINS_FACE",
+          "FEATURE_CONTAINS_EDGE"
+        ]
+      },
+      "uniqueItems": true
+    },
+    "feature_candidate_columns": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "feature_type_id",
+          "role_id",
+          "size_1_over_Lref",
+          "size_2_over_Lref",
+          "radius_over_Lref",
+          "width_over_Lref",
+          "length_over_Lref",
+          "center_x_over_Lref",
+          "center_y_over_Lref",
+          "center_z_over_Lref",
+          "distance_to_outer_boundary_over_Lref",
+          "distance_to_nearest_feature_over_Lref",
+          "clearance_ratio",
+          "expected_action_mask"
+        ]
+      },
+      "uniqueItems": true
+    }
+  },
+  "additionalProperties": false
+}

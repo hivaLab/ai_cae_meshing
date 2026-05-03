@@ -1,0 +1,52 @@
+{
+  "schema": "CDF_CONFIG_SM_ANSA_V1",
+  "seed": 20260502,
+  "unit": "mm",
+  "num_accepted_samples": 10000,
+  "amg_manifest_schema": "AMG_MANIFEST_SM_V1",
+  "dataset_profile": "SM_KEEP_ALL_CUT_FEATURES_V1",
+  "global_mesh_rule": {
+    "element_family": "SHELL_QUAD_DOMINANT",
+    "quality_profile": "AMG_QA_SHELL_V1",
+    "allow_small_feature_suppression": false,
+    "growth_rate_max": 1.35,
+    "curvature_sagitta_ratio": 0.02,
+    "min_length_factor": 0.30,
+    "max_length_factor": 1.80
+  },
+  "part_sampling": {
+    "class_weights": {
+      "SM_FLAT_PANEL": 0.30,
+      "SM_SINGLE_FLANGE": 0.20,
+      "SM_L_BRACKET": 0.20,
+      "SM_U_CHANNEL": 0.20,
+      "SM_HAT_CHANNEL": 0.10
+    },
+    "width_mm": {"distribution": "uniform", "min": 80.0, "max": 300.0},
+    "height_mm": {"distribution": "uniform", "min": 60.0, "max": 240.0},
+    "thickness_mm": {"distribution": "uniform", "min": 0.8, "max": 3.0}
+  },
+  "feature_sampling": {
+    "hole_count": {"distribution": "integer_uniform", "min": 0, "max": 12},
+    "slot_count": {"distribution": "integer_uniform", "min": 0, "max": 4},
+    "cutout_count": {"distribution": "integer_uniform", "min": 0, "max": 3}
+  },
+  "validation": {
+    "thickness_tolerance_abs_mm": 0.05,
+    "thickness_tolerance_rel": 0.03,
+    "position_tolerance_mm": 0.05,
+    "angle_tolerance_deg": 2.0,
+    "radius_tolerance_mm": 0.03,
+    "max_generation_attempts_per_sample": 50
+  },
+  "ansa_oracle": {
+    "enabled": true,
+    "ansa_executable": "${ANSA_EXECUTABLE}",
+    "batch_script": "cad_dataset_factory/cdf/oracle/ansa_scripts/cdf_ansa_oracle.py",
+    "batch_mesh_session": "AMG_SHELL_CONST_THICKNESS_V1",
+    "quality_profile": "AMG_QA_SHELL_V1",
+    "solver_deck": "NASTRAN",
+    "save_ansa_database": true,
+    "timeout_sec_per_sample": 180
+  }
+}

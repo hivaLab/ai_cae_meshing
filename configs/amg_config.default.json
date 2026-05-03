@@ -1,0 +1,32 @@
+{
+  "schema_version": "AMG_CONFIG_SM_V1",
+  "part_name": "SMT_SM_FLAT_PANEL_T120_P000001",
+  "unit": "mm",
+  "thickness_mm": 1.2,
+  "mesh_policy": {
+    "element_type": "quad_dominant_shell",
+    "h0_mm": 4.0,
+    "h_min_mm": 1.2,
+    "h_max_mm": 7.2,
+    "growth_rate_max": 1.3,
+    "tria_fraction_max": 0.15
+  },
+  "feature_policy": {
+    "unknown_feature_action": "KEEP_REFINED",
+    "small_relief_hole_suppress": true,
+    "small_drain_hole_suppress": true,
+    "washer_roles": ["BOLT", "MOUNT"],
+    "retained_hole_min_divisions": 12,
+    "bolt_hole_min_divisions": 24,
+    "slot_end_min_divisions": 12,
+    "min_flange_elements_across_width": 2,
+    "min_bend_rows": 2,
+    "max_bend_rows": 6
+  },
+  "quality_profile": "AMG_QA_SHELL_V1",
+  "ansa": {
+    "batch_session": "AMG_SHELL_CONST_THICKNESS_V1",
+    "quality_template": "AMG_QA_SHELL_V1",
+    "export_solver": "NASTRAN"
+  }
+}

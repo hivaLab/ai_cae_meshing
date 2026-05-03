@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "CDF_ANSA_EXECUTION_REPORT_SM_V1.schema.json",
+  "title": "CDF_ANSA_EXECUTION_REPORT_SM_V1",
+  "type": "object",
+  "required": [
+    "schema",
+    "sample_id",
+    "accepted",
+    "step_import_success",
+    "midsurface_extraction_success",
+    "feature_matching_success",
+    "batch_mesh_success",
+    "solver_export_success"
+  ],
+  "properties": {
+    "schema": {"const": "CDF_ANSA_EXECUTION_REPORT_SM_V1"},
+    "sample_id": {"type": "string"},
+    "accepted": {"type": "boolean"},
+    "ansa_version": {"type": "string"},
+    "step_import_success": {"type": "boolean"},
+    "geometry_cleanup_success": {"type": "boolean"},
+    "midsurface_extraction_success": {"type": "boolean"},
+    "feature_matching_success": {"type": "boolean"},
+    "batch_mesh_success": {"type": "boolean"},
+    "solver_export_success": {"type": "boolean"},
+    "runtime_sec": {"type": "number", "minimum": 0},
+    "outputs": {"type": "object"}
+  },
+  "additionalProperties": false
+}

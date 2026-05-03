@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "CDF_CONFIG_SM_ANSA_V1.schema.json",
+  "title": "CDF_CONFIG_SM_ANSA_V1",
+  "type": "object",
+  "required": [
+    "schema",
+    "seed",
+    "unit",
+    "num_accepted_samples",
+    "amg_manifest_schema",
+    "dataset_profile",
+    "global_mesh_rule",
+    "part_sampling",
+    "feature_sampling",
+    "validation",
+    "ansa_oracle"
+  ],
+  "properties": {
+    "schema": {"const": "CDF_CONFIG_SM_ANSA_V1"},
+    "seed": {"type": "integer"},
+    "unit": {"const": "mm"},
+    "num_accepted_samples": {"type": "integer", "minimum": 1},
+    "amg_manifest_schema": {"const": "AMG_MANIFEST_SM_V1"},
+    "dataset_profile": {
+      "enum": [
+        "SM_KEEP_ALL_CUT_FEATURES_V1",
+        "SM_RULED_SMALL_FEATURE_SUPPRESSION_V1"
+      ]
+    },
+    "global_mesh_rule": {
+      "type": "object",
+      "required": [
+        "element_family",
+        "quality_profile",
+        "allow_small_feature_suppression",
+        "growth_rate_max",
+        "curvature_sagitta_ratio",
+        "min_length_factor",
+        "max_length_factor"
+      ],
+      "properties": {
+        "element_family": {"const": "SHELL_QUAD_DOMINANT"},
+        "quality_profile": {"const": "AMG_QA_SHELL_V1"},
+        "allow_small_feature_suppression": {"type": "boolean"},
+        "growth_rate_max": {"type": "number", "exclusiveMinimum": 1},
+        "curvature_sagitta_ratio": {"type": "number", "exclusiveMinimum": 0},
+        "min_length_factor": {"type": "number", "exclusiveMinimum": 0},
+        "max_length_factor": {"type": "number", "exclusiveMinimum": 0}
+      },
+      "additionalProperties": true
+    },
+    "part_sampling": {"type": "object"},
+    "feature_sampling": {"type": "object"},
+    "validation": {"type": "object"},
+    "ansa_oracle": {"type": "object"}
+  },
+  "additionalProperties": false
+}

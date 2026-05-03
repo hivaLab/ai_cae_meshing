@@ -5,9 +5,9 @@ Last updated: 2026-05-03 KST
 ## 1. 현재 상태
 
 ```text
-Project state        : Specification handoff complete; code implementation not started
-Active phase         : P0_BOOTSTRAP_CONTRACTS_AND_RULES
-Active task          : T-001_REPOSITORY_SKELETON
+Project state        : P0 bootstrap contracts and pure rules complete
+Active phase         : P1_CDF_RULE_LABEL_ENGINE_AND_FILE_WRITER
+Active task          : T-101_CDF_DOMAIN_MODELS
 Primary source docs  : AMG.md, CDF.md
 Execution backend    : ANSA Batch Mesh, through adapter/script boundary
 Dataset factory      : CDF-SM-ANSA-V1
@@ -21,9 +21,9 @@ Model target         : AMG_MANIFEST_SM_V1
 | AMG specification | DONE | `AMG.md` available |
 | CDF specification | DONE | `CDF.md` available |
 | Agent handoff docs | DONE | this document set |
-| Code repository skeleton | TODO | start with T-001 |
-| JSON schemas | TODO | start with T-002 |
-| Formula tests | TODO | start with T-004/T-005 |
+| Code repository skeleton | DONE | T-001 complete |
+| JSON schemas | DONE | T-002 complete; ANSA report contracts split into execution and quality reports |
+| Formula tests | DONE | T-004/T-005 complete |
 | CDF generator | TODO | after P0 |
 | ANSA oracle | TODO | after pure tests and mock runner |
 | AMG rule-only pipeline | TODO | after contracts and CDF labels |
@@ -34,26 +34,15 @@ Model target         : AMG_MANIFEST_SM_V1
 | blocker | severity | resolution |
 |---|---:|---|
 | ANSA executable path not configured | medium | pure tests and mocked reports proceed; real ANSA tests use `requires_ansa` marker |
-| No repository code yet | low | create skeleton in T-001 |
 | CAD kernel behavior not validated | medium | defer to P2; begin with schema and math rules |
+| CDF/TASKS requested obsolete `CDF_ANSA_ORACLE_REPORT_SM_V1.schema.json` name | resolved | use canonical `CDF_ANSA_EXECUTION_REPORT_SM_V1` and `CDF_ANSA_QUALITY_REPORT_SM_V1` |
+| AMG graph node type listed `FEATURE` while CDF/CONTRACTS listed `FEATURE_CANDIDATE` | resolved | use canonical `FEATURE_CANDIDATE` |
 
 ## 4. 다음 작업
 
 ```text
-T-001_REPOSITORY_SKELETON
-  Create package directories, pyproject.toml skeleton, empty __init__.py files, and docs location.
-
-T-002_CONTRACT_SCHEMA_SKELETON
-  Create JSON schema skeletons for AMG_MANIFEST_SM_V1, AMG_BREP_GRAPH_SM_V1, CDF_FEATURE_TRUTH_SM_V1, CDF_ANSA_ORACLE_REPORT_SM_V1.
-
-T-003_CONFIG_SCHEMA_AND_DEFAULTS
-  Create default config files and config loaders.
-
-T-004_MATH_UTILITIES
-  Implement clamp, make_even, log-size projection utility skeleton, and tests.
-
-T-005_LABEL_RULES_PURE
-  Implement hole/slot/cutout/bend/flange deterministic label functions and tests.
+T-101_CDF_DOMAIN_MODELS
+  Create typed data models for part params, feature truth, entity signatures, mesh policy, and manifest controls.
 ```
 
 ## 5. 상태 업데이트 규칙
@@ -89,3 +78,61 @@ Blockers:
 Next:
   - T-YYY ...
 ```
+
+## Session 2026-05-03
+
+Completed:
+  - none
+
+Changed files:
+  - docs/STATUS.md
+  - docs/TASKS.md
+
+Tests:
+  - command: python -m pytest
+  - result: FAIL/BLOCKED, collected 0 items; pytest also could not create `.pytest_cache` due WinError 5 access denied
+
+Blockers:
+  - CDF/TASKS request `CDF_ANSA_ORACLE_REPORT_SM_V1.schema.json`, but CONTRACTS canonical schema versions list `CDF_ANSA_EXECUTION_REPORT_SM_V1` and `CDF_ANSA_QUALITY_REPORT_SM_V1`.
+  - AMG graph node type lists `FEATURE`, while CDF and CONTRACTS list `FEATURE_CANDIDATE`.
+
+Next:
+  - BLOCKED_SOURCE_CONTRACT_CLARIFICATION
+
+## Session 2026-05-03 P0 completion
+
+Completed:
+  - BLOCKED_SOURCE_CONTRACT_CLARIFICATION
+  - T-001_REPOSITORY_SKELETON
+  - T-002_CONTRACT_SCHEMA_SKELETON
+  - T-003_CONFIG_SCHEMA_AND_DEFAULTS
+  - T-004_MATH_UTILITIES
+  - T-005_LABEL_RULES_PURE
+  - T-006_DEPENDENCY_BOUNDARY_TESTS
+
+Changed files:
+  - .gitignore
+  - AGENT.md
+  - README.md
+  - pyproject.toml
+  - contracts/*.schema.json
+  - configs/*.json
+  - ai_mesh_generator/**
+  - cad_dataset_factory/**
+  - tests/**
+  - docs/AMG.md
+  - docs/ARCHITECTURE.md
+  - docs/CDF.md
+  - docs/STATUS.md
+  - docs/TASKS.md
+
+Tests:
+  - command: python -m pytest
+  - result: PASS, 26 passed in 0.13s
+
+Blockers:
+  - ANSA executable path not configured; real ANSA tests remain deferred to `requires_ansa`.
+  - CAD kernel behavior not validated; CadQuery generation remains out of this session.
+
+Next:
+  - T-101_CDF_DOMAIN_MODELS

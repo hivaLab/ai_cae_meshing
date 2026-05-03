@@ -20,7 +20,8 @@ repo_root/
     AMG_CONFIG_SM_V1.schema.json
     AMG_FEATURE_OVERRIDES_SM_V1.schema.json
     CDF_FEATURE_TRUTH_SM_V1.schema.json
-    CDF_ANSA_ORACLE_REPORT_SM_V1.schema.json
+    CDF_ANSA_EXECUTION_REPORT_SM_V1.schema.json
+    CDF_ANSA_QUALITY_REPORT_SM_V1.schema.json
   configs/
     amg_config.default.json
     cdf_sm_ansa_v1.default.json

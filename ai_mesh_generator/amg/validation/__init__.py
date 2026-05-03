@@ -1,0 +1,1 @@
+"""Validation namespace for AMG."""

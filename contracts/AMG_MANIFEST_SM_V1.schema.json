@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "AMG_MANIFEST_SM_V1.schema.json",
+  "title": "AMG_MANIFEST_SM_V1",
+  "type": "object",
+  "required": ["schema_version", "status"],
+  "properties": {
+    "schema_version": {"const": "AMG_MANIFEST_SM_V1"},
+    "status": {"enum": ["VALID", "OUT_OF_SCOPE", "MESH_FAILED"]},
+    "reason": {"type": "string"},
+    "cad_file": {"type": "string"},
+    "unit": {"const": "mm"},
+    "part": {
+      "type": "object",
+      "required": [
+        "part_name",
+        "part_class",
+        "idealization",
+        "thickness_mm",
+        "element_type",
+        "batch_session"
+      ],
+      "properties": {
+        "part_name": {"type": "string"},
+        "part_class": {
+          "enum": [
+            "SM_FLAT_PANEL",
+            "SM_SINGLE_FLANGE",
+            "SM_L_BRACKET",
+            "SM_U_CHANNEL",
+            "SM_HAT_CHANNEL"
+          ]
+        },
+        "idealization": {"const": "midsurface_shell"},
+        "thickness_mm": {"type": "number", "exclusiveMinimum": 0},
+        "element_type": {"const": "quad_dominant_shell"},
+        "batch_session": {"const": "AMG_SHELL_CONST_THICKNESS_V1"}
+      },
+      "additionalProperties": false
+    },
+    "global_mesh": {
+      "type": "object",
+      "required": [
+        "h0_mm",
+        "h_min_mm",
+        "h_max_mm",
+        "growth_rate_max",
+        "quality_profile"
+      ],
+      "properties": {
+        "h0_mm": {"type": "number", "exclusiveMinimum": 0},
+        "h_min_mm": {"type": "number", "exclusiveMinimum": 0},
+        "h_max_mm": {"type": "number", "exclusiveMinimum": 0},
+        "growth_rate_max": {"type": "number", "exclusiveMinimum": 1},
+        "quality_profile": {"const": "AMG_QA_SHELL_V1"}
+      },
+      "additionalProperties": false
+    },
+    "features": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["feature_id", "type", "role", "action", "controls"],
+        "properties": {
+          "feature_id": {"type": "string"},
+          "type": {
+            "enum": ["HOLE", "SLOT", "CUTOUT", "BEND", "FLANGE", "OUTER_BOUNDARY"]
+          },
+          "role": {
+            "enum": [
+              "BOLT",
+              "MOUNT",
+              "RELIEF",
+              "DRAIN",
+              "VENT",
+              "PASSAGE",
+              "STRUCTURAL",
+              "UNKNOWN"
+            ]
+          },
+          "action": {
+            "enum": [
+              "KEEP_REFINED",
+              "KEEP_WITH_WASHER",
+              "SUPPRESS",
+              "KEEP_WITH_BEND_ROWS",
+              "KEEP_WITH_FLANGE_SIZE"
+            ]
+          },
+          "geometry_signature": {"type": "object"},
+          "controls": {"type": "object"},
+          "reason": {"type": "string"},
+          "suppression_rule": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "entity_matching": {
+      "type": "object",
+      "required": [
+        "position_tolerance_mm",
+        "angle_tolerance_deg",
+        "radius_tolerance_mm",
+        "use_geometry_signature",
+        "use_topology_signature"
+      ],
+      "properties": {
+        "position_tolerance_mm": {"type": "number", "minimum": 0},
+        "angle_tolerance_deg": {"type": "number", "minimum": 0},
+        "radius_tolerance_mm": {"type": "number", "minimum": 0},
+        "use_geometry_signature": {"type": "boolean"},
+        "use_topology_signature": {"type": "boolean"}
+      },
+      "additionalProperties": false
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "VALID"}}},
+      "then": {
+        "required": [
+          "cad_file",
+          "unit",
+          "part",
+          "global_mesh",
+          "features",
+          "entity_matching"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {"enum": ["OUT_OF_SCOPE", "MESH_FAILED"]}
+        }
+      },
+      "then": {"required": ["reason"]}
+    }
+  ],
+  "additionalProperties": false
+}

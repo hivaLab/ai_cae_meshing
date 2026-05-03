@@ -92,7 +92,8 @@ contracts/
   AMG_MANIFEST_SM_V1.schema.json
   AMG_BREP_GRAPH_SM_V1.schema.json
   CDF_FEATURE_TRUTH_SM_V1.schema.json
-  CDF_ANSA_ORACLE_REPORT_SM_V1.schema.json
+  CDF_ANSA_EXECUTION_REPORT_SM_V1.schema.json
+  CDF_ANSA_QUALITY_REPORT_SM_V1.schema.json
 ```
 
 CDF repository는 위 schema 사본에 맞춰 dataset files를 생성한다. AMG repository는 같은 schema에 맞춰 dataset files를 읽는다.
@@ -347,7 +348,8 @@ dataset_root/
     AMG_MANIFEST_SM_V1.schema.json
     AMG_BREP_GRAPH_SM_V1.schema.json
     CDF_FEATURE_TRUTH_SM_V1.schema.json
-    CDF_ANSA_ORACLE_REPORT_SM_V1.schema.json
+    CDF_ANSA_EXECUTION_REPORT_SM_V1.schema.json
+    CDF_ANSA_QUALITY_REPORT_SM_V1.schema.json
   splits/
     train.txt
     validation.txt
@@ -1800,7 +1802,8 @@ cad_dataset_factory/
     AMG_MANIFEST_SM_V1.schema.json
     AMG_BREP_GRAPH_SM_V1.schema.json
     CDF_FEATURE_TRUTH_SM_V1.schema.json
-    CDF_ANSA_ORACLE_REPORT_SM_V1.schema.json
+    CDF_ANSA_EXECUTION_REPORT_SM_V1.schema.json
+    CDF_ANSA_QUALITY_REPORT_SM_V1.schema.json
   cdf/
     cli.py
     config/

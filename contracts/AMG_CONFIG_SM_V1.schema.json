@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "AMG_CONFIG_SM_V1.schema.json",
+  "title": "AMG_CONFIG_SM_V1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "part_name",
+    "unit",
+    "thickness_mm",
+    "mesh_policy",
+    "feature_policy",
+    "quality_profile",
+    "ansa"
+  ],
+  "properties": {
+    "schema_version": {"const": "AMG_CONFIG_SM_V1"},
+    "part_name": {"type": "string"},
+    "unit": {"const": "mm"},
+    "thickness_mm": {"type": "number", "exclusiveMinimum": 0},
+    "mesh_policy": {
+      "type": "object",
+      "required": [
+        "element_type",
+        "h0_mm",
+        "h_min_mm",
+        "h_max_mm",
+        "growth_rate_max",
+        "tria_fraction_max"
+      ],
+      "properties": {
+        "element_type": {"const": "quad_dominant_shell"},
+        "h0_mm": {"type": "number", "exclusiveMinimum": 0},
+        "h_min_mm": {"type": "number", "exclusiveMinimum": 0},
+        "h_max_mm": {"type": "number", "exclusiveMinimum": 0},
+        "growth_rate_max": {"type": "number", "exclusiveMinimum": 1},
+        "tria_fraction_max": {"type": "number", "minimum": 0, "maximum": 1}
+      },
+      "additionalProperties": false
+    },
+    "feature_policy": {
+      "type": "object",
+      "required": [
+        "unknown_feature_action",
+        "small_relief_hole_suppress",
+        "small_drain_hole_suppress",
+        "washer_roles",
+        "retained_hole_min_divisions",
+        "bolt_hole_min_divisions",
+        "slot_end_min_divisions",
+        "min_flange_elements_across_width",
+        "min_bend_rows",
+        "max_bend_rows"
+      ],
+      "properties": {
+        "unknown_feature_action": {"const": "KEEP_REFINED"},
+        "small_relief_hole_suppress": {"type": "boolean"},
+        "small_drain_hole_suppress": {"type": "boolean"},
+        "washer_roles": {
+          "type": "array",
+          "items": {"enum": ["BOLT", "MOUNT"]},
+          "uniqueItems": true
+        },
+        "retained_hole_min_divisions": {"type": "integer", "minimum": 4},
+        "bolt_hole_min_divisions": {"type": "integer", "minimum": 4},
+        "slot_end_min_divisions": {"type": "integer", "minimum": 4},
+        "min_flange_elements_across_width": {"type": "integer", "minimum": 1},
+        "min_bend_rows": {"type": "integer", "minimum": 1},
+        "max_bend_rows": {"type": "integer", "minimum": 1}
+      },
+      "additionalProperties": false
+    },
+    "quality_profile": {"const": "AMG_QA_SHELL_V1"},
+    "ansa": {
+      "type": "object",
+      "required": ["batch_session", "quality_template", "export_solver"],
+      "properties": {
+        "batch_session": {"const": "AMG_SHELL_CONST_THICKNESS_V1"},
+        "quality_template": {"const": "AMG_QA_SHELL_V1"},
+        "export_solver": {"const": "NASTRAN"}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "CDF_ANSA_QUALITY_REPORT_SM_V1.schema.json",
+  "title": "CDF_ANSA_QUALITY_REPORT_SM_V1",
+  "type": "object",
+  "required": ["schema", "sample_id", "accepted", "mesh_stats", "quality"],
+  "properties": {
+    "schema": {"const": "CDF_ANSA_QUALITY_REPORT_SM_V1"},
+    "sample_id": {"type": "string"},
+    "accepted": {"type": "boolean"},
+    "mesh_stats": {"type": "object"},
+    "quality": {"type": "object"},
+    "feature_checks": {"type": "array", "items": {"type": "object"}}
+  },
+  "additionalProperties": false
+}

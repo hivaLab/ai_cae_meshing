@@ -5,9 +5,9 @@ Last updated: 2026-05-03 KST
 ## 1. 현재 상태
 
 ```text
-Project state        : T-503 AMG ANSA adapter interface complete
+Project state        : T-601 AMG dataset loader complete
 Active phase         : P6_AMG_MODEL_BASELINE
-Active task          : T-601_DATASET_LOADER
+Active task          : T-602_MODEL_SKELETON
 Primary source docs  : AMG.md, CDF.md
 Execution backend    : ANSA Batch Mesh, through adapter/script boundary
 Dataset factory      : CDF-SM-ANSA-V1
@@ -40,6 +40,7 @@ Model target         : AMG_MANIFEST_SM_V1
 | AMG input validation | DONE | T-501 complete |
 | AMG deterministic manifest | DONE | T-502 complete |
 | AMG ANSA adapter interface | DONE | T-503 complete |
+| AMG dataset loader | DONE | T-601 complete |
 | CDF generator | TODO | after P0 |
 | ANSA oracle | TODO | after pure tests and mock runner |
 | AMG rule-only pipeline | TODO | after contracts and CDF labels |
@@ -57,8 +58,8 @@ Model target         : AMG_MANIFEST_SM_V1
 ## 4. 다음 작업
 
 ```text
-T-601_DATASET_LOADER
-  Load CDF dataset files without importing CDF package.
+T-602_MODEL_SKELETON
+  Create B-rep graph model skeleton with output heads.
 ```
 
 ## 5. 상태 업데이트 규칙
@@ -546,3 +547,28 @@ Blockers:
 
 Next:
   - T-601_DATASET_LOADER
+
+## Session 2026-05-03 T-601
+
+Completed:
+  - T-601_DATASET_LOADER
+
+Changed files:
+  - ai_mesh_generator/amg/dataset/__init__.py
+  - ai_mesh_generator/amg/dataset/loader.py
+  - tests/test_amg_dataset_loader.py
+  - docs/NEXT_AGENT_PROMPT.md
+  - docs/STATUS.md
+  - docs/TASKS.md
+
+Tests:
+  - command: python -m pytest
+  - result: PASS, 152 passed in 3.95s
+
+Blockers:
+  - ANSA executable path not configured; real ANSA tests remain deferred to `requires_ansa`.
+  - T-601 intentionally stops at file-contract loading; batching, tensor conversion, and model architecture remain T-602+.
+  - `CDF_DATASET_INDEX_SM_V1` has no JSON schema file, so T-601 uses lightweight structural validation for dataset_index.json.
+
+Next:
+  - T-602_MODEL_SKELETON

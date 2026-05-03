@@ -489,7 +489,7 @@ retry policy has unit tests
 
 ### T-601_DATASET_LOADER
 
-Status: TODO
+Status: DONE
 
 Goal:
 

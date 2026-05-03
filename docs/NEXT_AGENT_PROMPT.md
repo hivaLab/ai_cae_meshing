@@ -34,37 +34,39 @@ Current state:
 - T-501_AMG_INPUT_VALIDATION is complete.
 - T-502_AMG_DETERMINISTIC_MANIFEST is complete.
 - T-503_AMG_ANSA_ADAPTER_INTERFACE is complete.
+- T-601_DATASET_LOADER is complete.
 - Latest required test command: python -m pytest
 
 Next task:
-- T-601_DATASET_LOADER
+- T-602_MODEL_SKELETON
 
-Work only on T-601_DATASET_LOADER scope:
-- Add an AMG-side dataset loader that reads CDF sample directories through file contracts only.
-- Load graph/brep_graph.npz, graph/graph_schema.json, and labels/amg_manifest.json.
-- Validate schema versions before returning sample records.
-- Build model-ready sample objects without importing cad_dataset_factory.
-- Ensure cad/reference_midsurface.step is not used as a model input.
+Work only on T-602_MODEL_SKELETON scope:
+- Create a B-rep graph model skeleton with feature action and numeric control output heads.
+- Consume T-601 dataset loader sample objects or their arrays without importing cad_dataset_factory.
+- Support action masking for feature action prediction.
+- Add numeric heads for log size/control values and division-like controls.
+- Ensure model outputs pass through a rule/projector boundary before manifest serialization.
 
 Do not implement in this session:
-- AMG model architecture, training loop, or inference.
+- Full training loop, optimizer schedule, checkpointing, or dataset-scale training.
 - Real ANSA execution or real ANSA API binding.
-- New B-rep feature detection, truth matching, or CDF generation heuristics.
-- Full dataset generation at scale.
-- Any graph target_action_id or target numeric control columns.
+- New CDF generation, B-rep detection, or truth matching heuristics.
+- Graph target_action_id or target numeric control columns.
+- Using cad/reference_midsurface.step as a model input.
 
 Implementation requirements:
 - Use Python >= 3.11.
 - Keep CDF code independent from AMG imports.
 - Keep AMG source independent from CDF package imports; communicate through contract files only.
 - Keep ANSA API imports confined to ansa_scripts directories.
-- Reuse AMG_BREP_GRAPH_SM_V1 and AMG_MANIFEST_SM_V1 contracts.
+- Reuse AMG_BREP_GRAPH_SM_V1, AMG_MANIFEST_SM_V1, and existing rule/projector utilities where applicable.
 - Run python -m pytest before finishing.
 - Update docs/STATUS.md, docs/TASKS.md, and docs/NEXT_AGENT_PROMPT.md with completed work, tests run, and the next task.
 
 Known risks:
 - ANSA executable path is not configured in this environment; real ANSA tests remain deferred to requires_ansa.
-- T-503 provides only the AMG-side adapter boundary and deterministic mock, not real ANSA binding.
+- T-601 performs file-contract loading only; batching/tensor conversion policy still needs T-602 decisions.
+- CDF_DATASET_INDEX_SM_V1 currently has lightweight structural validation only because no schema file exists.
 
 Stop and report BLOCKED instead of guessing if AMG.md, CDF.md, CONTRACTS.md, and DATASET.md conflict.
 
@@ -79,10 +81,10 @@ At the end, report:
 ## Expected next-session output
 
 ```text
-- T-601 AMG dataset loader is implemented or explicitly blocked.
-- Loader reads graph/brep_graph.npz, graph/graph_schema.json, and labels/amg_manifest.json.
-- Schema versions are checked.
-- reference_midsurface.step is not used as model input.
+- T-602 AMG model skeleton is implemented or explicitly blocked.
+- Model skeleton accepts T-601 graph samples or model-ready arrays.
+- Feature action head supports masks.
+- Numeric heads emit bounded/projectable control values.
 - Existing P0-P6 tests continue to pass.
 - STATUS.md, TASKS.md, and NEXT_AGENT_PROMPT.md are updated for the following task.
 ```

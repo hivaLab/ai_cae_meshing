@@ -277,8 +277,61 @@ def _normal_angle_degrees(left: np.ndarray, right: np.ndarray) -> float:
     return math.degrees(math.acos(max(-1.0, min(1.0, dot))))
 
 
-def _is_long_extruded_face(face_row: np.ndarray, part_bbox: np.ndarray) -> bool:
-    return float(face_row[1]) >= 0.5 * float(part_bbox[0]) and float(face_row[0]) > 0.0
+def _estimated_thickness(face_rows: np.ndarray) -> float:
+    positive_dims = [
+        float(value)
+        for value in face_rows[:, 1:4].reshape(-1).tolist()
+        if float(value) > 1e-6
+    ]
+    return min(positive_dims) if positive_dims else 0.0
+
+
+def _sheet_width(face_row: np.ndarray) -> float:
+    positive_dims = sorted((float(value) for value in face_row[1:4].tolist() if float(value) > 1e-6), reverse=True)
+    if len(positive_dims) < 2:
+        return 0.0
+    return positive_dims[1]
+
+
+def _is_long_extruded_face(face_row: np.ndarray, part_bbox: np.ndarray, thickness_mm: float) -> bool:
+    min_width = max(4.0 * thickness_mm, 0.05 * max(float(part_bbox[1]), float(part_bbox[2]), 1.0))
+    return float(face_row[1]) >= 0.5 * float(part_bbox[0]) and _sheet_width(face_row) >= min_width and float(face_row[0]) > 0.0
+
+
+def _bend_area_score(draft: _CandidateDraft, face_rows: np.ndarray, offsets: _GraphOffsets) -> float:
+    return sum(float(face_rows[face_node_id - offsets.face_offset, 0]) for face_node_id in draft.face_node_ids or set())
+
+
+def _dedupe_bend_drafts(
+    drafts: list[_CandidateDraft],
+    *,
+    face_rows: np.ndarray,
+    offsets: _GraphOffsets,
+    thickness_mm: float,
+) -> list[_CandidateDraft]:
+    if not drafts:
+        return []
+    clustered: list[list[_CandidateDraft]] = []
+    for draft in sorted(drafts, key=lambda item: item.geometry_signature):
+        center = np.asarray(draft.center_mm, dtype=np.float64)
+        for cluster in clustered:
+            reference = np.asarray(cluster[0].center_mm, dtype=np.float64)
+            same_shape = math.isclose(draft.size_1_mm, cluster[0].size_1_mm, rel_tol=0.02, abs_tol=0.5) and math.isclose(
+                draft.size_2_mm,
+                cluster[0].size_2_mm,
+                rel_tol=0.02,
+                abs_tol=0.5,
+            )
+            if same_shape and float(np.linalg.norm(center - reference)) <= max(2.0 * thickness_mm, 0.5):
+                cluster.append(draft)
+                break
+        else:
+            clustered.append([draft])
+
+    return [
+        max(cluster, key=lambda draft: (_bend_area_score(draft, face_rows, offsets), draft.geometry_signature))
+        for cluster in clustered
+    ]
 
 
 def _detect_bend_and_flange_candidates(graph: BrepGraph, offsets: _GraphOffsets) -> list[DetectedFeatureCandidate]:
@@ -286,6 +339,7 @@ def _detect_bend_and_flange_candidates(graph: BrepGraph, offsets: _GraphOffsets)
     face_rows = graph.arrays["face_features"]
     edge_rows = graph.arrays["edge_features"]
     face_edges = _face_edge_indices(graph)
+    thickness_mm = _estimated_thickness(face_rows)
     bend_drafts: list[_CandidateDraft] = []
     seen_pairs: set[tuple[int, int]] = set()
 
@@ -298,7 +352,7 @@ def _detect_bend_and_flange_candidates(graph: BrepGraph, offsets: _GraphOffsets)
         seen_pairs.add(pair)
         left_row = face_rows[left_face]
         right_row = face_rows[right_face]
-        if not (_is_long_extruded_face(left_row, part_bbox) and _is_long_extruded_face(right_row, part_bbox)):
+        if not (_is_long_extruded_face(left_row, part_bbox, thickness_mm) and _is_long_extruded_face(right_row, part_bbox, thickness_mm)):
             continue
         angle = _normal_angle_degrees(left_row[7:10], right_row[7:10])
         if angle < 45.0 or angle > 120.0:
@@ -327,6 +381,12 @@ def _detect_bend_and_flange_candidates(graph: BrepGraph, offsets: _GraphOffsets)
             )
         )
 
+    bend_drafts = _dedupe_bend_drafts(
+        bend_drafts,
+        face_rows=face_rows,
+        offsets=offsets,
+        thickness_mm=thickness_mm,
+    )
     flange_drafts: dict[int, _CandidateDraft] = {}
     for bend in bend_drafts:
         face_nodes = sorted(bend.face_node_ids or set())

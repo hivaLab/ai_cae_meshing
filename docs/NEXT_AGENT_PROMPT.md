@@ -27,24 +27,25 @@ Current state:
 - T-203_FEATURE_PLACEMENT_SAMPLER is complete.
 - T-301_BREP_GRAPH_EXTRACTOR is complete.
 - T-302_FEATURE_CANDIDATE_DETECTOR is complete.
+- T-303_TRUTH_MATCHING_REPORT is complete.
 - Latest required test command: python -m pytest
 
 Next task:
-- T-303_TRUTH_MATCHING_REPORT
+- T-401_ANSA_COMMAND_RUNNER
 
-Work only on T-303_TRUTH_MATCHING_REPORT scope:
-- Match CDF feature truth records to T-302 detected feature candidates by stable geometry signatures and geometry tolerances.
-- Produce a feature_matching_report.json writer for generated smoke samples.
-- Report matched, unmatched_truth, unmatched_detected, recall_by_type, and false_match_count.
-- Require 100% truth recall and 0 false matches for accepted generated smoke samples used in tests.
-- Keep truth matching as a CDF-side reporting layer; do not make it an AMG training or inference path.
+Work only on T-401_ANSA_COMMAND_RUNNER scope:
+- Build a pure Python subprocess command builder for ANSA batch execution.
+- Add timeout and environment validation behavior without requiring a real ANSA install for unit tests.
+- Missing ANSA_EXECUTABLE must produce a structured skip/error result.
+- Keep real ANSA execution behind the `requires_ansa` marker or an explicit executable path check.
+- Produce command-runner tests that pass without ANSA installed.
 
 Do not implement in this session:
-- Real ANSA execution.
+- ANSA internal script logic beyond command construction and dry validation.
 - AMG model training or inference.
-- ANSA oracle command runner or ANSA internal scripts.
+- Full real ANSA oracle execution.
 - Full dataset generation at scale.
-- New feature candidate detection heuristics beyond small fixes needed for matching tests.
+- New B-rep feature detection or truth matching heuristics.
 - Dataset-scale random generation beyond existing T-203 placement primitives.
 
 Implementation requirements:
@@ -53,7 +54,7 @@ Implementation requirements:
 - Keep ANSA API imports confined to ansa_scripts directories.
 - Do not add graph target_action_id or target numeric control columns.
 - Keep CadQuery/OCP as optional cad dependency, not a core hard dependency.
-- Reuse T-301 graph extraction and T-302 candidate detection APIs.
+- Keep ANSA executable discovery configurable and deterministic for tests.
 - Run python -m pytest before finishing.
 - Update docs/STATUS.md, docs/TASKS.md, and docs/NEXT_AGENT_PROMPT.md with completed work, tests run, and the next task.
 
@@ -70,9 +71,9 @@ At the end, report:
 ## Expected next-session output
 
 ```text
-- T-303 truth matching report is implemented or explicitly blocked.
-- Generated flat-panel and bent-part smoke samples reach 100% truth recall with 0 false matches.
-- feature_matching_report.json is JSON-compatible and schema-valid if an existing contract exists.
+- T-401 ANSA command runner is implemented or explicitly blocked.
+- Command builder tests pass without ANSA installed.
+- Missing ANSA_EXECUTABLE produces a structured skip/error.
 - Existing P0/P1/P2 tests continue to pass.
 - STATUS.md, TASKS.md, and NEXT_AGENT_PROMPT.md are updated for the following task.
 ```

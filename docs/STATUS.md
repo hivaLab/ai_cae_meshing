@@ -5,9 +5,9 @@ Last updated: 2026-05-03 KST
 ## 1. 현재 상태
 
 ```text
-Project state        : T-302 feature candidate detector complete
-Active phase         : P3_BREP_GRAPH_AND_MATCHING
-Active task          : T-303_TRUTH_MATCHING_REPORT
+Project state        : T-303 truth matching report complete
+Active phase         : P4_ANSA_ORACLE
+Active task          : T-401_ANSA_COMMAND_RUNNER
 Primary source docs  : AMG.md, CDF.md
 Execution backend    : ANSA Batch Mesh, through adapter/script boundary
 Dataset factory      : CDF-SM-ANSA-V1
@@ -33,6 +33,7 @@ Model target         : AMG_MANIFEST_SM_V1
 | CDF feature placement sampler | DONE | T-203 complete |
 | CDF B-rep graph extractor | DONE | T-301 complete |
 | CDF feature candidate detector | DONE | T-302 complete |
+| CDF truth matching report | DONE | T-303 complete |
 | CDF generator | TODO | after P0 |
 | ANSA oracle | TODO | after pure tests and mock runner |
 | AMG rule-only pipeline | TODO | after contracts and CDF labels |
@@ -50,8 +51,8 @@ Model target         : AMG_MANIFEST_SM_V1
 ## 4. 다음 작업
 
 ```text
-T-303_TRUTH_MATCHING_REPORT
-  Match CDF truth features to detected B-rep candidates by stable geometry signatures.
+T-401_ANSA_COMMAND_RUNNER
+  Build subprocess command for ANSA batch execution and timeout handling.
 ```
 
 ## 5. 상태 업데이트 규칙
@@ -365,3 +366,28 @@ Blockers:
 
 Next:
   - T-303_TRUTH_MATCHING_REPORT
+
+## Session 2026-05-03 T-303
+
+Completed:
+  - T-303_TRUTH_MATCHING_REPORT
+
+Changed files:
+  - cad_dataset_factory/cdf/brep/feature_detector.py
+  - cad_dataset_factory/cdf/truth/__init__.py
+  - cad_dataset_factory/cdf/truth/matching.py
+  - tests/test_cdf_truth_matching_report.py
+  - docs/NEXT_AGENT_PROMPT.md
+  - docs/STATUS.md
+  - docs/TASKS.md
+
+Tests:
+  - command: python -m pytest
+  - result: PASS, 99 passed in 3.66s
+
+Blockers:
+  - ANSA executable path not configured; real ANSA tests remain deferred to `requires_ansa`.
+  - ANSA command runner remains unimplemented and is the next P4 task.
+
+Next:
+  - T-401_ANSA_COMMAND_RUNNER

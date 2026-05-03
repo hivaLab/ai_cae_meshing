@@ -357,7 +357,7 @@ bends detected by cylindrical/near-cylindrical strip
 
 ### T-303_TRUTH_MATCHING_REPORT
 
-Status: TODO
+Status: DONE
 
 Goal:
 

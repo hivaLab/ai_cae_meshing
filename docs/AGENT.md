@@ -161,6 +161,6 @@ Manifest action:
 6. blocker 또는 risk가 있으면 RISK_REGISTER.md 업데이트
 ```
 
-## 9. 첫 번째 세션 권장 범위
+## 9. NEXT_AGENT_PROMPT.md handoff rule
 
-첫 번째 코딩 세션은 `NEXT_AGENT_PROMPT.md`를 사용한다. 목표는 repository skeleton, contract schema skeleton, pure rule utilities, unit tests이다. ANSA, CadQuery CAD generation, AI training은 시작하지 않는다.
+`NEXT_AGENT_PROMPT.md` is a rolling next-session handoff prompt, not a first-session-only prompt. At the end of every completed task, update it with the exact current state, the next task ID, explicit in/out of scope, required test command, and known blockers. Keep it aligned with `STATUS.md` and `TASKS.md`.

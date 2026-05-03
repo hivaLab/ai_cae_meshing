@@ -72,20 +72,8 @@ repo_root/
 | `MODEL_PLAN.md` | AMG model 구현 순서, baseline, metrics, checkpoint 규칙 |
 | `RISK_REGISTER.md` | 주요 기술 리스크와 concrete mitigation |
 | `DECISIONS.md` | 고정된 architecture decision record |
-| `NEXT_AGENT_PROMPT.md` | 첫 번째 코딩 세션에 바로 붙여 넣을 수 있는 지시문 |
+| `NEXT_AGENT_PROMPT.md` | 다음 코딩 세션에 바로 붙여 넣을 수 있도록 매 작업 종료 시 갱신하는 rolling handoff 지시문 |
 
-## 첫 번째 구현 목표
+## 다음 세션 handoff
 
-첫 코딩 세션은 ANSA, CAD generation, GNN training을 시작하지 않는다. 다음만 구현한다.
-
-```text
-P0 Bootstrap:
-  1. repository skeleton
-  2. shared contracts JSON schema skeleton
-  3. config loading and validation
-  4. pure math utility functions
-  5. deterministic label rule functions
-  6. unit tests for formulas and dependency boundaries
-```
-
-P0가 끝나기 전에는 ANSA 실행, CadQuery boolean generation, AI model training을 시작하지 않는다.
+`NEXT_AGENT_PROMPT.md`는 첫 세션 전용 문서가 아니라 다음 세션용 rolling handoff 문서다. 각 작업 종료 시 `STATUS.md`, `TASKS.md`와 함께 현재 완료 상태, 다음 task ID, 금지 범위, 테스트 명령, blocker를 갱신한다.

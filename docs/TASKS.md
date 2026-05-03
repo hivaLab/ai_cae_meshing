@@ -244,7 +244,7 @@ no auxiliary label is required for inference
 
 ### T-104_CDF_SAMPLE_WRITER
 
-Status: TODO
+Status: DONE
 
 Goal:
 

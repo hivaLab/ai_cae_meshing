@@ -5,9 +5,9 @@ Last updated: 2026-05-03 KST
 ## 1. 현재 상태
 
 ```text
-Project state        : T-704 AMG real dataset training complete; checkpoint and metrics written from real CDF labels
+Project state        : T-705 AMG real inference to ANSA mesh complete; held-out meshes passed real ANSA quality
 Active phase         : P7_REAL_PIPELINE_COMPLETION
-Active task          : T-705_AMG_REAL_INFERENCE_TO_ANSA_MESH
+Active task          : T-706_REAL_PIPELINE_SCALE_UP_AND_GENERALIZATION_BENCHMARK
 Primary source docs  : AMG.md, CDF.md
 Execution backend    : ANSA Batch Mesh, through adapter/script boundary
 Dataset factory      : CDF-SM-ANSA-V1
@@ -47,7 +47,8 @@ Model target         : AMG_MANIFEST_SM_V1
 | CDF real ANSA API binding | DONE | T-702 complete; ANSA v25.1.0 batch/script path runs import/skin/batch mesh/export |
 | CDF accepted dataset pilot | DONE | T-703 complete; 100 real ANSA-accepted samples validated in `runs/pilot_cdf_100` |
 | AMG real dataset training | DONE | T-704 complete; trained on `runs/pilot_cdf_100` manifest labels |
-| AMG real inference to ANSA mesh | TODO | T-705; must produce real quality-passing meshes |
+| AMG real inference to ANSA mesh | DONE | T-705 complete; 20/20 held-out samples produced real ANSA VALID_MESH |
+| Real pipeline scale-up benchmark | TODO | T-706; broaden beyond the current flat-panel single-feature pilot |
 
 ## 3. 현재 blocker
 
@@ -60,13 +61,14 @@ Model target         : AMG_MANIFEST_SM_V1
 | Real CDF accepted dataset does not exist | resolved | T-703 generated and validated 100 real ANSA-accepted samples in `runs/pilot_cdf_100` |
 | Real ANSA internal API binding is not implemented | resolved | T-702 replaced skeleton unavailable path with real ANSA import/skin/batch mesh/export workflow |
 | AMG has not trained on real accepted labels | resolved | T-704 trained on `runs/pilot_cdf_100` with manifest-label coverage 1.0 |
+| AMG inference has not produced real ANSA meshes | resolved | T-705 produced 20/20 held-out VALID_MESH outputs with zero hard failed elements |
 | Stale mock-oriented ANSA documentation could hide real-gate requirements | resolved | ANSA_INTEGRATION.md, TESTING.md, ROADMAP.md, and NEXT_AGENT_PROMPT.md now state that mocks/test doubles cannot count as P7 success |
 
 ## 4. 다음 작업
 
 ```text
-T-705_AMG_REAL_INFERENCE_TO_ANSA_MESH
-  Run the trained AMG checkpoint on held-out STEP inputs, project to manifest, execute real ANSA, and validate mesh quality.
+T-706_REAL_PIPELINE_SCALE_UP_AND_GENERALIZATION_BENCHMARK
+  Broaden the real pipeline beyond the current flat-panel single-hole pilot and report generalization metrics.
 ```
 
 ## 5. 상태 업데이트 규칙
@@ -102,6 +104,43 @@ Blockers:
 Next:
   - T-YYY ...
 ```
+
+## Session 2026-05-03 T-705
+
+Completed:
+  - T-705_AMG_REAL_INFERENCE_TO_ANSA_MESH
+
+Changed files:
+  - ai_mesh_generator/amg/inference/__init__.py
+  - ai_mesh_generator/amg/inference/real_mesh.py
+  - pyproject.toml
+  - tests/test_amg_real_mesh_inference.py
+  - docs/STATUS.md
+  - docs/TASKS.md
+  - docs/NEXT_AGENT_PROMPT.md
+
+Tests:
+  - command: python -m pytest tests\test_amg_real_mesh_inference.py
+  - result: PASS, 9 passed in 1.78s
+  - command: python -m pytest
+  - result: PASS, 195 passed and 1 skipped in 7.87s
+  - command: python -m ai_mesh_generator.amg.inference.real_mesh --dataset runs\pilot_cdf_100 --checkpoint runs\amg_training_real_pilot\checkpoint.pt --out runs\amg_inference_real_pilot --ansa-executable C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat --limit 20
+  - result: SUCCESS, success_count=20, failed_count=0, retry_count=0
+
+Evidence:
+  - dataset: runs\pilot_cdf_100
+  - checkpoint: runs\amg_training_real_pilot\checkpoint.pt
+  - inference summary: runs\amg_inference_real_pilot\inference_summary.json
+  - held-out samples: sample_000081 through sample_000100
+  - first held-out mesh: sample_000081, ANSA_v25.1.0, hard_failed=0, mesh_bytes=7323
+  - last held-out mesh: sample_000100, ANSA_v25.1.0, hard_failed=0, mesh_bytes=6559
+
+Blockers:
+  - none for T-705.
+  - Current evidence is still a pilot distribution dominated by flat-panel single-hole samples; scale-up must broaden feature and part-family coverage.
+
+Next:
+  - T-706_REAL_PIPELINE_SCALE_UP_AND_GENERALIZATION_BENCHMARK
 
 ## Session 2026-05-03 T-704
 

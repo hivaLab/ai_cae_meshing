@@ -24,6 +24,7 @@ model = [
 [project.scripts]
 cdf = "cad_dataset_factory.cdf.cli:main"
 amg-train-real = "ai_mesh_generator.amg.training.real:main"
+amg-infer-real = "ai_mesh_generator.amg.inference.real_mesh:main"
 
 [tool.setuptools.packages.find]
 include = ["ai_mesh_generator*", "cad_dataset_factory*"]

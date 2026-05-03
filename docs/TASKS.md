@@ -746,7 +746,7 @@ python -m pytest passed with 186 passed and 1 skipped.
 
 ### T-705_AMG_REAL_INFERENCE_TO_ANSA_MESH
 
-Status: TODO
+Status: DONE
 
 Goal:
 
@@ -771,4 +771,47 @@ Required preconditions:
 T-704 trained checkpoint exists.
 T-702 real ANSA adapter path works.
 Held-out validation STEP set is available.
+```
+
+Completion evidence:
+
+```text
+AMG real inference ran on the deterministic held-out subset from runs\pilot_cdf_100.
+Command:
+python -m ai_mesh_generator.amg.inference.real_mesh --dataset runs\pilot_cdf_100 --checkpoint runs\amg_training_real_pilot\checkpoint.pt --out runs\amg_inference_real_pilot --ansa-executable C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat --limit 20
+Result: SUCCESS with attempted_count=20, success_count=20, failed_count=0, retry_count=0.
+All held-out samples sample_000081 through sample_000100 have predicted AMG manifests,
+real ANSA execution reports accepted=true, quality reports accepted=true,
+num_hard_failed_elements=0, and non-empty BDF meshes.
+python -m pytest passed with 195 passed and 1 skipped.
+```
+
+### T-706_REAL_PIPELINE_SCALE_UP_AND_GENERALIZATION_BENCHMARK
+
+Status: TODO
+
+Goal:
+
+```text
+Broaden the completed real AMG/CDF pilot beyond the current flat-panel single-hole distribution,
+then report real ANSA first-pass/retry/failure metrics on unseen generated geometry.
+```
+
+Acceptance:
+
+```text
+CDF generates and validates a larger real ANSA-accepted dataset with mixed part families and feature types.
+AMG trains on the expanded accepted manifest labels without target leakage.
+AMG inference runs on an unseen held-out set through real ANSA.
+Reports include sample counts, family/type coverage, first-pass VALID_MESH rate, retry success rate,
+MESH_FAILED/OUT_OF_SCOPE reasons, hard failed element counts, and mesh artifact paths.
+No mock, placeholder, disabled ANSA, deterministic rule fallback, or synthetic target path is counted as success.
+```
+
+Required preconditions:
+
+```text
+T-705 real inference gate is complete.
+ANSA v25.1.0 executable/license remains available.
+The current pilot limitations are recorded: mostly SM_FLAT_PANEL with one HOLE_UNKNOWN candidate per sample.
 ```

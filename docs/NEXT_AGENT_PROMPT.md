@@ -36,24 +36,27 @@ Current state:
 - T-503_AMG_ANSA_ADAPTER_INTERFACE is complete.
 - T-601_DATASET_LOADER is complete.
 - T-602_MODEL_SKELETON is complete.
+- T-603_TRAINING_LOOP_SMOKE is complete.
 - Latest required test command: python -m pytest
 
 Next task:
-- T-603_TRAINING_LOOP_SMOKE
+- T-701_CDF_E2E_DATASET_CLI_FAIL_CLOSED
 
-Work only on T-603_TRAINING_LOOP_SMOKE scope:
-- Add a small training-loop smoke path using synthetic mocked graph data or T-601-style sample fixtures.
-- Compute losses for part class, feature type, masked feature action, log size/control values, division-like values, and quality risk without NaN.
-- Verify optimizer step, checkpoint save/load, and basic metric reporting.
-- Keep the training smoke fast and deterministic.
+Work only on T-701_CDF_E2E_DATASET_CLI_FAIL_CLOSED scope:
+- Implement the CDF `generate` and `validate` CLI orchestration described in CDF.md sections 19, 23, and 28.
+- Reuse existing CDF components: CAD generators, feature placement, graph extraction, truth matching, manifest writer, aux label writer, sample writer, ANSA runner, and report parser.
+- The CLI must fail closed: when `--require-ansa` is set and ANSA is unavailable, invalid, or produces no real oracle reports, the command must not write accepted samples.
+- `cdf validate` must reject any accepted sample missing real `reports/ansa_execution_report.json`, `reports/ansa_quality_report.json`, `meshes/ansa_oracle_mesh.bdf`, or `reports/sample_acceptance.json` with `accepted_by.ansa_oracle=true`.
+- Produce `dataset_index.json`, `dataset_stats.json`, and split files only from accepted/rejected records with explicit reasons.
 
 Do not implement in this session:
 - Full dataset-scale training.
 - Production model architecture beyond the T-602 skeleton.
-- Real ANSA execution or real ANSA API binding.
+- Real ANSA internal API binding beyond the existing runner boundary; that is T-702 unless T-701 discovers it is a hard blocker.
 - New CDF generation, B-rep detection, or truth matching heuristics.
 - Graph target_action_id or target numeric control columns.
 - Using cad/reference_midsurface.step as a model input.
+- Mock, disabled-oracle, or placeholder accepted samples.
 
 Implementation requirements:
 - Use Python >= 3.11.
@@ -65,9 +68,10 @@ Implementation requirements:
 - Update docs/STATUS.md, docs/TASKS.md, and docs/NEXT_AGENT_PROMPT.md with completed work, tests run, and the next task.
 
 Known risks:
-- ANSA executable path is not configured in this environment; real ANSA tests remain deferred to requires_ansa.
+- ANSA executable path is not configured in this environment. T-701 may be implemented but real accepted-sample completion is BLOCKED until ANSA is configured.
 - T-602 provides only a lightweight MLP skeleton and projector boundary; full heterogeneous B-rep GNN remains future work.
-- T-603 must avoid adding supervised target columns to graph inputs.
+- T-603 is only a smoke loop with synthetic targets derived from candidate rows and masks; it is not production training.
+- Real ANSA API binding is still a skeleton; T-702 is expected after T-701.
 
 Stop and report BLOCKED instead of guessing if AMG.md, CDF.md, CONTRACTS.md, and DATASET.md conflict.
 
@@ -82,10 +86,8 @@ At the end, report:
 ## Expected next-session output
 
 ```text
-- T-603 AMG training-loop smoke is implemented or explicitly blocked.
-- Loss computes without NaN.
-- Optimizer step and checkpoint save/load work.
-- Metrics are reported.
-- Existing P0-P6 tests continue to pass.
-- STATUS.md, TASKS.md, and NEXT_AGENT_PROMPT.md are updated for the following task.
+- T-701 CDF generate/validate CLI is implemented or explicitly BLOCKED by missing real ANSA preconditions.
+- Accepted samples are never counted from mock/disabled oracle paths.
+- `python -m pytest` passes.
+- STATUS.md, TASKS.md, and NEXT_AGENT_PROMPT.md remain aligned with the next real-pipeline task.
 ```

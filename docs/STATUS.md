@@ -5,9 +5,9 @@ Last updated: 2026-05-03 KST
 ## 1. 현재 상태
 
 ```text
-Project state        : T-602 AMG model skeleton complete
-Active phase         : P6_AMG_MODEL_BASELINE
-Active task          : T-603_TRAINING_LOOP_SMOKE
+Project state        : P7 real pipeline completion plan defined; full AMG/CDF pipeline not yet operational
+Active phase         : P7_REAL_PIPELINE_COMPLETION
+Active task          : T-701_CDF_E2E_DATASET_CLI_FAIL_CLOSED
 Primary source docs  : AMG.md, CDF.md
 Execution backend    : ANSA Batch Mesh, through adapter/script boundary
 Dataset factory      : CDF-SM-ANSA-V1
@@ -42,10 +42,12 @@ Model target         : AMG_MANIFEST_SM_V1
 | AMG ANSA adapter interface | DONE | T-503 complete |
 | AMG dataset loader | DONE | T-601 complete |
 | AMG model skeleton | DONE | T-602 complete |
-| CDF generator | TODO | after P0 |
-| ANSA oracle | TODO | after pure tests and mock runner |
-| AMG rule-only pipeline | TODO | after contracts and CDF labels |
-| AMG model training | TODO | after dataset ingestion path exists |
+| AMG training-loop smoke | DONE | T-603 complete; not production training |
+| CDF real dataset CLI | TODO | T-701 next; must fail closed without real ANSA |
+| CDF real ANSA API binding | TODO | T-702; skeleton/unavailable path is not a success path |
+| CDF accepted dataset pilot | TODO | T-703; requires real ANSA accepted samples |
+| AMG real dataset training | TODO | T-704; must use manifest labels from accepted samples |
+| AMG real inference to ANSA mesh | TODO | T-705; must produce real quality-passing meshes |
 
 ## 3. 현재 blocker
 
@@ -55,12 +57,15 @@ Model target         : AMG_MANIFEST_SM_V1
 | CAD kernel behavior not validated | resolved | P2 CAD smoke paths and T-501 AMG geometry validation path exist; deeper heuristics remain future refinement |
 | CDF/TASKS requested obsolete `CDF_ANSA_ORACLE_REPORT_SM_V1.schema.json` name | resolved | use canonical `CDF_ANSA_EXECUTION_REPORT_SM_V1` and `CDF_ANSA_QUALITY_REPORT_SM_V1` |
 | AMG graph node type listed `FEATURE` while CDF/CONTRACTS listed `FEATURE_CANDIDATE` | resolved | use canonical `FEATURE_CANDIDATE` |
+| Real CDF accepted dataset does not exist | high | T-701/T-703 must generate ANSA-validated accepted samples; disabled or mocked oracle samples do not count |
+| Real ANSA internal API binding is not implemented | high | T-702 must replace skeleton unavailable functions before accepted sample generation can be complete |
+| AMG has not trained on real accepted labels | high | T-704 must train from labels/amg_manifest.json and reports from T-703, not smoke targets |
 
 ## 4. 다음 작업
 
 ```text
-T-603_TRAINING_LOOP_SMOKE
-  Run a small training-loop smoke test on synthetic mocked graph data.
+T-701_CDF_E2E_DATASET_CLI_FAIL_CLOSED
+  Implement cdf generate/validate orchestration and fail closed when real ANSA oracle artifacts are unavailable.
 ```
 
 ## 5. 상태 업데이트 규칙
@@ -237,7 +242,6 @@ Changed files:
   - tests/test_cdf_sample_writer.py
   - docs/AGENT.md
   - docs/NEXT_AGENT_PROMPT.md
-  - docs/README.md
   - docs/STATUS.md
   - docs/TASKS.md
 
@@ -600,3 +604,51 @@ Blockers:
 
 Next:
   - T-603_TRAINING_LOOP_SMOKE
+
+## Session 2026-05-03 T-603
+
+Completed:
+  - T-603_TRAINING_LOOP_SMOKE
+
+Changed files:
+  - ai_mesh_generator/amg/training/__init__.py
+  - ai_mesh_generator/amg/training/smoke.py
+  - tests/test_amg_training_smoke.py
+  - docs/NEXT_AGENT_PROMPT.md
+  - docs/STATUS.md
+  - docs/TASKS.md
+
+Tests:
+  - command: python -m pytest
+  - result: PASS, 167 passed in 6.27s
+
+Blockers:
+  - ANSA executable path not configured; real ANSA tests remain deferred to `requires_ansa`.
+  - T-603 is a deterministic smoke loop only; full dataset-scale training and production model architecture remain future work.
+  - P7 real-pipeline tasks now replace the temporary NEXT_TASK_DEFINITION placeholder.
+
+Next:
+  - T-701_CDF_E2E_DATASET_CLI_FAIL_CLOSED
+
+## Session 2026-05-03 P7 planning reset
+
+Completed:
+  - Defined P7_REAL_PIPELINE_COMPLETION task sequence from AMG.md and CDF.md.
+  - Removed obsolete docs/README.md because it was unused, stale, and contradicted the actual docs/ path layout.
+
+Changed files:
+  - docs/NEXT_AGENT_PROMPT.md
+  - docs/STATUS.md
+  - docs/TASKS.md
+  - docs/README.md
+
+Tests:
+  - command: python -m pytest
+  - result: PASS, 167 passed in 6.27s
+
+Blockers:
+  - Real ANSA executable/license/API binding is required before CDF accepted-sample generation can be marked complete.
+  - Existing smoke/model tests are useful regression checks only; they do not prove the full AMG/CDF pipeline works.
+
+Next:
+  - T-701_CDF_E2E_DATASET_CLI_FAIL_CLOSED

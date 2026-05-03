@@ -525,7 +525,7 @@ model output passes rule projector before manifest serialization
 
 ### T-603_TRAINING_LOOP_SMOKE
 
-Status: TODO
+Status: DONE
 
 Goal:
 
@@ -539,4 +539,175 @@ Acceptance:
 loss computes without NaN
 checkpoint save/load works
 metrics are reported
+```
+
+## P7_REAL_PIPELINE_COMPLETION
+
+Status: TODO
+
+Purpose:
+
+```text
+Move from contract/unit/smoke coverage to the AMG.md/CDF.md end-to-end pipeline:
+CDF must generate ANSA-validated accepted samples, AMG must train from those accepted samples,
+and AMG inference must produce a manifest that real ANSA can execute into a quality-passing mesh.
+```
+
+Non-negotiable completion rule:
+
+```text
+Do not mark a P7 task DONE from mocked ANSA reports, synthetic training targets, disabled oracle paths,
+or unit/smoke tests alone. If real ANSA, accepted CDF samples, or real dataset labels are unavailable,
+the task is BLOCKED or IN_PROGRESS, not DONE.
+```
+
+### T-701_CDF_E2E_DATASET_CLI_FAIL_CLOSED
+
+Status: TODO
+
+Goal:
+
+```text
+Implement the CDF generate/validate CLI orchestrator from CDF.md sections 19, 23, and 28,
+using existing CAD generation, placement, graph extraction, truth matching, manifest writer,
+aux label writer, sample writer, and ANSA runner boundaries.
+```
+
+Deliverables:
+
+```text
+cad_dataset_factory CLI entrypoint
+cdf generate command
+cdf validate command
+dataset_stats.json writer
+split file writer
+fail-closed ANSA requirement handling
+```
+
+Acceptance:
+
+```text
+cdf generate --config configs/cdf_sm_ansa_v1.default.json --out runs/e2e_cdf --count 3 --seed 1 --require-ansa
+  either creates 3 accepted samples with cad/input.step, graph/brep_graph.npz, labels/amg_manifest.json,
+  reports/ansa_execution_report.json, reports/ansa_quality_report.json, meshes/ansa_oracle_mesh.bdf,
+  reports/sample_acceptance.json accepted_by.ansa_oracle=true, and zero hard failed elements,
+  or exits BLOCKED/FAILED with zero accepted samples when ANSA_EXECUTABLE/license is unavailable.
+cdf validate --dataset runs/e2e_cdf rejects any sample missing real ANSA reports or oracle mesh.
+No disabled-oracle, mock-oracle, synthetic-target, or placeholder accepted sample can be counted as accepted.
+```
+
+Required preconditions:
+
+```text
+ANSA executable and license must be available for the accepted-sample gate.
+CadQuery/OCP must be available for CAD/STEP generation and B-rep extraction.
+```
+
+### T-702_CDF_REAL_ANSA_API_BINDING
+
+Status: TODO
+
+Goal:
+
+```text
+Replace the ANSA internal skeleton with real ANSA API bindings for import, cleanup,
+midsurface extraction, manifest control application, batch meshing, quality report export,
+solver deck export, and ANSA database export.
+```
+
+Acceptance:
+
+```text
+requires_ansa test imports one generated sample, executes the complete CDF.md 18.2 workflow,
+writes schema-valid execution and quality reports, exports meshes/ansa_oracle_mesh.bdf,
+and records accepted=false on quality failure instead of rewriting labels.
+```
+
+Required preconditions:
+
+```text
+Installed ANSA version scripting API documentation or introspection access.
+ANSA_EXECUTABLE configured and runnable in batch/script mode.
+```
+
+### T-703_CDF_ACCEPTED_DATASET_PILOT
+
+Status: TODO
+
+Goal:
+
+```text
+Generate a real accepted CDF pilot dataset with ANSA oracle enabled and no mocked reports.
+```
+
+Acceptance:
+
+```text
+cdf generate produces at least 100 accepted samples with fixed seed.
+cdf validate passes every accepted sample.
+accepted samples have zero hard failed elements and feature boundary size error max <= 0.50.
+dataset_index.json, dataset_stats.json, splits, graph files, labels, meshes, and reports are complete.
+```
+
+Required preconditions:
+
+```text
+T-701 and T-702 complete.
+ANSA pass rate is high enough to finish within configured generation attempts.
+```
+
+### T-704_AMG_REAL_DATASET_TRAINING
+
+Status: TODO
+
+Goal:
+
+```text
+Train AMG on real CDF accepted samples using labels/amg_manifest.json as supervision,
+not synthetic smoke targets or graph target columns.
+```
+
+Acceptance:
+
+```text
+AMG training CLI loads only accepted CDF samples through file contracts.
+Loss uses manifest labels and graph candidate rows without target leakage columns.
+Checkpoint, metrics, train/validation split results, and failure cases are written.
+Training refuses to run on datasets without real ANSA-accepted samples.
+```
+
+Required preconditions:
+
+```text
+T-703 accepted pilot dataset exists.
+Torch model dependency is installed.
+```
+
+### T-705_AMG_REAL_INFERENCE_TO_ANSA_MESH
+
+Status: TODO
+
+Goal:
+
+```text
+Run AMG inference on held-out constant-thickness STEP inputs, project predictions to
+AMG_MANIFEST_SM_V1, execute real ANSA, retry deterministically when applicable,
+and produce solver-ready quality-passing meshes.
+```
+
+Acceptance:
+
+```text
+For a held-out validation set, AMG produces VALID_MESH outputs with solver deck and quality report.
+Accepted mesh outputs have zero hard failed elements after retry.
+Failures are explicit OUT_OF_SCOPE or MESH_FAILED reports with schema-valid reasons.
+No mock adapter, disabled ANSA path, or deterministic-only fallback is counted as success.
+```
+
+Required preconditions:
+
+```text
+T-704 trained checkpoint exists.
+T-702 real ANSA adapter path works.
+Held-out validation STEP set is available.
 ```

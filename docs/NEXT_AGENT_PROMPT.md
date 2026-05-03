@@ -22,29 +22,31 @@ Current state:
 - T-102_CDF_MANIFEST_WRITER is complete.
 - T-103_CDF_AUX_LABEL_WRITERS is complete.
 - T-104_CDF_SAMPLE_WRITER is complete.
+- T-201_FLAT_PANEL_GENERATOR is complete.
 - Latest required test command: python -m pytest
 
 Next task:
-- T-201_FLAT_PANEL_GENERATOR
+- T-202_BENT_PART_GENERATORS
 
-Work only on T-201_FLAT_PANEL_GENERATOR scope:
-- Generate constant-thickness flat panel solids with optional holes, slots, and cutouts.
-- Export cad/input.step and cad/reference_midsurface.step for smoke samples if CadQuery is available.
-- Generate feature_truth.json-compatible truth records for generated features.
-- Enforce deterministic parameter validation and structured rejection when geometry cannot be produced safely.
+Work only on T-202_BENT_PART_GENERATORS scope:
+- Generate single flange, L bracket, U channel, and hat channel constant-thickness sheet-metal solids.
+- Generate bend and flange truth records compatible with FeatureTruthDocument.
+- Reuse the T-201 flat-panel CAD generation style, coordinate conventions, structured errors, and STEP export helpers.
+- Add CadQuery smoke tests for at least one bent family when CadQuery is available.
 
 Do not implement in this session:
 - Real ANSA execution.
 - AMG model training or inference.
 - B-rep graph extraction beyond placeholders explicitly required by tests.
-- Bent part generators for flange, L bracket, U channel, or hat channel.
+- Random feature placement sampler; this remains T-203_FEATURE_PLACEMENT_SAMPLER.
+- ANSA oracle command runner or ANSA internal scripts.
 
 Implementation requirements:
 - Use Python >= 3.11.
 - Keep CDF code independent from AMG imports.
 - Keep ANSA API imports confined to ansa_scripts directories.
 - Do not add graph target_action_id or target numeric control columns.
-- Reuse existing CDF domain models, manifest writer, auxiliary label writer, and sample writer where applicable.
+- Keep CadQuery as an optional cad dependency, not a core hard dependency.
 - Run python -m pytest before finishing.
 - Update docs/STATUS.md, docs/TASKS.md, and docs/NEXT_AGENT_PROMPT.md with completed work, tests run, and the next task.
 
@@ -61,8 +63,8 @@ At the end, report:
 ## Expected next-session output
 
 ```text
-- T-201 flat-panel generator scope is implemented or explicitly blocked.
-- Generated smoke sample truth records are JSON-compatible.
-- Existing P0/P1 tests continue to pass.
+- T-202 bent part generator scope is implemented or explicitly blocked.
+- BendTruth and FlangeTruth records are JSON-compatible.
+- Existing P0/P1/T-201 tests continue to pass.
 - STATUS.md, TASKS.md, and NEXT_AGENT_PROMPT.md are updated for the following task.
 ```

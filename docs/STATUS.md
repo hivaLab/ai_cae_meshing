@@ -5,9 +5,9 @@ Last updated: 2026-05-03 KST
 ## 1. 현재 상태
 
 ```text
-Project state        : T-104 CDF sample writer complete
+Project state        : T-201 flat panel generator complete
 Active phase         : P2_CDF_CAD_GENERATION
-Active task          : T-201_FLAT_PANEL_GENERATOR
+Active task          : T-202_BENT_PART_GENERATORS
 Primary source docs  : AMG.md, CDF.md
 Execution backend    : ANSA Batch Mesh, through adapter/script boundary
 Dataset factory      : CDF-SM-ANSA-V1
@@ -28,6 +28,7 @@ Model target         : AMG_MANIFEST_SM_V1
 | CDF manifest writer | DONE | T-102 complete |
 | CDF auxiliary label writers | DONE | T-103 complete |
 | CDF sample writer | DONE | T-104 complete |
+| CDF flat panel generator | DONE | T-201 complete |
 | CDF generator | TODO | after P0 |
 | ANSA oracle | TODO | after pure tests and mock runner |
 | AMG rule-only pipeline | TODO | after contracts and CDF labels |
@@ -45,8 +46,8 @@ Model target         : AMG_MANIFEST_SM_V1
 ## 4. 다음 작업
 
 ```text
-T-201_FLAT_PANEL_GENERATOR
-  Generate constant-thickness flat panel solids with optional holes, slots, and cutouts.
+T-202_BENT_PART_GENERATORS
+  Generate single flange, L bracket, U channel, and hat channel solids with bend/flange truth records.
 ```
 
 ## 5. 상태 업데이트 규칙
@@ -237,3 +238,28 @@ Blockers:
 
 Next:
   - T-201_FLAT_PANEL_GENERATOR
+
+## Session 2026-05-03 T-201
+
+Completed:
+  - T-201_FLAT_PANEL_GENERATOR
+
+Changed files:
+  - pyproject.toml
+  - cad_dataset_factory/cdf/cadgen/__init__.py
+  - cad_dataset_factory/cdf/cadgen/flat_panel.py
+  - tests/test_cdf_flat_panel_generator.py
+  - docs/NEXT_AGENT_PROMPT.md
+  - docs/STATUS.md
+  - docs/TASKS.md
+
+Tests:
+  - command: python -m pytest
+  - result: PASS, 60 passed in 1.63s
+
+Blockers:
+  - ANSA executable path not configured; real ANSA tests remain deferred to `requires_ansa`.
+  - Bent part generation remains unimplemented and is the next P2 task.
+
+Next:
+  - T-202_BENT_PART_GENERATORS

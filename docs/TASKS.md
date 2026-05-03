@@ -264,7 +264,7 @@ sample_acceptance.json records accepted_by booleans
 
 ### T-201_FLAT_PANEL_GENERATOR
 
-Status: TODO
+Status: DONE
 
 Goal:
 

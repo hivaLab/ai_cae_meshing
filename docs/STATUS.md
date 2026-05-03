@@ -5,9 +5,9 @@ Last updated: 2026-05-03 KST
 ## 1. 현재 상태
 
 ```text
-Project state        : T-202 bent part generators complete
-Active phase         : P2_CDF_CAD_GENERATION
-Active task          : T-203_FEATURE_PLACEMENT_SAMPLER
+Project state        : T-203 feature placement sampler complete
+Active phase         : P3_BREP_GRAPH_AND_MATCHING
+Active task          : T-301_BREP_GRAPH_EXTRACTOR
 Primary source docs  : AMG.md, CDF.md
 Execution backend    : ANSA Batch Mesh, through adapter/script boundary
 Dataset factory      : CDF-SM-ANSA-V1
@@ -30,6 +30,7 @@ Model target         : AMG_MANIFEST_SM_V1
 | CDF sample writer | DONE | T-104 complete |
 | CDF flat panel generator | DONE | T-201 complete |
 | CDF bent part generators | DONE | T-202 complete |
+| CDF feature placement sampler | DONE | T-203 complete |
 | CDF generator | TODO | after P0 |
 | ANSA oracle | TODO | after pure tests and mock runner |
 | AMG rule-only pipeline | TODO | after contracts and CDF labels |
@@ -47,8 +48,8 @@ Model target         : AMG_MANIFEST_SM_V1
 ## 4. 다음 작업
 
 ```text
-T-203_FEATURE_PLACEMENT_SAMPLER
-  Implement feature layout sampling with boundary, feature-feature, and bend clearance constraints.
+T-301_BREP_GRAPH_EXTRACTOR
+  Extract PART/FACE/EDGE/COEDGE/VERTEX/FEATURE_CANDIDATE graph from STEP.
 ```
 
 ## 5. 상태 업데이트 규칙
@@ -288,3 +289,27 @@ Blockers:
 
 Next:
   - T-203_FEATURE_PLACEMENT_SAMPLER
+
+## Session 2026-05-03 T-203
+
+Completed:
+  - T-203_FEATURE_PLACEMENT_SAMPLER
+
+Changed files:
+  - cad_dataset_factory/cdf/sampling/__init__.py
+  - cad_dataset_factory/cdf/sampling/feature_layout.py
+  - tests/test_cdf_feature_layout_sampler.py
+  - docs/NEXT_AGENT_PROMPT.md
+  - docs/STATUS.md
+  - docs/TASKS.md
+
+Tests:
+  - command: python -m pytest
+  - result: PASS, 77 passed in 1.70s
+
+Blockers:
+  - ANSA executable path not configured; real ANSA tests remain deferred to `requires_ansa`.
+  - B-rep graph extraction remains unimplemented and is the next phase task.
+
+Next:
+  - T-301_BREP_GRAPH_EXTRACTOR

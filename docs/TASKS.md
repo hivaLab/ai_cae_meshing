@@ -300,7 +300,7 @@ bend radius constraints enforced
 
 ### T-203_FEATURE_PLACEMENT_SAMPLER
 
-Status: TODO
+Status: DONE
 
 Goal:
 

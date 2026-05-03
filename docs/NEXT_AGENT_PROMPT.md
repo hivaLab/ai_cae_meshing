@@ -24,30 +24,31 @@ Current state:
 - T-104_CDF_SAMPLE_WRITER is complete.
 - T-201_FLAT_PANEL_GENERATOR is complete.
 - T-202_BENT_PART_GENERATORS is complete.
+- T-203_FEATURE_PLACEMENT_SAMPLER is complete.
 - Latest required test command: python -m pytest
 
 Next task:
-- T-203_FEATURE_PLACEMENT_SAMPLER
+- T-301_BREP_GRAPH_EXTRACTOR
 
-Work only on T-203_FEATURE_PLACEMENT_SAMPLER scope:
-- Implement deterministic feature layout sampling helpers for CDF.
-- Enforce boundary clearance, feature-feature clearance, and bend clearance constraints.
-- Return structured rejection reasons instead of silently guessing placements.
-- Reuse existing domain models and T-201/T-202 CAD generator feature spec conventions where practical.
+Work only on T-301_BREP_GRAPH_EXTRACTOR scope:
+- Extract an AMG_BREP_GRAPH_SM_V1-compatible graph from STEP inputs.
+- Produce graph/brep_graph.npz and graph/graph_schema.json with stable node/edge feature column order.
+- Include PART, FACE, EDGE, COEDGE, VERTEX, and FEATURE_CANDIDATE graph entities where available.
+- Validate coedge cycles and adjacency arrays structurally.
 
 Do not implement in this session:
 - Real ANSA execution.
 - AMG model training or inference.
-- B-rep graph extraction.
 - ANSA oracle command runner or ANSA internal scripts.
 - Full dataset generation at scale.
+- Truth matching report logic beyond minimal graph extraction tests.
 
 Implementation requirements:
 - Use Python >= 3.11.
 - Keep CDF code independent from AMG imports.
 - Keep ANSA API imports confined to ansa_scripts directories.
 - Do not add graph target_action_id or target numeric control columns.
-- Keep CadQuery as an optional cad dependency, not a core hard dependency.
+- Keep CadQuery/OCP as optional cad dependency, not a core hard dependency.
 - Run python -m pytest before finishing.
 - Update docs/STATUS.md, docs/TASKS.md, and docs/NEXT_AGENT_PROMPT.md with completed work, tests run, and the next task.
 
@@ -64,8 +65,9 @@ At the end, report:
 ## Expected next-session output
 
 ```text
-- T-203 feature placement sampler is implemented or explicitly blocked.
-- Boundary, feature-feature, and bend clearance tests pass.
-- Existing P0/P1/T-201/T-202 tests continue to pass.
+- T-301 B-rep graph extractor is implemented or explicitly blocked.
+- graph_schema.json has required node/edge columns and no target leakage columns.
+- brep_graph.npz stores structurally valid adjacency arrays.
+- Existing P0/P1/P2 tests continue to pass.
 - STATUS.md, TASKS.md, and NEXT_AGENT_PROMPT.md are updated for the following task.
 ```

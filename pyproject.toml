@@ -8,7 +8,8 @@ version = "0.1.0"
 description = "AMG/CDF contract-first bootstrap for sheet-metal mesh-control manifests."
 requires-python = ">=3.11"
 dependencies = [
-  "jsonschema>=4.22,<5"
+  "jsonschema>=4.22,<5",
+  "pydantic>=2.7,<3"
 ]
 
 [tool.setuptools.packages.find]

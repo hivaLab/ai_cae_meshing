@@ -5,9 +5,9 @@ Last updated: 2026-05-03 KST
 ## 1. 현재 상태
 
 ```text
-Project state        : P0 bootstrap contracts and pure rules complete
+Project state        : T-102 CDF manifest writer complete
 Active phase         : P1_CDF_RULE_LABEL_ENGINE_AND_FILE_WRITER
-Active task          : T-101_CDF_DOMAIN_MODELS
+Active task          : T-103_CDF_AUX_LABEL_WRITERS
 Primary source docs  : AMG.md, CDF.md
 Execution backend    : ANSA Batch Mesh, through adapter/script boundary
 Dataset factory      : CDF-SM-ANSA-V1
@@ -24,6 +24,8 @@ Model target         : AMG_MANIFEST_SM_V1
 | Code repository skeleton | DONE | T-001 complete |
 | JSON schemas | DONE | T-002 complete; ANSA report contracts split into execution and quality reports |
 | Formula tests | DONE | T-004/T-005 complete |
+| CDF domain models | DONE | T-101 complete |
+| CDF manifest writer | DONE | T-102 complete |
 | CDF generator | TODO | after P0 |
 | ANSA oracle | TODO | after pure tests and mock runner |
 | AMG rule-only pipeline | TODO | after contracts and CDF labels |
@@ -41,8 +43,8 @@ Model target         : AMG_MANIFEST_SM_V1
 ## 4. 다음 작업
 
 ```text
-T-101_CDF_DOMAIN_MODELS
-  Create typed data models for part params, feature truth, entity signatures, mesh policy, and manifest controls.
+T-103_CDF_AUX_LABEL_WRITERS
+  Write face_labels.json, edge_labels.json, and feature_labels.json using manifest feature ids without making auxiliary labels required for inference.
 ```
 
 ## 5. 상태 업데이트 규칙
@@ -136,3 +138,51 @@ Blockers:
 
 Next:
   - T-101_CDF_DOMAIN_MODELS
+
+## Session 2026-05-03 T-101
+
+Completed:
+  - T-101_CDF_DOMAIN_MODELS
+
+Changed files:
+  - pyproject.toml
+  - cad_dataset_factory/cdf/domain/__init__.py
+  - cad_dataset_factory/cdf/domain/models.py
+  - tests/test_cdf_domain_models.py
+  - docs/STATUS.md
+  - docs/TASKS.md
+
+Tests:
+  - command: python -m pytest
+  - result: PASS, 32 passed in 0.25s
+
+Blockers:
+  - ANSA executable path not configured; real ANSA tests remain deferred to `requires_ansa`.
+  - CAD kernel behavior not validated; CadQuery generation remains out of this session.
+
+Next:
+  - T-102_CDF_MANIFEST_WRITER
+
+## Session 2026-05-03 T-102
+
+Completed:
+  - T-102_CDF_MANIFEST_WRITER
+
+Changed files:
+  - .gitignore
+  - cad_dataset_factory/cdf/labels/__init__.py
+  - cad_dataset_factory/cdf/labels/manifest_writer.py
+  - tests/test_cdf_manifest_writer.py
+  - docs/STATUS.md
+  - docs/TASKS.md
+
+Tests:
+  - command: python -m pytest
+  - result: PASS, 39 passed in 0.25s
+
+Blockers:
+  - ANSA executable path not configured; real ANSA tests remain deferred to `requires_ansa`.
+  - CAD kernel behavior not validated; CadQuery generation remains out of this session.
+
+Next:
+  - T-103_CDF_AUX_LABEL_WRITERS

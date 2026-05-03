@@ -191,7 +191,7 @@ pytest passes without ANSA installed
 
 ### T-101_CDF_DOMAIN_MODELS
 
-Status: TODO
+Status: DONE
 
 Goal:
 
@@ -209,7 +209,7 @@ invalid enum values raise validation errors
 
 ### T-102_CDF_MANIFEST_WRITER
 
-Status: TODO
+Status: DONE
 
 Goal:
 

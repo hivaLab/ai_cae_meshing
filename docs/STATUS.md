@@ -5,7 +5,7 @@ Last updated: 2026-05-03 KST
 ## 1. 현재 상태
 
 ```text
-Project state        : P7 real pipeline completion plan defined; full AMG/CDF pipeline not yet operational
+Project state        : T-701 fail-closed CDF CLI implemented; real accepted-sample gate blocked
 Active phase         : P7_REAL_PIPELINE_COMPLETION
 Active task          : T-701_CDF_E2E_DATASET_CLI_FAIL_CLOSED
 Primary source docs  : AMG.md, CDF.md
@@ -43,7 +43,7 @@ Model target         : AMG_MANIFEST_SM_V1
 | AMG dataset loader | DONE | T-601 complete |
 | AMG model skeleton | DONE | T-602 complete |
 | AMG training-loop smoke | DONE | T-603 complete; not production training |
-| CDF real dataset CLI | TODO | T-701 next; must fail closed without real ANSA |
+| CDF real dataset CLI | BLOCKED | T-701 fail-closed CLI exists; real ANSA accepted-sample gate not available |
 | CDF real ANSA API binding | TODO | T-702; skeleton/unavailable path is not a success path |
 | CDF accepted dataset pilot | TODO | T-703; requires real ANSA accepted samples |
 | AMG real dataset training | TODO | T-704; must use manifest labels from accepted samples |
@@ -629,6 +629,33 @@ Blockers:
 
 Next:
   - T-701_CDF_E2E_DATASET_CLI_FAIL_CLOSED
+
+## Session 2026-05-03 T-701
+
+Completed:
+  - Implemented fail-closed CDF generate/validate CLI orchestration.
+  - Added strict validation that rejects mock, controlled-failure, disabled-oracle, placeholder, and missing real ANSA artifacts for accepted samples.
+
+Changed files:
+  - cad_dataset_factory/cdf/cli.py
+  - cad_dataset_factory/cdf/pipeline/__init__.py
+  - cad_dataset_factory/cdf/pipeline/e2e_dataset.py
+  - tests/test_cdf_e2e_dataset_cli.py
+  - pyproject.toml
+  - docs/NEXT_AGENT_PROMPT.md
+  - docs/STATUS.md
+  - docs/TASKS.md
+
+Tests:
+  - command: python -m pytest
+  - result: PASS, 173 passed and 1 skipped in 6.50s
+
+Blockers:
+  - ANSA_EXECUTABLE is not configured, so the real accepted-sample gate is skipped/BLOCKED.
+  - The ANSA internal API layer remains skeleton-only; controlled-failure reports are correctly rejected as non-accepted.
+
+Next:
+  - T-701 remains BLOCKED until real ANSA executable/license/API binding can produce accepted samples.
 
 ## Session 2026-05-03 P7 planning reset
 

@@ -37,17 +37,17 @@ Current state:
 - T-601_DATASET_LOADER is complete.
 - T-602_MODEL_SKELETON is complete.
 - T-603_TRAINING_LOOP_SMOKE is complete.
+- T-701_CDF_E2E_DATASET_CLI_FAIL_CLOSED has fail-closed CLI code implemented, but is BLOCKED for DONE status because the real ANSA accepted-sample gate cannot run in this environment.
 - Latest required test command: python -m pytest
 
 Next task:
 - T-701_CDF_E2E_DATASET_CLI_FAIL_CLOSED
 
 Work only on T-701_CDF_E2E_DATASET_CLI_FAIL_CLOSED scope:
-- Implement the CDF `generate` and `validate` CLI orchestration described in CDF.md sections 19, 23, and 28.
-- Reuse existing CDF components: CAD generators, feature placement, graph extraction, truth matching, manifest writer, aux label writer, sample writer, ANSA runner, and report parser.
-- The CLI must fail closed: when `--require-ansa` is set and ANSA is unavailable, invalid, or produces no real oracle reports, the command must not write accepted samples.
-- `cdf validate` must reject any accepted sample missing real `reports/ansa_execution_report.json`, `reports/ansa_quality_report.json`, `meshes/ansa_oracle_mesh.bdf`, or `reports/sample_acceptance.json` with `accepted_by.ansa_oracle=true`.
-- Produce `dataset_index.json`, `dataset_stats.json`, and split files only from accepted/rejected records with explicit reasons.
+- Do not mark T-701 DONE until the requires_ansa gate creates real accepted samples.
+- Re-run `cdf generate --config configs/cdf_sm_ansa_v1.default.json --out runs/e2e_cdf --count 1 --seed 1 --require-ansa` only after ANSA_EXECUTABLE and license are available.
+- If the run still produces controlled-failure reports from the skeleton ANSA API layer, keep T-701 BLOCKED and proceed only after assigning/implementing T-702_CDF_REAL_ANSA_API_BINDING.
+- Keep `cdf validate --dataset ... --require-ansa` strict: accepted samples must have real execution/quality reports and a non-placeholder `meshes/ansa_oracle_mesh.bdf`.
 
 Do not implement in this session:
 - Full dataset-scale training.
@@ -68,7 +68,7 @@ Implementation requirements:
 - Update docs/STATUS.md, docs/TASKS.md, and docs/NEXT_AGENT_PROMPT.md with completed work, tests run, and the next task.
 
 Known risks:
-- ANSA executable path is not configured in this environment. T-701 may be implemented but real accepted-sample completion is BLOCKED until ANSA is configured.
+- ANSA executable path is not configured in this environment. T-701 code is implemented but real accepted-sample completion is BLOCKED until ANSA is configured.
 - T-602 provides only a lightweight MLP skeleton and projector boundary; full heterogeneous B-rep GNN remains future work.
 - T-603 is only a smoke loop with synthetic targets derived from candidate rows and masks; it is not production training.
 - Real ANSA API binding is still a skeleton; T-702 is expected after T-701.
@@ -86,7 +86,7 @@ At the end, report:
 ## Expected next-session output
 
 ```text
-- T-701 CDF generate/validate CLI is implemented or explicitly BLOCKED by missing real ANSA preconditions.
+- T-701 remains BLOCKED or is promoted to DONE only after real ANSA accepted samples are generated and validated.
 - Accepted samples are never counted from mock/disabled oracle paths.
 - `python -m pytest` passes.
 - STATUS.md, TASKS.md, and NEXT_AGENT_PROMPT.md remain aligned with the next real-pipeline task.

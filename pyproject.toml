@@ -21,6 +21,9 @@ model = [
   "torch>=2,<3"
 ]
 
+[project.scripts]
+cdf = "cad_dataset_factory.cdf.cli:main"
+
 [tool.setuptools.packages.find]
 include = ["ai_mesh_generator*", "cad_dataset_factory*"]
 

@@ -563,7 +563,7 @@ the task is BLOCKED or IN_PROGRESS, not DONE.
 
 ### T-701_CDF_E2E_DATASET_CLI_FAIL_CLOSED
 
-Status: TODO
+Status: BLOCKED
 
 Goal:
 
@@ -601,6 +601,14 @@ Required preconditions:
 ```text
 ANSA executable and license must be available for the accepted-sample gate.
 CadQuery/OCP must be available for CAD/STEP generation and B-rep extraction.
+```
+
+Current blocker:
+
+```text
+Fail-closed CLI orchestration is implemented, but T-701 cannot be marked DONE until
+the requires_ansa gate creates real accepted samples. ANSA_EXECUTABLE is not configured
+in the current environment, and the internal ANSA API layer is still skeleton-only.
 ```
 
 ### T-702_CDF_REAL_ANSA_API_BINDING

@@ -70,13 +70,49 @@ def _feature(feature_id: str, feature_type: str, role: str, action: str) -> dict
     }
 
 
-def _write_dataset(root: Path, sample_count: int = 150) -> Path:
+def _family_manifest(sample_id: str, case_index: int) -> dict:
+    case = case_index % 8
+    if case == 0:
+        return _manifest(sample_id, "SM_FLAT_PANEL", [_feature("HOLE_UNKNOWN_0001", "HOLE", "UNKNOWN", "KEEP_REFINED")])
+    if case == 1:
+        return _manifest(sample_id, "SM_FLAT_PANEL", [_feature("SLOT_UNKNOWN_0001", "SLOT", "UNKNOWN", "KEEP_REFINED")])
+    if case == 2:
+        return _manifest(sample_id, "SM_FLAT_PANEL", [_feature("CUTOUT_PASSAGE_0001", "CUTOUT", "PASSAGE", "KEEP_REFINED")])
+    if case == 3:
+        return _manifest(
+            sample_id,
+            "SM_FLAT_PANEL",
+            [
+                _feature("HOLE_UNKNOWN_0001", "HOLE", "UNKNOWN", "KEEP_REFINED"),
+                _feature("SLOT_UNKNOWN_0001", "SLOT", "UNKNOWN", "KEEP_REFINED"),
+                _feature("CUTOUT_PASSAGE_0001", "CUTOUT", "PASSAGE", "KEEP_REFINED"),
+            ],
+        )
+    part_classes = {
+        4: "SM_SINGLE_FLANGE",
+        5: "SM_L_BRACKET",
+        6: "SM_U_CHANNEL",
+        7: "SM_HAT_CHANNEL",
+    }
+    return _manifest(
+        sample_id,
+        part_classes[case],
+        [
+            _feature("BEND_STRUCTURAL_0001", "BEND", "STRUCTURAL", "KEEP_WITH_BEND_ROWS"),
+            _feature("FLANGE_STRUCTURAL_0001", "FLANGE", "STRUCTURAL", "KEEP_WITH_FLANGE_SIZE"),
+        ],
+    )
+
+
+def _write_dataset(root: Path, sample_count: int = 150, *, family: bool = False) -> Path:
     dataset = _fresh(root / "dataset")
     accepted = []
     for index in range(1, sample_count + 1):
         sample_id = f"sample_{index:06d}"
         sample_dir = dataset / "samples" / sample_id
-        if index <= 30:
+        if family:
+            manifest = _family_manifest(sample_id, index - 1)
+        elif index <= 30:
             manifest = _manifest(sample_id, "SM_FLAT_PANEL", [_feature("HOLE_UNKNOWN_0001", "HOLE", "UNKNOWN", "KEEP_REFINED")])
         elif index <= 60:
             manifest = _manifest(sample_id, "SM_FLAT_PANEL", [_feature("SLOT_UNKNOWN_0001", "SLOT", "UNKNOWN", "KEEP_REFINED")])
@@ -108,19 +144,21 @@ def _write_dataset(root: Path, sample_count: int = 150) -> Path:
         {"schema": "CDF_DATASET_INDEX_SM_V1", "accepted_samples": accepted, "rejected_samples": []},
     )
     (dataset / "splits").mkdir(parents=True, exist_ok=True)
-    (dataset / "splits" / "train.txt").write_text("".join(f"sample_{index:06d}\n" for index in range(1, 106)), encoding="utf-8")
-    (dataset / "splits" / "val.txt").write_text("".join(f"sample_{index:06d}\n" for index in range(106, 128)), encoding="utf-8")
-    (dataset / "splits" / "test.txt").write_text("".join(f"sample_{index:06d}\n" for index in range(128, 151)), encoding="utf-8")
+    train_count = int(0.70 * sample_count)
+    val_count = int(0.15 * sample_count)
+    (dataset / "splits" / "train.txt").write_text("".join(f"sample_{index:06d}\n" for index in range(1, train_count + 1)), encoding="utf-8")
+    (dataset / "splits" / "val.txt").write_text("".join(f"sample_{index:06d}\n" for index in range(train_count + 1, train_count + val_count + 1)), encoding="utf-8")
+    (dataset / "splits" / "test.txt").write_text("".join(f"sample_{index:06d}\n" for index in range(train_count + val_count + 1, sample_count + 1)), encoding="utf-8")
     return dataset
 
 
-def _write_training(root: Path) -> Path:
+def _write_training(root: Path, *, sample_count: int = 150) -> Path:
     training = root / "training"
     _write_json(
         training / "metrics.json",
         {
             "status": "SUCCESS",
-            "sample_count": 150,
+            "sample_count": sample_count,
             "candidate_count": 210,
             "manifest_feature_count": 210,
             "matched_target_count": 210,
@@ -133,12 +171,25 @@ def _write_training(root: Path) -> Path:
     return training
 
 
-def _write_inference(root: Path, *, placeholder: bool = False) -> Path:
+def _write_inference(root: Path, *, placeholder: bool = False, sample_ids: list[str] | None = None, failed_sample_ids: set[str] | None = None) -> Path:
     inference = root / "inference"
     sample_results = []
-    for index in range(128, 151):
-        sample_id = f"sample_{index:06d}"
+    selected_ids = sample_ids or [f"sample_{index:06d}" for index in range(128, 151)]
+    failed = failed_sample_ids or set()
+    for offset, sample_id in enumerate(selected_ids):
         sample_dir = inference / "samples" / sample_id
+        if sample_id in failed:
+            sample_results.append(
+                {
+                    "sample_id": sample_id,
+                    "status": "MODEL_REJECTED",
+                    "attempts": 0,
+                    "sample_output_dir": sample_dir.as_posix(),
+                    "error_code": "family_rate_test_failure",
+                    "message": "forced family failure",
+                }
+            )
+            continue
         _write_json(
             sample_dir / "reports" / "ansa_execution_report.json",
             {
@@ -169,7 +220,7 @@ def _write_inference(root: Path, *, placeholder: bool = False) -> Path:
         )
         mesh = sample_dir / "meshes" / "ansa_oracle_mesh.bdf"
         mesh.parent.mkdir(parents=True, exist_ok=True)
-        mesh.write_text("placeholder mesh\n" if placeholder and index == 128 else "CEND\nBEGIN BULK\nENDDATA\n", encoding="utf-8")
+        mesh.write_text("placeholder mesh\n" if placeholder and offset == 0 else "CEND\nBEGIN BULK\nENDDATA\n", encoding="utf-8")
         sample_results.append(
             {
                 "sample_id": sample_id,
@@ -211,6 +262,59 @@ def test_benchmark_report_aggregates_coverage_and_real_mesh_success() -> None:
     assert set(report["coverage"]["feature_type_histogram"]) == {"BEND", "CUTOUT", "FLANGE", "HOLE", "SLOT"}
     assert report["inference"]["attempted_count"] == 23
     assert report["inference"]["after_retry_valid_mesh_rate"] == 1.0
+
+
+def test_family_expansion_profile_reports_per_family_success_rates() -> None:
+    root = _fresh(RUNS / "family_success")
+    dataset = _write_dataset(root, sample_count=240, family=True)
+    training = _write_training(root, sample_count=240)
+    test_ids = [f"sample_{index:06d}" for index in range(205, 241)]
+    inference = _write_inference(root, sample_ids=test_ids)
+
+    report = build_real_pipeline_benchmark_report(
+        dataset=dataset,
+        training=training,
+        inference=inference,
+        profile="sm_family_expansion_v1",
+    )
+
+    assert report["status"] == "SUCCESS"
+    assert report["coverage"]["split_counts"] == {"train": 168, "val": 36, "test": 36}
+    assert set(report["coverage"]["part_class_histogram"]) == {
+        "SM_FLAT_PANEL",
+        "SM_SINGLE_FLANGE",
+        "SM_L_BRACKET",
+        "SM_U_CHANNEL",
+        "SM_HAT_CHANNEL",
+    }
+    assert set(report["inference"]["per_part_class"]) == {
+        "SM_FLAT_PANEL",
+        "SM_SINGLE_FLANGE",
+        "SM_L_BRACKET",
+        "SM_U_CHANNEL",
+        "SM_HAT_CHANNEL",
+    }
+    assert report["success_criteria"]["per_required_family_valid_mesh_rate_at_least_0_80"] is True
+
+
+def test_family_expansion_profile_fails_when_required_family_rate_is_low() -> None:
+    root = _fresh(RUNS / "family_low_rate")
+    dataset = _write_dataset(root, sample_count=240, family=True)
+    training = _write_training(root, sample_count=240)
+    test_ids = [f"sample_{index:06d}" for index in range(205, 241)]
+    hat_failures = {sample_id for sample_id in test_ids if (int(sample_id.rsplit("_", 1)[1]) - 1) % 8 == 7}
+    inference = _write_inference(root, sample_ids=test_ids, failed_sample_ids=hat_failures)
+
+    report = build_real_pipeline_benchmark_report(
+        dataset=dataset,
+        training=training,
+        inference=inference,
+        profile="sm_family_expansion_v1",
+    )
+
+    assert report["status"] == "FAILED"
+    assert report["inference"]["per_part_class"]["SM_HAT_CHANNEL"]["after_retry_valid_mesh_rate"] == 0.0
+    assert report["success_criteria"]["per_required_family_valid_mesh_rate_at_least_0_80"] is False
 
 
 def test_benchmark_report_does_not_count_placeholder_mesh_as_success() -> None:

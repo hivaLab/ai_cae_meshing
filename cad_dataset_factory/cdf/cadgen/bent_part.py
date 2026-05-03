@@ -234,23 +234,17 @@ def _flange_records(spec: BentPartSpec, bend_ids: list[str]) -> list[FlangeTruth
         ]
 
     if spec.part_class == PartClass.SM_HAT_CHANNEL:
+        side = _hat_side_wall_width(spec)
         return [
             FlangeTruth(
-                feature_id="FLANGE_STRUCTURAL_0001",
+                feature_id=f"FLANGE_STRUCTURAL_{index:04d}",
                 role=FeatureRole.STRUCTURAL,
                 created_by="cadgen.bent_part.flange",
-                width_mm=spec.flange_width_mm,
-                free_edge_id="EDGE_FLANGE_FREE_0001",
-                bend_id=bend_ids[0],
-            ),
-            FlangeTruth(
-                feature_id="FLANGE_STRUCTURAL_0002",
-                role=FeatureRole.STRUCTURAL,
-                created_by="cadgen.bent_part.flange",
-                width_mm=spec.flange_width_mm,
-                free_edge_id="EDGE_FLANGE_FREE_0002",
-                bend_id=bend_ids[-1],
-            ),
+                width_mm=side,
+                free_edge_id=f"EDGE_FLANGE_FREE_{index:04d}",
+                bend_id=bend_id,
+            )
+            for index, bend_id in enumerate(bend_ids, start=1)
         ]
 
     raise BentPartBuildError("unsupported_part_class", "T-202 supports bent sheet-metal part classes only")

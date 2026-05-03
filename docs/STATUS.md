@@ -5,9 +5,9 @@ Last updated: 2026-05-03 KST
 ## Project State
 
 ```text
-Project state        : T-706 real mixed pipeline benchmark complete
+Project state        : T-707 real family-expansion benchmark complete
 Active phase         : P7_REAL_PIPELINE_COMPLETION
-Active task          : T-707_REAL_PIPELINE_FAMILY_EXPANSION_AND_ROBUSTNESS
+Active task          : T-708_PRODUCTION_SCALE_DATASET_AND_MODEL_SELECTION
 Primary source docs  : AMG.md, CDF.md
 Execution backend    : ANSA Batch Mesh through adapter/script boundary
 Dataset factory      : CDF-SM-ANSA-V1
@@ -32,42 +32,54 @@ Verified ANSA path   : C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v
 | Real AMG training pilot | DONE | T-704 |
 | Real AMG inference pilot | DONE | T-705, 20/20 held-out VALID_MESH |
 | Mixed real pipeline benchmark | DONE | T-706, 150 accepted samples and 23/23 test VALID_MESH |
+| Family expansion benchmark | DONE | T-707, 240 accepted samples and 36/36 test VALID_MESH |
 
 ## Current Evidence
 
 ```text
-T-706 benchmark root:
-  runs\t706_mixed_benchmark
+T-707 benchmark root:
+  runs\t707_family_benchmark
 
 Dataset:
-  runs\t706_mixed_benchmark\dataset
-  accepted_count=150
+  runs\t707_family_benchmark\dataset
+  accepted_count=240
   rejected_count=1
   strict validation: SUCCESS, error_count=0
-  splits: train=105, val=22, test=23
+  splits: train=168, val=36, test=36
 
 Coverage:
-  part_class: SM_FLAT_PANEL=120, SM_L_BRACKET=30
-  feature_type: HOLE=60, SLOT=60, CUTOUT=60, BEND=30, FLANGE=30
+  part_class:
+    SM_FLAT_PANEL=120
+    SM_SINGLE_FLANGE=30
+    SM_L_BRACKET=30
+    SM_U_CHANNEL=30
+    SM_HAT_CHANNEL=30
+  feature_type:
+    HOLE=60
+    SLOT=60
+    CUTOUT=60
+    BEND=240
+    FLANGE=240
 
 Training:
-  runs\t706_mixed_benchmark\training
-  checkpoint: runs\t706_mixed_benchmark\training\checkpoint.pt
-  metrics: runs\t706_mixed_benchmark\training\metrics.json
+  runs\t707_family_benchmark\training
+  checkpoint: runs\t707_family_benchmark\training\checkpoint.pt
+  metrics: runs\t707_family_benchmark\training\metrics.json
   label_coverage_ratio=1.0
-  candidate_count=240
-  manifest_feature_count=240
+  candidate_count=660
+  manifest_feature_count=660
 
 Inference:
-  runs\t706_mixed_benchmark\inference
+  runs\t707_family_benchmark\inference
   split: test
-  attempted_count=23
-  success_count=23
+  attempted_count=36
+  success_count=36
   failed_count=0
   after_retry_valid_mesh_rate=1.0
+  per-family VALID_MESH rate=1.0 for every required part class
 
 Benchmark report:
-  runs\t706_mixed_benchmark\benchmark_report.json
+  runs\t707_family_benchmark\benchmark_report.json
   status=SUCCESS
 ```
 
@@ -77,17 +89,18 @@ Benchmark report:
 |---|---|---|
 | ANSA executable/license | resolved | ANSA v25.1.0 path executes real batch workflow |
 | Mock or placeholder accepted samples | resolved | fail-closed checks reject controlled failure, unavailable/mock ANSA, hard failed elements, and placeholder mesh |
-| Single-feature flat-panel overclaim | resolved for T-706 | benchmark now includes HOLE, SLOT, CUTOUT, BEND, FLANGE and SM_L_BRACKET |
-| Broader bent-family generalization | open | SM_SINGLE_FLANGE, SM_U_CHANNEL, and SM_HAT_CHANNEL are not yet part of the real accepted benchmark |
-| Production-scale model quality | open | T-706 proves constrained mixed benchmark success, not broad production robustness |
+| Single-feature flat-panel overclaim | resolved | T-706 included mixed flat and L-bracket cases |
+| Broader bent-family generalization | resolved for deterministic generated families | T-707 covers SM_SINGLE_FLANGE, SM_L_BRACKET, SM_U_CHANNEL, and SM_HAT_CHANNEL |
+| HAT truth/detector mismatch | resolved | HAT truth now records four structural flange/sidewall patches to match detected graph candidates |
+| Production-scale model quality | open | T-707 proves closed generated benchmark robustness, not large-scale production model selection |
 
 ## Next Task
 
 ```text
-T-707_REAL_PIPELINE_FAMILY_EXPANSION_AND_ROBUSTNESS
+T-708_PRODUCTION_SCALE_DATASET_AND_MODEL_SELECTION
 
-Expand the real benchmark to additional bent families and harder feature combinations.
-Keep fail-closed semantics: unsupported family paths must be BLOCKED/FAILED evidence, not hidden skips.
+Scale the real accepted dataset and compare explicit AMG model/training configurations.
+Select checkpoints using real validation/test evidence, not smoke tests or synthetic targets.
 ```
 
 ## Session Log Template
@@ -116,21 +129,17 @@ Next:
   - T-YYY ...
 ```
 
-## Session 2026-05-03 T-706
+## Session 2026-05-03 T-707
 
 Completed:
-  - T-706_REAL_PIPELINE_SCALE_UP_AND_GENERALIZATION_BENCHMARK
+  - T-707_REAL_PIPELINE_FAMILY_EXPANSION_AND_ROBUSTNESS
 
 Changed files:
-  - ai_mesh_generator/amg/benchmark/__init__.py
   - ai_mesh_generator/amg/benchmark/real_pipeline.py
-  - ai_mesh_generator/amg/inference/real_mesh.py
-  - ai_mesh_generator/amg/model/graph_model.py
-  - cad_dataset_factory/cdf/cli.py
+  - cad_dataset_factory/cdf/cadgen/bent_part.py
   - cad_dataset_factory/cdf/pipeline/e2e_dataset.py
-  - pyproject.toml
-  - tests/test_amg_real_mesh_inference.py
   - tests/test_amg_real_pipeline_benchmark.py
+  - tests/test_cdf_bent_part_generator.py
   - tests/test_cdf_mixed_benchmark_profile.py
   - docs/STATUS.md
   - docs/TASKS.md
@@ -138,29 +147,28 @@ Changed files:
 
 Tests:
   - command: python -m pytest
-  - result: PASS, 204 passed and 1 skipped in 8.65s
+  - result: PASS, 210 passed and 1 skipped in 9.88s
 
 Real gates:
-  - command: python -m cad_dataset_factory.cdf.cli generate --config configs\cdf_sm_ansa_v1.default.json --out runs\t706_mixed_benchmark\dataset --count 150 --seed 706 --require-ansa --ansa-executable C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat --profile sm_mixed_benchmark_v1
-  - result: SUCCESS, accepted_count=150, rejected_count=1
-  - command: python -m cad_dataset_factory.cdf.cli validate --dataset runs\t706_mixed_benchmark\dataset --require-ansa
-  - result: SUCCESS, accepted_count=150, error_count=0
-  - command: python -m ai_mesh_generator.amg.training.real --dataset runs\t706_mixed_benchmark\dataset --out runs\t706_mixed_benchmark\training --epochs 10 --batch-size 16 --seed 706
-  - result: SUCCESS, label_coverage_ratio=1.0, candidate_count=240, manifest_feature_count=240
-  - command: python -m ai_mesh_generator.amg.inference.real_mesh --dataset runs\t706_mixed_benchmark\dataset --checkpoint runs\t706_mixed_benchmark\training\checkpoint.pt --out runs\t706_mixed_benchmark\inference --ansa-executable C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat --split test
-  - result: SUCCESS, attempted_count=23, success_count=23, failed_count=0
-  - command: python -m ai_mesh_generator.amg.benchmark.real_pipeline --dataset runs\t706_mixed_benchmark\dataset --training runs\t706_mixed_benchmark\training --inference runs\t706_mixed_benchmark\inference --out runs\t706_mixed_benchmark\benchmark_report.json
+  - command: python -m cad_dataset_factory.cdf.cli generate --config configs\cdf_sm_ansa_v1.default.json --out runs\t707_family_benchmark\dataset --count 240 --seed 707 --require-ansa --ansa-executable C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat --profile sm_family_expansion_v1
+  - result: SUCCESS, accepted_count=240, rejected_count=1
+  - command: python -m cad_dataset_factory.cdf.cli validate --dataset runs\t707_family_benchmark\dataset --require-ansa
+  - result: SUCCESS, accepted_count=240, error_count=0
+  - command: python -m ai_mesh_generator.amg.training.real --dataset runs\t707_family_benchmark\dataset --out runs\t707_family_benchmark\training --epochs 15 --batch-size 16 --seed 707
+  - result: SUCCESS, label_coverage_ratio=1.0, candidate_count=660, manifest_feature_count=660
+  - command: python -m ai_mesh_generator.amg.inference.real_mesh --dataset runs\t707_family_benchmark\dataset --checkpoint runs\t707_family_benchmark\training\checkpoint.pt --out runs\t707_family_benchmark\inference --ansa-executable C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat --split test
+  - result: SUCCESS, attempted_count=36, success_count=36, failed_count=0
+  - command: python -m ai_mesh_generator.amg.benchmark.real_pipeline --dataset runs\t707_family_benchmark\dataset --training runs\t707_family_benchmark\training --inference runs\t707_family_benchmark\inference --out runs\t707_family_benchmark\benchmark_report.json --profile sm_family_expansion_v1
   - result: SUCCESS
 
 Evidence:
-  - benchmark report: runs\t706_mixed_benchmark\benchmark_report.json
-  - part_class histogram: SM_FLAT_PANEL=120, SM_L_BRACKET=30
-  - feature_type histogram: HOLE=60, SLOT=60, CUTOUT=60, BEND=30, FLANGE=30
-  - after_retry_valid_mesh_rate=1.0
+  - benchmark report: runs\t707_family_benchmark\benchmark_report.json
+  - per-family VALID_MESH rate: 1.0 for SM_FLAT_PANEL, SM_SINGLE_FLANGE, SM_L_BRACKET, SM_U_CHANNEL, SM_HAT_CHANNEL
+  - feature_type histogram: HOLE=60, SLOT=60, CUTOUT=60, BEND=240, FLANGE=240
 
 Blockers:
-  - none for T-706.
-  - Remaining risk: broader bent families are not yet validated in the real benchmark.
+  - none for T-707.
+  - Remaining risk: production-scale dataset/model selection is not yet done.
 
 Next:
-  - T-707_REAL_PIPELINE_FAMILY_EXPANSION_AND_ROBUSTNESS
+  - T-708_PRODUCTION_SCALE_DATASET_AND_MODEL_SELECTION

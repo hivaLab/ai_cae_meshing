@@ -19,101 +19,130 @@ First, read these files in order:
 
 Current state:
 - P0 through P6 are complete.
-- T-701 through T-706 are complete.
-- T-706 proved a constrained mixed real pipeline benchmark:
-  - dataset: runs\t706_mixed_benchmark\dataset
-  - training: runs\t706_mixed_benchmark\training
-  - inference: runs\t706_mixed_benchmark\inference
-  - benchmark report: runs\t706_mixed_benchmark\benchmark_report.json
+- T-701 through T-707 are complete.
+- T-707 proved the closed generated-family real pipeline benchmark:
+  - dataset: runs\t707_family_benchmark\dataset
+  - training: runs\t707_family_benchmark\training
+  - inference: runs\t707_family_benchmark\inference
+  - benchmark report: runs\t707_family_benchmark\benchmark_report.json
 - Latest full regression:
-  python -m pytest -> 204 passed, 1 skipped in 8.65s.
+  python -m pytest -> 210 passed, 1 skipped in 9.88s.
 
 Verified ANSA executable:
 - C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat
 
-T-706 real evidence:
+T-707 real evidence:
 - CDF generation:
-  python -m cad_dataset_factory.cdf.cli generate --config configs\cdf_sm_ansa_v1.default.json --out runs\t706_mixed_benchmark\dataset --count 150 --seed 706 --require-ansa --ansa-executable C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat --profile sm_mixed_benchmark_v1
-  -> SUCCESS, accepted_count=150, rejected_count=1
+  python -m cad_dataset_factory.cdf.cli generate --config configs\cdf_sm_ansa_v1.default.json --out runs\t707_family_benchmark\dataset --count 240 --seed 707 --require-ansa --ansa-executable C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat --profile sm_family_expansion_v1
+  -> SUCCESS, accepted_count=240, rejected_count=1
 - CDF validation:
-  python -m cad_dataset_factory.cdf.cli validate --dataset runs\t706_mixed_benchmark\dataset --require-ansa
-  -> SUCCESS, accepted_count=150, error_count=0
+  python -m cad_dataset_factory.cdf.cli validate --dataset runs\t707_family_benchmark\dataset --require-ansa
+  -> SUCCESS, accepted_count=240, error_count=0
 - AMG training:
-  python -m ai_mesh_generator.amg.training.real --dataset runs\t706_mixed_benchmark\dataset --out runs\t706_mixed_benchmark\training --epochs 10 --batch-size 16 --seed 706
-  -> SUCCESS, label_coverage_ratio=1.0, candidate_count=240, manifest_feature_count=240
+  python -m ai_mesh_generator.amg.training.real --dataset runs\t707_family_benchmark\dataset --out runs\t707_family_benchmark\training --epochs 15 --batch-size 16 --seed 707
+  -> SUCCESS, label_coverage_ratio=1.0, candidate_count=660, manifest_feature_count=660
 - AMG inference:
-  python -m ai_mesh_generator.amg.inference.real_mesh --dataset runs\t706_mixed_benchmark\dataset --checkpoint runs\t706_mixed_benchmark\training\checkpoint.pt --out runs\t706_mixed_benchmark\inference --ansa-executable C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat --split test
-  -> SUCCESS, attempted_count=23, success_count=23, failed_count=0
+  python -m ai_mesh_generator.amg.inference.real_mesh --dataset runs\t707_family_benchmark\dataset --checkpoint runs\t707_family_benchmark\training\checkpoint.pt --out runs\t707_family_benchmark\inference --ansa-executable C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat --split test
+  -> SUCCESS, attempted_count=36, success_count=36, failed_count=0
 - Benchmark report:
-  python -m ai_mesh_generator.amg.benchmark.real_pipeline --dataset runs\t706_mixed_benchmark\dataset --training runs\t706_mixed_benchmark\training --inference runs\t706_mixed_benchmark\inference --out runs\t706_mixed_benchmark\benchmark_report.json
+  python -m ai_mesh_generator.amg.benchmark.real_pipeline --dataset runs\t707_family_benchmark\dataset --training runs\t707_family_benchmark\training --inference runs\t707_family_benchmark\inference --out runs\t707_family_benchmark\benchmark_report.json --profile sm_family_expansion_v1
   -> SUCCESS
 
-T-706 coverage:
+T-707 coverage:
 - part_class histogram:
   SM_FLAT_PANEL=120
+  SM_SINGLE_FLANGE=30
   SM_L_BRACKET=30
+  SM_U_CHANNEL=30
+  SM_HAT_CHANNEL=30
 - feature_type histogram:
   HOLE=60
   SLOT=60
   CUTOUT=60
-  BEND=30
-  FLANGE=30
+  BEND=240
+  FLANGE=240
 - splits:
-  train=105
-  val=22
-  test=23
-- after_retry_valid_mesh_rate=1.0
+  train=168
+  val=36
+  test=36
+- after-retry VALID_MESH rate:
+  SM_FLAT_PANEL=1.0
+  SM_SINGLE_FLANGE=1.0
+  SM_L_BRACKET=1.0
+  SM_U_CHANNEL=1.0
+  SM_HAT_CHANNEL=1.0
+  overall=1.0
 
-Important implementation note:
-- AMG model `feature_type_logits` now include a strong structural prior from the graph candidate `feature_type_id` column.
-- This is not a deterministic action/control fallback. AMG does not rediscover features; CDF/graph extraction supplies typed feature candidates by file contract.
-- The prior prevents auxiliary feature type head noise from rejecting otherwise valid candidate-type-consistent inference.
+Important implementation notes:
+- CDF profile `sm_family_expansion_v1` generates eight interleaved case types:
+  flat_hole, flat_slot, flat_cutout, flat_combo, single_flange, l_bracket, u_channel, hat_channel.
+- Each case contributes 30 accepted samples for a total accepted target of 240.
+- The profile writes deterministic 70/15/15 splits: train=168, val=36, test=36.
+- HAT channel truth now records four structural flange/sidewall patches so truth features match detected B-rep graph candidates.
+- Bent family profile dimensions are intentionally distinct across SM_SINGLE_FLANGE, SM_L_BRACKET, SM_U_CHANNEL, and SM_HAT_CHANNEL so graph-level part-class inference is not geometrically ambiguous.
+- AMG benchmark reporting now computes per-part-class attempted/success/failure counts and per-family VALID_MESH rates.
+
+Non-negotiable constraints:
+- AMG source must not import `cad_dataset_factory`.
+- Graph inputs must not contain `target_action_id` or target numeric control columns.
+- `cad/reference_midsurface.step` must not be used as a model input.
+- Mock ANSA, disabled ANSA, controlled failures, unavailable ANSA, placeholder meshes, deterministic rule fallback, skipped families, or synthetic graph targets must never count as real success.
+- If AMG.md, CDF.md, CONTRACTS.md, DATASET.md, or real ANSA output semantics conflict, stop and report BLOCKED instead of guessing.
 
 Remaining limitation:
-- T-706 covers SM_FLAT_PANEL and SM_L_BRACKET only.
-- SM_SINGLE_FLANGE, SM_U_CHANNEL, and SM_HAT_CHANNEL are not yet part of a real accepted benchmark.
-- Production-scale robustness is not proven by T-706.
+- T-707 proves a deterministic generated-family benchmark, not production-scale diversity or model selection.
+- The current model family still needs explicit selection evidence across larger real datasets, multiple seeds/configurations, and harder held-out distributions.
 
 Next task:
-- T-707_REAL_PIPELINE_FAMILY_EXPANSION_AND_ROBUSTNESS
+- T-708_PRODUCTION_SCALE_DATASET_AND_MODEL_SELECTION
 
-Work only on T-707 scope:
-- Expand real CDF generation and benchmark probing to SM_SINGLE_FLANGE, SM_U_CHANNEL, and SM_HAT_CHANNEL.
-- Include harder feature combinations only when CAD generation, B-rep candidate detection, truth matching, manifest writing, real ANSA execution, and quality acceptance all pass fail-closed gates.
-- Train AMG on the expanded real accepted dataset.
-- Run AMG inference on a held-out split through real ANSA.
-- Produce a benchmark report with per-family VALID_MESH rate and representative failures.
-- Do not count mocks, placeholders, disabled ANSA paths, controlled failures, deterministic rule fallback, skipped families, or synthetic graph targets as success.
-- Do not import `cad_dataset_factory` from AMG source.
-- Do not add `target_action_id` or target numeric control columns to graph inputs.
-- Do not use `cad/reference_midsurface.step` as a model input.
+Work only on T-708 scope:
+- Scale from closed generated benchmarks to a production-scale real ANSA-accepted dataset.
+- Compare at least two explicit AMG model/training configurations on the same real train/val/test split.
+- Select the checkpoint by real validation/test evidence, not smoke tests, synthetic targets, or training loss alone.
+- Preserve file-contract boundaries between CDF and AMG.
+- Keep all CDF accepted samples fail-closed under real ANSA validation.
+- Keep AMG inference success tied to real ANSA reports and non-empty real mesh artifacts.
 
-Recommended T-707 execution plan:
-1. Probe each new family independently with one real ANSA sample:
-   - SM_SINGLE_FLANGE
-   - SM_U_CHANNEL
-   - SM_HAT_CHANNEL
-2. For each probe, record whether failure is CAD generation, graph extraction, candidate detection, truth matching, manifest generation, ANSA execution, or quality.
-3. Only after all required probes pass, generate an expanded accepted dataset with balanced train/val/test coverage.
-4. Validate the dataset with `cdf validate --require-ansa`.
-5. Train AMG on the expanded real manifest labels.
-6. Run `amg-infer-real --split test` through real ANSA.
-7. Build a benchmark report and update STATUS/TASKS/NEXT_AGENT_PROMPT.
+Recommended T-708 execution plan:
+1. Define a production-scale profile and acceptance budget.
+   - Start with all T-707 validated families and feature types.
+   - Use a larger accepted target than T-707, with explicit per-family/per-feature minimum counts.
+   - Keep generation deterministic by seed and write the target plan to the dataset artifacts.
+2. Generate the production-scale CDF dataset with real ANSA enabled.
+   - Run `cdf generate --require-ansa` with the verified ANSA executable.
+   - Run `cdf validate --require-ansa`.
+   - If any family/feature has low acceptance, analyze rejection histograms before changing generation logic.
+3. Add model-selection training runs.
+   - Train at least two named configurations, for example:
+     `mlp_baseline_v1` and `mlp_wider_v1` or another explicit configuration supported by the current code.
+   - Save each run under a separate output directory with `training_config.json`, `metrics.json`, and `checkpoint.pt`.
+   - Record sample counts, label coverage, per-head losses, and validation loss curves.
+4. Run real ANSA inference for each checkpoint on the same held-out test split.
+   - Use `amg-infer-real --split test`.
+   - Reject model/type/action mismatches fail-closed.
+   - Count only real ANSA quality-passing meshes as `VALID_MESH`.
+5. Build a model-selection report.
+   - Include dataset coverage, training metrics, inference success rates, per-family rates, failure histograms, and selected checkpoint rationale.
+   - Select the best checkpoint using real ANSA validation/test evidence.
+6. Update `STATUS.md`, `TASKS.md`, and `NEXT_AGENT_PROMPT.md`.
 
-Acceptance for T-707:
-- Every included family has real ANSA-accepted dataset samples and held-out real ANSA inference evidence.
-- Any unsupported family has explicit BLOCKED/FAILED evidence and is not silently omitted.
-- The benchmark report includes per-family coverage, per-family VALID_MESH rate, retry/failure histograms, hard failed element counts, and artifact paths.
-- python -m pytest passes.
-
-Stop and report BLOCKED instead of guessing if AMG.md, CDF.md, CONTRACTS.md, DATASET.md, or real ANSA output semantics conflict.
+Acceptance for T-708:
+- Production-scale dataset generation and strict validation complete with real ANSA reports and meshes.
+- Required family and feature coverage are present in accepted samples and split files.
+- At least two explicit model/training configurations complete without target leakage.
+- Real ANSA inference runs on the same held-out test split for every compared checkpoint.
+- The selected checkpoint has documented real mesh success evidence and per-family rates.
+- `python -m pytest` passes.
 
 At the end, report:
 1. completed task IDs
 2. changed files
 3. test command and result
-4. real generation/validation/training/inference/benchmark commands and results
-5. coverage and real mesh quality metrics
-6. next recommended task
-7. blockers or risks
+4. production dataset command/result and accepted coverage
+5. training commands/results for every compared configuration
+6. real inference commands/results and per-family mesh quality metrics
+7. selected checkpoint and rationale
+8. next recommended task
+9. blockers or risks
 ```

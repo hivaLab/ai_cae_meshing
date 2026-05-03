@@ -60,11 +60,15 @@ SUCCESS_EXIT_CODE = 0
 REAL_MESH_RELATIVE_PATH = Path("meshes") / "ansa_oracle_mesh.bdf"
 DEFAULT_PROFILE = "flat_hole_pilot_v1"
 MIXED_BENCHMARK_PROFILE = "sm_mixed_benchmark_v1"
+FAMILY_EXPANSION_PROFILE = "sm_family_expansion_v1"
 PROFILE_CASE_HOLE = "flat_hole"
 PROFILE_CASE_SLOT = "flat_slot"
 PROFILE_CASE_CUTOUT = "flat_cutout"
 PROFILE_CASE_COMBO = "flat_combo"
+PROFILE_CASE_SINGLE_FLANGE = "single_flange"
 PROFILE_CASE_L_BRACKET = "l_bracket"
+PROFILE_CASE_U_CHANNEL = "u_channel"
+PROFILE_CASE_HAT_CHANNEL = "hat_channel"
 MIXED_BENCHMARK_CASE_COUNTS = (
     (PROFILE_CASE_HOLE, 30),
     (PROFILE_CASE_SLOT, 30),
@@ -73,6 +77,17 @@ MIXED_BENCHMARK_CASE_COUNTS = (
     (PROFILE_CASE_L_BRACKET, 30),
 )
 MIXED_BENCHMARK_REQUIRED_CASES = tuple(case for case, _count in MIXED_BENCHMARK_CASE_COUNTS)
+FAMILY_EXPANSION_CASE_COUNTS = (
+    (PROFILE_CASE_HOLE, 30),
+    (PROFILE_CASE_SLOT, 30),
+    (PROFILE_CASE_CUTOUT, 30),
+    (PROFILE_CASE_COMBO, 30),
+    (PROFILE_CASE_SINGLE_FLANGE, 30),
+    (PROFILE_CASE_L_BRACKET, 30),
+    (PROFILE_CASE_U_CHANNEL, 30),
+    (PROFILE_CASE_HAT_CHANNEL, 30),
+)
+FAMILY_EXPANSION_REQUIRED_CASES = tuple(case for case, _count in FAMILY_EXPANSION_CASE_COUNTS)
 REQUIRED_CONTRACTS = (
     "AMG_MANIFEST_SM_V1.schema.json",
     "AMG_BREP_GRAPH_SM_V1.schema.json",
@@ -162,17 +177,18 @@ def _copy_contracts(dataset_root: Path) -> None:
 def _target_cases_for_profile(profile: str, count: int) -> list[str]:
     if profile == DEFAULT_PROFILE:
         return [PROFILE_CASE_HOLE for _ in range(count)]
-    if profile == MIXED_BENCHMARK_PROFILE:
-        required_count = sum(case_count for _case, case_count in MIXED_BENCHMARK_CASE_COUNTS)
+    if profile in {MIXED_BENCHMARK_PROFILE, FAMILY_EXPANSION_PROFILE}:
+        case_counts = MIXED_BENCHMARK_CASE_COUNTS if profile == MIXED_BENCHMARK_PROFILE else FAMILY_EXPANSION_CASE_COUNTS
+        required_count = sum(case_count for _case, case_count in case_counts)
         if count != required_count:
             raise CdfPipelineError(
                 "invalid_profile_count",
-                f"{MIXED_BENCHMARK_PROFILE} requires count={required_count} for the closed benchmark mix",
+                f"{profile} requires count={required_count} for the closed benchmark mix",
             )
         cases: list[str] = []
-        remaining = {case: case_count for case, case_count in MIXED_BENCHMARK_CASE_COUNTS}
+        remaining = {case: case_count for case, case_count in case_counts}
         while any(case_count > 0 for case_count in remaining.values()):
-            for case, _case_count in MIXED_BENCHMARK_CASE_COUNTS:
+            for case, _case_count in case_counts:
                 if remaining[case] > 0:
                     cases.append(case)
                     remaining[case] -= 1
@@ -184,7 +200,7 @@ def _write_splits(dataset_root: Path, accepted_samples: list[dict[str, Any]], pr
     splits = dataset_root / "splits"
     splits.mkdir(parents=True, exist_ok=True)
     sample_ids = [str(sample["sample_id"]) for sample in accepted_samples]
-    if profile == MIXED_BENCHMARK_PROFILE and sample_ids:
+    if profile in {MIXED_BENCHMARK_PROFILE, FAMILY_EXPANSION_PROFILE} and sample_ids:
         train_count = int(0.70 * len(sample_ids))
         val_count = int(0.15 * len(sample_ids))
         split_map = {
@@ -446,17 +462,47 @@ def _candidate_spec(sample_id: str, attempt_index: int, rng: random.Random) -> F
 
 
 def _bent_part_spec(sample_id: str, attempt_index: int, profile_case: str) -> BentPartSpec:
-    if profile_case != PROFILE_CASE_L_BRACKET:
+    part_classes = {
+        PROFILE_CASE_SINGLE_FLANGE: PartClass.SM_SINGLE_FLANGE,
+        PROFILE_CASE_L_BRACKET: PartClass.SM_L_BRACKET,
+        PROFILE_CASE_U_CHANNEL: PartClass.SM_U_CHANNEL,
+        PROFILE_CASE_HAT_CHANNEL: PartClass.SM_HAT_CHANNEL,
+    }
+    if profile_case not in part_classes:
+        raise CdfPipelineError("unsupported_profile_case", f"unsupported bent-part profile case: {profile_case}", sample_id)
+    part_class = part_classes[profile_case]
+    if part_class == PartClass.SM_SINGLE_FLANGE:
+        length_mm = 105.0 + 4.0 * (attempt_index % 4)
+        web_width_mm = 62.0 + 3.0 * (attempt_index % 3)
+        flange_width_mm = 28.0
+        side_wall_width = None
+    elif part_class == PartClass.SM_L_BRACKET:
+        length_mm = 125.0 + 5.0 * (attempt_index % 4)
+        web_width_mm = 82.0 + 4.0 * (attempt_index % 3)
+        flange_width_mm = 40.0
+        side_wall_width = None
+    elif part_class == PartClass.SM_U_CHANNEL:
+        length_mm = 135.0 + 5.0 * (attempt_index % 4)
+        web_width_mm = 92.0 + 4.0 * (attempt_index % 3)
+        flange_width_mm = 34.0
+        side_wall_width = None
+    elif part_class == PartClass.SM_HAT_CHANNEL:
+        length_mm = 145.0 + 5.0 * (attempt_index % 4)
+        web_width_mm = 88.0 + 4.0 * (attempt_index % 3)
+        flange_width_mm = 42.0
+        side_wall_width = 36.0 + 2.0 * (attempt_index % 3)
+    else:
         raise CdfPipelineError("unsupported_profile_case", f"unsupported bent-part profile case: {profile_case}", sample_id)
     return BentPartSpec(
         sample_id=sample_id,
-        part_name=f"SMT_SM_L_BRACKET_T120_P{attempt_index:06d}",
-        part_class=PartClass.SM_L_BRACKET,
-        length_mm=120.0 + 5.0 * (attempt_index % 4),
-        web_width_mm=80.0 + 5.0 * (attempt_index % 3),
-        flange_width_mm=40.0,
+        part_name=f"SMT_{part_class.value}_T120_P{attempt_index:06d}",
+        part_class=part_class,
+        length_mm=length_mm,
+        web_width_mm=web_width_mm,
+        flange_width_mm=flange_width_mm,
         thickness_mm=1.2,
         inner_radius_mm=1.0,
+        side_wall_width_mm=side_wall_width,
     )
 
 
@@ -559,7 +605,7 @@ def _build_candidate_attempt(
         spec = _flat_panel_spec(sample_id, attempt_index, rng, profile_case)
         generated = build_flat_panel_part(spec)
         write_flat_panel_outputs(attempt_dir, generated)
-    elif profile_case == PROFILE_CASE_L_BRACKET:
+    elif profile_case in {PROFILE_CASE_SINGLE_FLANGE, PROFILE_CASE_L_BRACKET, PROFILE_CASE_U_CHANNEL, PROFILE_CASE_HAT_CHANNEL}:
         spec = _bent_part_spec(sample_id, attempt_index, profile_case)
         generated = build_bent_part(spec)
         write_bent_part_outputs(attempt_dir, generated)
@@ -659,10 +705,12 @@ def _run_mixed_profile_probe_matrix(
     ansa_config: AnsaRunnerConfig,
     env: Mapping[str, str] | None,
     seed: int,
+    profile: str,
 ) -> list[dict[str, Any]]:
     rng = random.Random(seed + 700_600)
     rejected: list[dict[str, Any]] = []
-    for case_index, profile_case in enumerate(MIXED_BENCHMARK_REQUIRED_CASES, start=1):
+    required_cases = FAMILY_EXPANSION_REQUIRED_CASES if profile == FAMILY_EXPANSION_PROFILE else MIXED_BENCHMARK_REQUIRED_CASES
+    for case_index, profile_case in enumerate(required_cases, start=1):
         sample_id = f"probe_{profile_case}"
         probe_dir = dataset_root / "work" / "profile_probe" / f"{case_index:02d}_{profile_case}" / sample_id
         if probe_dir.exists():
@@ -736,13 +784,14 @@ def generate_dataset(
         )
 
     ansa_config = AnsaRunnerConfig.model_validate(config.get("ansa_oracle", {}))
-    if profile == MIXED_BENCHMARK_PROFILE and require_ansa:
+    if profile in {MIXED_BENCHMARK_PROFILE, FAMILY_EXPANSION_PROFILE} and require_ansa:
         probe_rejections = _run_mixed_profile_probe_matrix(
             dataset_root=dataset_root,
             config=config,
             ansa_config=ansa_config,
             env=env,
             seed=resolved_seed,
+            profile=profile,
         )
         if probe_rejections:
             return _blocked_result_with_rejections(

@@ -65,7 +65,22 @@ def _split_count(dataset_root: Path, split: str) -> int:
     return sum(1 for line in path.read_text(encoding="utf-8").splitlines() if line.strip() and not line.lstrip().startswith("#"))
 
 
-def _dataset_coverage(dataset_root: Path, records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+def _manifest_by_sample(dataset_root: Path, records: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, Any]]:
+    manifests: dict[str, dict[str, Any]] = {}
+    for record in records:
+        sample_id = record.get("sample_id")
+        if not isinstance(sample_id, str) or not sample_id:
+            raise AmgBenchmarkReportError("dataset_index_schema_invalid", "accepted sample records require sample_id", dataset_root)
+        sample_dir = _sample_dir(dataset_root, record)
+        manifest_path = sample_dir / "labels" / "amg_manifest.json"
+        manifest = _read_json(manifest_path, "manifest_read_failed")
+        if manifest.get("schema_version") != "AMG_MANIFEST_SM_V1" or manifest.get("status") != "VALID":
+            raise AmgBenchmarkReportError("manifest_not_valid", "benchmark accepted samples require VALID AMG manifests", manifest_path)
+        manifests[sample_id] = manifest
+    return manifests
+
+
+def _dataset_coverage(dataset_root: Path, records: Sequence[Mapping[str, Any]], manifests: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
     part_classes: Counter[str] = Counter()
     feature_types: Counter[str] = Counter()
     feature_roles: Counter[str] = Counter()
@@ -73,11 +88,10 @@ def _dataset_coverage(dataset_root: Path, records: Sequence[Mapping[str, Any]]) 
     features_per_sample: Counter[str] = Counter()
     manifest_paths: list[str] = []
     for record in records:
+        sample_id = str(record["sample_id"])
         sample_dir = _sample_dir(dataset_root, record)
         manifest_path = sample_dir / "labels" / "amg_manifest.json"
-        manifest = _read_json(manifest_path, "manifest_read_failed")
-        if manifest.get("schema_version") != "AMG_MANIFEST_SM_V1" or manifest.get("status") != "VALID":
-            raise AmgBenchmarkReportError("manifest_not_valid", "benchmark accepted samples require VALID AMG manifests", manifest_path)
+        manifest = manifests[sample_id]
         part = manifest.get("part", {})
         if not isinstance(part, Mapping):
             raise AmgBenchmarkReportError("manifest_not_valid", "manifest part must be an object", manifest_path)
@@ -150,7 +164,7 @@ def _validate_valid_mesh_result(result: Mapping[str, Any], inference_root: Path)
     return hard_failed, None
 
 
-def _inference_evidence(inference_root: Path) -> dict[str, Any]:
+def _inference_evidence(inference_root: Path, sample_part_classes: Mapping[str, str]) -> dict[str, Any]:
     summary_path = inference_root / "inference_summary.json"
     summary = _read_json(summary_path, "inference_summary_read_failed")
     sample_results = summary.get("sample_results", [])
@@ -163,25 +177,46 @@ def _inference_evidence(inference_root: Path) -> dict[str, Any]:
     hard_failed_counts: list[int] = []
     failure_counts: Counter[str] = Counter()
     valid_mesh_paths: list[str] = []
+    family_attempted: Counter[str] = Counter()
+    family_success: Counter[str] = Counter()
+    family_failures: dict[str, Counter[str]] = {}
     for result in sample_results:
         if not isinstance(result, Mapping):
             raise AmgBenchmarkReportError("inference_summary_invalid", "sample result entries must be objects", summary_path)
         status = str(result.get("status"))
         attempts = int(result.get("attempts", 0))
+        sample_id = str(result.get("sample_id", ""))
+        part_class = sample_part_classes.get(sample_id, "UNKNOWN")
+        family_attempted[part_class] += 1
         if status == "VALID_MESH":
             hard_failed, failure = _validate_valid_mesh_result(result, inference_root)
             hard_failed_counts.append(hard_failed)
             if failure is not None:
                 failure_counts[failure] += 1
+                family_failures.setdefault(part_class, Counter())[failure] += 1
                 continue
             success += 1
+            family_success[part_class] += 1
             if attempts <= 1:
                 first_pass_success += 1
             else:
                 retry_success += 1
             valid_mesh_paths.append(str(result.get("solver_deck_path")))
         else:
-            failure_counts[str(result.get("error_code") or status)] += 1
+            failure = str(result.get("error_code") or status)
+            failure_counts[failure] += 1
+            family_failures.setdefault(part_class, Counter())[failure] += 1
+    per_part_class: dict[str, dict[str, Any]] = {}
+    for part_class in sorted(family_attempted):
+        attempted_count = int(family_attempted[part_class])
+        valid_count = int(family_success[part_class])
+        per_part_class[part_class] = {
+            "attempted_count": attempted_count,
+            "valid_mesh_count": valid_count,
+            "failed_count": attempted_count - valid_count,
+            "after_retry_valid_mesh_rate": float(valid_count / attempted_count) if attempted_count else 0.0,
+            "failure_reason_counts": dict(sorted(family_failures.get(part_class, Counter()).items())),
+        }
     return {
         "summary_path": summary_path.as_posix(),
         "attempted_count": attempted,
@@ -193,7 +228,28 @@ def _inference_evidence(inference_root: Path) -> dict[str, Any]:
         "first_pass_valid_mesh_rate": float(first_pass_success / attempted) if attempted else 0.0,
         "failure_reason_counts": dict(sorted(failure_counts.items())),
         "hard_failed_element_counts": hard_failed_counts,
+        "per_part_class": per_part_class,
         "valid_mesh_paths": valid_mesh_paths,
+    }
+
+
+def _requirements(profile: str) -> dict[str, Any]:
+    if profile == "sm_family_expansion_v1":
+        return {
+            "accepted_min": 240,
+            "attempted_min": 20,
+            "required_part_classes": {"SM_FLAT_PANEL", "SM_SINGLE_FLANGE", "SM_L_BRACKET", "SM_U_CHANNEL", "SM_HAT_CHANNEL"},
+            "required_feature_types": {"HOLE", "SLOT", "CUTOUT", "BEND", "FLANGE"},
+            "per_family_rate_min": 0.80,
+            "overall_rate_min": 0.80,
+        }
+    return {
+        "accepted_min": 150,
+        "attempted_min": 20,
+        "required_part_classes": {"SM_FLAT_PANEL", "SM_L_BRACKET"},
+        "required_feature_types": {"HOLE", "SLOT", "CUTOUT", "BEND", "FLANGE"},
+        "per_family_rate_min": None,
+        "overall_rate_min": 0.80,
     }
 
 
@@ -202,38 +258,56 @@ def build_real_pipeline_benchmark_report(
     dataset: str | Path,
     training: str | Path,
     inference: str | Path,
+    profile: str = "sm_mixed_benchmark_v1",
 ) -> dict[str, Any]:
     dataset_root = Path(dataset)
     training_root = Path(training)
     inference_root = Path(inference)
     records = _sample_records(dataset_root)
-    coverage = _dataset_coverage(dataset_root, records)
+    manifests = _manifest_by_sample(dataset_root, records)
+    coverage = _dataset_coverage(dataset_root, records, manifests)
     training_metrics_path = training_root / "metrics.json"
     training_metrics = _read_json(training_metrics_path, "training_metrics_read_failed")
     if training_metrics.get("status") != "SUCCESS":
         raise AmgBenchmarkReportError("training_not_successful", "training metrics must have status SUCCESS", training_metrics_path)
-    inference_evidence = _inference_evidence(inference_root)
+    sample_part_classes = {
+        sample_id: str(manifest.get("part", {}).get("part_class", "UNKNOWN"))
+        for sample_id, manifest in manifests.items()
+    }
+    inference_evidence = _inference_evidence(inference_root, sample_part_classes)
     label_coverage = float(training_metrics.get("label_coverage_ratio", 0.0))
     attempted = int(inference_evidence["attempted_count"])
     valid_rate = float(inference_evidence["after_retry_valid_mesh_rate"])
-    required_part_classes = {"SM_FLAT_PANEL", "SM_L_BRACKET"}
-    required_feature_types = {"HOLE", "SLOT", "CUTOUT", "BEND", "FLANGE"}
+    requirements = _requirements(profile)
+    required_part_classes = requirements["required_part_classes"]
+    required_feature_types = requirements["required_feature_types"]
     part_coverage_ok = required_part_classes.issubset(set(coverage["part_class_histogram"]))
     feature_coverage_ok = required_feature_types.issubset(set(coverage["feature_type_histogram"]))
+    per_family_min = requirements["per_family_rate_min"]
+    per_family_rates_ok = True
+    if per_family_min is not None:
+        per_family = inference_evidence["per_part_class"]
+        per_family_rates_ok = all(
+            part_class in per_family and float(per_family[part_class]["after_retry_valid_mesh_rate"]) >= float(per_family_min)
+            for part_class in required_part_classes
+        )
     success_criteria = {
         "dataset_validation_required": True,
-        "accepted_sample_count_at_least_150": int(coverage["accepted_sample_count"]) >= 150,
+        f"accepted_sample_count_at_least_{requirements['accepted_min']}": int(coverage["accepted_sample_count"]) >= int(requirements["accepted_min"]),
         "required_part_coverage": part_coverage_ok,
         "required_feature_coverage": feature_coverage_ok,
         "training_status_success": True,
         "label_coverage_ratio_at_least_0_98": label_coverage >= 0.98,
-        "inference_attempted_at_least_20": attempted >= 20,
-        "after_retry_valid_mesh_rate_at_least_0_80": valid_rate >= 0.80,
+        f"inference_attempted_at_least_{requirements['attempted_min']}": attempted >= int(requirements["attempted_min"]),
+        "after_retry_valid_mesh_rate_at_least_0_80": valid_rate >= float(requirements["overall_rate_min"]),
     }
+    if per_family_min is not None:
+        success_criteria["per_required_family_valid_mesh_rate_at_least_0_80"] = per_family_rates_ok
     overall_status = "SUCCESS" if all(success_criteria.values()) else "FAILED"
     return {
         "schema": "AMG_REAL_PIPELINE_BENCHMARK_REPORT_V1",
         "status": overall_status,
+        "profile": profile,
         "dataset_root": dataset_root.as_posix(),
         "training_root": training_root.as_posix(),
         "inference_root": inference_root.as_posix(),
@@ -264,6 +338,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--training", required=True)
     parser.add_argument("--inference", required=True)
     parser.add_argument("--out", required=True)
+    parser.add_argument("--profile", default="sm_mixed_benchmark_v1")
     return parser.parse_args(argv)
 
 
@@ -274,6 +349,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             dataset=Path(args.dataset),
             training=Path(args.training),
             inference=Path(args.inference),
+            profile=args.profile,
         )
         write_real_pipeline_benchmark_report(args.out, report)
     except AmgBenchmarkReportError as exc:

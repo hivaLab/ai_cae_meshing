@@ -854,7 +854,7 @@ after-retry VALID_MESH rate: 1.0.
 
 ### T-707_REAL_PIPELINE_FAMILY_EXPANSION_AND_ROBUSTNESS
 
-Status: TODO
+Status: DONE
 
 Goal:
 
@@ -872,4 +872,62 @@ AMG trains and runs real ANSA inference on a held-out split from the expanded fa
 The benchmark report includes per-family VALID_MESH rate, failure histograms, and representative
 ANSA reports for every failed family/feature combination.
 No deterministic rule fallback, mock adapter, placeholder mesh, synthetic target, or skipped family is counted as success.
+```
+
+Completion evidence:
+
+```text
+Benchmark root: runs\t707_family_benchmark
+Dataset: runs\t707_family_benchmark\dataset
+Training: runs\t707_family_benchmark\training
+Inference: runs\t707_family_benchmark\inference
+Benchmark report: runs\t707_family_benchmark\benchmark_report.json
+
+CDF generation command:
+python -m cad_dataset_factory.cdf.cli generate --config configs\cdf_sm_ansa_v1.default.json --out runs\t707_family_benchmark\dataset --count 240 --seed 707 --require-ansa --ansa-executable C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat --profile sm_family_expansion_v1
+Result: SUCCESS, accepted_count=240, rejected_count=1.
+
+CDF validation command:
+python -m cad_dataset_factory.cdf.cli validate --dataset runs\t707_family_benchmark\dataset --require-ansa
+Result: SUCCESS, accepted_count=240, error_count=0.
+
+AMG training command:
+python -m ai_mesh_generator.amg.training.real --dataset runs\t707_family_benchmark\dataset --out runs\t707_family_benchmark\training --epochs 15 --batch-size 16 --seed 707
+Result: SUCCESS, label_coverage_ratio=1.0, candidate_count=660, manifest_feature_count=660.
+
+AMG inference command:
+python -m ai_mesh_generator.amg.inference.real_mesh --dataset runs\t707_family_benchmark\dataset --checkpoint runs\t707_family_benchmark\training\checkpoint.pt --out runs\t707_family_benchmark\inference --ansa-executable C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat --split test
+Result: SUCCESS, attempted_count=36, success_count=36, failed_count=0.
+
+Benchmark report command:
+python -m ai_mesh_generator.amg.benchmark.real_pipeline --dataset runs\t707_family_benchmark\dataset --training runs\t707_family_benchmark\training --inference runs\t707_family_benchmark\inference --out runs\t707_family_benchmark\benchmark_report.json --profile sm_family_expansion_v1
+Result: SUCCESS.
+
+Coverage:
+part_class histogram: SM_FLAT_PANEL=120, SM_SINGLE_FLANGE=30, SM_L_BRACKET=30, SM_U_CHANNEL=30, SM_HAT_CHANNEL=30.
+feature_type histogram: HOLE=60, SLOT=60, CUTOUT=60, BEND=240, FLANGE=240.
+splits: train=168, val=36, test=36.
+per-family after-retry VALID_MESH rate: 1.0 for every required part class.
+```
+
+### T-708_PRODUCTION_SCALE_DATASET_AND_MODEL_SELECTION
+
+Status: TODO
+
+Goal:
+
+```text
+Scale from closed benchmark datasets to production-scale real accepted datasets and compare model
+configurations using file-contract training and real ANSA inference evidence.
+```
+
+Acceptance:
+
+```text
+CDF generates a substantially larger real ANSA-accepted dataset with all validated families and feature types.
+AMG trains at least two explicit model/training configurations on the same real train/val split.
+Held-out real ANSA inference selects a best checkpoint by validation/test evidence, not smoke metrics.
+Reports include dataset size, per-family coverage, per-feature coverage, training curves, validation metrics,
+real ANSA mesh success rates, and failure histograms.
+No mock, placeholder, skipped family, deterministic fallback, or synthetic target path is counted as success.
 ```

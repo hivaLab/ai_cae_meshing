@@ -37,7 +37,7 @@ def bent_spec(part_class: PartClass = PartClass.SM_L_BRACKET) -> BentPartSpec:
         (PartClass.SM_SINGLE_FLANGE, 1, 1),
         (PartClass.SM_L_BRACKET, 1, 1),
         (PartClass.SM_U_CHANNEL, 2, 2),
-        (PartClass.SM_HAT_CHANNEL, 4, 2),
+        (PartClass.SM_HAT_CHANNEL, 4, 4),
     ],
 )
 def test_bent_part_generates_truth_for_all_supported_classes(

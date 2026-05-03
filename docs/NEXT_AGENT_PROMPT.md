@@ -28,22 +28,22 @@ Current state:
 - T-301_BREP_GRAPH_EXTRACTOR is complete.
 - T-302_FEATURE_CANDIDATE_DETECTOR is complete.
 - T-303_TRUTH_MATCHING_REPORT is complete.
+- T-401_ANSA_COMMAND_RUNNER is complete.
 - Latest required test command: python -m pytest
 
 Next task:
-- T-401_ANSA_COMMAND_RUNNER
+- T-402_ANSA_INTERNAL_SCRIPT_SKELETON
 
-Work only on T-401_ANSA_COMMAND_RUNNER scope:
-- Build a pure Python subprocess command builder for ANSA batch execution.
-- Add timeout and environment validation behavior without requiring a real ANSA install for unit tests.
-- Missing ANSA_EXECUTABLE must produce a structured skip/error result.
-- Keep real ANSA execution behind the `requires_ansa` marker or an explicit executable path check.
-- Produce command-runner tests that pass without ANSA installed.
+Work only on T-402_ANSA_INTERNAL_SCRIPT_SKELETON scope:
+- Create cdf_ansa_oracle.py under cad_dataset_factory/cdf/oracle/ansa_scripts.
+- Add an ANSA API-layer placeholder module under ansa_scripts only.
+- Script must parse command-line args from the T-401 command runner.
+- Script must write ansa_execution_report.json even on controlled failure.
+- Keep all ANSA API imports confined to ansa_scripts directories.
 
 Do not implement in this session:
-- ANSA internal script logic beyond command construction and dry validation.
+- Full real ANSA oracle execution beyond controlled skeleton behavior.
 - AMG model training or inference.
-- Full real ANSA oracle execution.
 - Full dataset generation at scale.
 - New B-rep feature detection or truth matching heuristics.
 - Dataset-scale random generation beyond existing T-203 placement primitives.
@@ -54,7 +54,7 @@ Implementation requirements:
 - Keep ANSA API imports confined to ansa_scripts directories.
 - Do not add graph target_action_id or target numeric control columns.
 - Keep CadQuery/OCP as optional cad dependency, not a core hard dependency.
-- Keep ANSA executable discovery configurable and deterministic for tests.
+- Reuse the T-401 command-line arguments and report paths.
 - Run python -m pytest before finishing.
 - Update docs/STATUS.md, docs/TASKS.md, and docs/NEXT_AGENT_PROMPT.md with completed work, tests run, and the next task.
 
@@ -71,9 +71,9 @@ At the end, report:
 ## Expected next-session output
 
 ```text
-- T-401 ANSA command runner is implemented or explicitly blocked.
-- Command builder tests pass without ANSA installed.
-- Missing ANSA_EXECUTABLE produces a structured skip/error.
+- T-402 ANSA internal script skeleton is implemented or explicitly blocked.
+- cdf_ansa_oracle.py parses T-401 command args and writes controlled failure reports.
+- ANSA imports remain confined to ansa_scripts.
 - Existing P0/P1/P2 tests continue to pass.
 - STATUS.md, TASKS.md, and NEXT_AGENT_PROMPT.md are updated for the following task.
 ```

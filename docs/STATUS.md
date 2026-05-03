@@ -5,9 +5,9 @@ Last updated: 2026-05-03 KST
 ## 1. 현재 상태
 
 ```text
-Project state        : T-303 truth matching report complete
+Project state        : T-401 ANSA command runner complete
 Active phase         : P4_ANSA_ORACLE
-Active task          : T-401_ANSA_COMMAND_RUNNER
+Active task          : T-402_ANSA_INTERNAL_SCRIPT_SKELETON
 Primary source docs  : AMG.md, CDF.md
 Execution backend    : ANSA Batch Mesh, through adapter/script boundary
 Dataset factory      : CDF-SM-ANSA-V1
@@ -34,6 +34,7 @@ Model target         : AMG_MANIFEST_SM_V1
 | CDF B-rep graph extractor | DONE | T-301 complete |
 | CDF feature candidate detector | DONE | T-302 complete |
 | CDF truth matching report | DONE | T-303 complete |
+| CDF ANSA command runner | DONE | T-401 complete |
 | CDF generator | TODO | after P0 |
 | ANSA oracle | TODO | after pure tests and mock runner |
 | AMG rule-only pipeline | TODO | after contracts and CDF labels |
@@ -51,8 +52,8 @@ Model target         : AMG_MANIFEST_SM_V1
 ## 4. 다음 작업
 
 ```text
-T-401_ANSA_COMMAND_RUNNER
-  Build subprocess command for ANSA batch execution and timeout handling.
+T-402_ANSA_INTERNAL_SCRIPT_SKELETON
+  Create cdf_ansa_oracle.py and API-layer placeholders to be bound to installed ANSA version.
 ```
 
 ## 5. 상태 업데이트 규칙
@@ -391,3 +392,27 @@ Blockers:
 
 Next:
   - T-401_ANSA_COMMAND_RUNNER
+
+## Session 2026-05-03 T-401
+
+Completed:
+  - T-401_ANSA_COMMAND_RUNNER
+
+Changed files:
+  - cad_dataset_factory/cdf/oracle/__init__.py
+  - cad_dataset_factory/cdf/oracle/ansa_runner.py
+  - tests/test_cdf_ansa_runner.py
+  - docs/NEXT_AGENT_PROMPT.md
+  - docs/STATUS.md
+  - docs/TASKS.md
+
+Tests:
+  - command: python -m pytest
+  - result: PASS, 106 passed in 3.77s
+
+Blockers:
+  - ANSA executable path not configured; real ANSA tests remain deferred to `requires_ansa`.
+  - ANSA internal script skeleton remains unimplemented and is the next P4 task.
+
+Next:
+  - T-402_ANSA_INTERNAL_SCRIPT_SKELETON

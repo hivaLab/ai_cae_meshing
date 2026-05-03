@@ -227,7 +227,7 @@ status is VALID for generated valid samples
 
 ### T-103_CDF_AUX_LABEL_WRITERS
 
-Status: TODO
+Status: DONE
 
 Goal:
 

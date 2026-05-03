@@ -5,9 +5,9 @@ Last updated: 2026-05-03 KST
 ## 1. 현재 상태
 
 ```text
-Project state        : T-102 CDF manifest writer complete
+Project state        : T-103 CDF auxiliary label writers complete
 Active phase         : P1_CDF_RULE_LABEL_ENGINE_AND_FILE_WRITER
-Active task          : T-103_CDF_AUX_LABEL_WRITERS
+Active task          : T-104_CDF_SAMPLE_WRITER
 Primary source docs  : AMG.md, CDF.md
 Execution backend    : ANSA Batch Mesh, through adapter/script boundary
 Dataset factory      : CDF-SM-ANSA-V1
@@ -26,6 +26,7 @@ Model target         : AMG_MANIFEST_SM_V1
 | Formula tests | DONE | T-004/T-005 complete |
 | CDF domain models | DONE | T-101 complete |
 | CDF manifest writer | DONE | T-102 complete |
+| CDF auxiliary label writers | DONE | T-103 complete |
 | CDF generator | TODO | after P0 |
 | ANSA oracle | TODO | after pure tests and mock runner |
 | AMG rule-only pipeline | TODO | after contracts and CDF labels |
@@ -43,8 +44,8 @@ Model target         : AMG_MANIFEST_SM_V1
 ## 4. 다음 작업
 
 ```text
-T-103_CDF_AUX_LABEL_WRITERS
-  Write face_labels.json, edge_labels.json, and feature_labels.json using manifest feature ids without making auxiliary labels required for inference.
+T-104_CDF_SAMPLE_WRITER
+  Create sample directory writer and index writer using stable relative paths and sample_acceptance.json metadata.
 ```
 
 ## 5. 상태 업데이트 규칙
@@ -186,3 +187,26 @@ Blockers:
 
 Next:
   - T-103_CDF_AUX_LABEL_WRITERS
+
+## Session 2026-05-03 T-103
+
+Completed:
+  - T-103_CDF_AUX_LABEL_WRITERS
+
+Changed files:
+  - cad_dataset_factory/cdf/labels/__init__.py
+  - cad_dataset_factory/cdf/labels/aux_label_writer.py
+  - tests/test_cdf_aux_label_writer.py
+  - docs/STATUS.md
+  - docs/TASKS.md
+
+Tests:
+  - command: python -m pytest
+  - result: PASS, 48 passed in 0.28s
+
+Blockers:
+  - ANSA executable path not configured; real ANSA tests remain deferred to `requires_ansa`.
+  - CAD kernel behavior not validated; CadQuery generation remains out of this session.
+
+Next:
+  - T-104_CDF_SAMPLE_WRITER

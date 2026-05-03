@@ -282,7 +282,7 @@ feature_truth.json records generated features
 
 ### T-202_BENT_PART_GENERATORS
 
-Status: TODO
+Status: DONE
 
 Goal:
 

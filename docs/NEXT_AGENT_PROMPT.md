@@ -23,23 +23,24 @@ Current state:
 - T-103_CDF_AUX_LABEL_WRITERS is complete.
 - T-104_CDF_SAMPLE_WRITER is complete.
 - T-201_FLAT_PANEL_GENERATOR is complete.
+- T-202_BENT_PART_GENERATORS is complete.
 - Latest required test command: python -m pytest
 
 Next task:
-- T-202_BENT_PART_GENERATORS
+- T-203_FEATURE_PLACEMENT_SAMPLER
 
-Work only on T-202_BENT_PART_GENERATORS scope:
-- Generate single flange, L bracket, U channel, and hat channel constant-thickness sheet-metal solids.
-- Generate bend and flange truth records compatible with FeatureTruthDocument.
-- Reuse the T-201 flat-panel CAD generation style, coordinate conventions, structured errors, and STEP export helpers.
-- Add CadQuery smoke tests for at least one bent family when CadQuery is available.
+Work only on T-203_FEATURE_PLACEMENT_SAMPLER scope:
+- Implement deterministic feature layout sampling helpers for CDF.
+- Enforce boundary clearance, feature-feature clearance, and bend clearance constraints.
+- Return structured rejection reasons instead of silently guessing placements.
+- Reuse existing domain models and T-201/T-202 CAD generator feature spec conventions where practical.
 
 Do not implement in this session:
 - Real ANSA execution.
 - AMG model training or inference.
-- B-rep graph extraction beyond placeholders explicitly required by tests.
-- Random feature placement sampler; this remains T-203_FEATURE_PLACEMENT_SAMPLER.
+- B-rep graph extraction.
 - ANSA oracle command runner or ANSA internal scripts.
+- Full dataset generation at scale.
 
 Implementation requirements:
 - Use Python >= 3.11.
@@ -63,8 +64,8 @@ At the end, report:
 ## Expected next-session output
 
 ```text
-- T-202 bent part generator scope is implemented or explicitly blocked.
-- BendTruth and FlangeTruth records are JSON-compatible.
-- Existing P0/P1/T-201 tests continue to pass.
+- T-203 feature placement sampler is implemented or explicitly blocked.
+- Boundary, feature-feature, and bend clearance tests pass.
+- Existing P0/P1/T-201/T-202 tests continue to pass.
 - STATUS.md, TASKS.md, and NEXT_AGENT_PROMPT.md are updated for the following task.
 ```

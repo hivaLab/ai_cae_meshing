@@ -5,9 +5,9 @@ Last updated: 2026-05-03 KST
 ## 1. 현재 상태
 
 ```text
-Project state        : T-201 flat panel generator complete
+Project state        : T-202 bent part generators complete
 Active phase         : P2_CDF_CAD_GENERATION
-Active task          : T-202_BENT_PART_GENERATORS
+Active task          : T-203_FEATURE_PLACEMENT_SAMPLER
 Primary source docs  : AMG.md, CDF.md
 Execution backend    : ANSA Batch Mesh, through adapter/script boundary
 Dataset factory      : CDF-SM-ANSA-V1
@@ -29,6 +29,7 @@ Model target         : AMG_MANIFEST_SM_V1
 | CDF auxiliary label writers | DONE | T-103 complete |
 | CDF sample writer | DONE | T-104 complete |
 | CDF flat panel generator | DONE | T-201 complete |
+| CDF bent part generators | DONE | T-202 complete |
 | CDF generator | TODO | after P0 |
 | ANSA oracle | TODO | after pure tests and mock runner |
 | AMG rule-only pipeline | TODO | after contracts and CDF labels |
@@ -46,8 +47,8 @@ Model target         : AMG_MANIFEST_SM_V1
 ## 4. 다음 작업
 
 ```text
-T-202_BENT_PART_GENERATORS
-  Generate single flange, L bracket, U channel, and hat channel solids with bend/flange truth records.
+T-203_FEATURE_PLACEMENT_SAMPLER
+  Implement feature layout sampling with boundary, feature-feature, and bend clearance constraints.
 ```
 
 ## 5. 상태 업데이트 규칙
@@ -263,3 +264,27 @@ Blockers:
 
 Next:
   - T-202_BENT_PART_GENERATORS
+
+## Session 2026-05-03 T-202
+
+Completed:
+  - T-202_BENT_PART_GENERATORS
+
+Changed files:
+  - cad_dataset_factory/cdf/cadgen/__init__.py
+  - cad_dataset_factory/cdf/cadgen/bent_part.py
+  - tests/test_cdf_bent_part_generator.py
+  - docs/NEXT_AGENT_PROMPT.md
+  - docs/STATUS.md
+  - docs/TASKS.md
+
+Tests:
+  - command: python -m pytest
+  - result: PASS, 69 passed in 1.57s
+
+Blockers:
+  - ANSA executable path not configured; real ANSA tests remain deferred to `requires_ansa`.
+  - Random feature placement remains unimplemented and is the next P2 task.
+
+Next:
+  - T-203_FEATURE_PLACEMENT_SAMPLER

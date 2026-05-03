@@ -26,24 +26,25 @@ Current state:
 - T-202_BENT_PART_GENERATORS is complete.
 - T-203_FEATURE_PLACEMENT_SAMPLER is complete.
 - T-301_BREP_GRAPH_EXTRACTOR is complete.
+- T-302_FEATURE_CANDIDATE_DETECTOR is complete.
 - Latest required test command: python -m pytest
 
 Next task:
-- T-302_FEATURE_CANDIDATE_DETECTOR
+- T-303_TRUTH_MATCHING_REPORT
 
-Work only on T-302_FEATURE_CANDIDATE_DETECTOR scope:
-- Add deterministic feature candidate detection on top of the T-301 B-rep graph extractor.
-- Detect HOLE, SLOT, CUTOUT, BEND, and FLANGE candidates where the current STEP topology and geometry helpers support it.
-- Keep FEATURE_CANDIDATE output compatible with AMG_BREP_GRAPH_SM_V1 feature_candidate_columns.
-- Preserve graph_schema.json target leakage protections: no target_action_id or target numeric control columns.
-- Add focused tests using generated flat-panel and bent-part STEP fixtures where possible.
+Work only on T-303_TRUTH_MATCHING_REPORT scope:
+- Match CDF feature truth records to T-302 detected feature candidates by stable geometry signatures and geometry tolerances.
+- Produce a feature_matching_report.json writer for generated smoke samples.
+- Report matched, unmatched_truth, unmatched_detected, recall_by_type, and false_match_count.
+- Require 100% truth recall and 0 false matches for accepted generated smoke samples used in tests.
+- Keep truth matching as a CDF-side reporting layer; do not make it an AMG training or inference path.
 
 Do not implement in this session:
 - Real ANSA execution.
 - AMG model training or inference.
 - ANSA oracle command runner or ANSA internal scripts.
 - Full dataset generation at scale.
-- Truth matching reports; leave matching to T-303_TRUTH_MATCHING_REPORT.
+- New feature candidate detection heuristics beyond small fixes needed for matching tests.
 - Dataset-scale random generation beyond existing T-203 placement primitives.
 
 Implementation requirements:
@@ -52,7 +53,7 @@ Implementation requirements:
 - Keep ANSA API imports confined to ansa_scripts directories.
 - Do not add graph target_action_id or target numeric control columns.
 - Keep CadQuery/OCP as optional cad dependency, not a core hard dependency.
-- Reuse T-301 graph extraction and writing APIs instead of duplicating STEP import/export logic.
+- Reuse T-301 graph extraction and T-302 candidate detection APIs.
 - Run python -m pytest before finishing.
 - Update docs/STATUS.md, docs/TASKS.md, and docs/NEXT_AGENT_PROMPT.md with completed work, tests run, and the next task.
 
@@ -69,9 +70,9 @@ At the end, report:
 ## Expected next-session output
 
 ```text
-- T-302 feature candidate detector is implemented or explicitly blocked.
-- FEATURE_CANDIDATE rows are populated deterministically where supported.
-- graph_schema.json remains target-leakage free.
+- T-303 truth matching report is implemented or explicitly blocked.
+- Generated flat-panel and bent-part smoke samples reach 100% truth recall with 0 false matches.
+- feature_matching_report.json is JSON-compatible and schema-valid if an existing contract exists.
 - Existing P0/P1/P2 tests continue to pass.
 - STATUS.md, TASKS.md, and NEXT_AGENT_PROMPT.md are updated for the following task.
 ```

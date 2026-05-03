@@ -339,7 +339,7 @@ adjacency arrays are saved in brep_graph.npz
 
 ### T-302_FEATURE_CANDIDATE_DETECTOR
 
-Status: TODO
+Status: DONE
 
 Goal:
 

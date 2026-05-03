@@ -63,6 +63,7 @@ class BrepGraph:
     graph_schema: dict[str, Any]
     arrays: dict[str, np.ndarray]
     adjacency: dict[str, np.ndarray]
+    candidate_metadata: tuple[dict[str, Any], ...] = ()
 
 
 def _load_cadquery() -> Any:
@@ -302,6 +303,21 @@ def validate_brep_graph_structure(graph: BrepGraph) -> None:
     for key in ("node_type_ids", "part_features", "face_features", "edge_features", "coedge_features", "vertex_features", "feature_candidate_features"):
         if key not in graph.arrays:
             raise BrepGraphBuildError("missing_graph_array", f"missing array {key}")
+    feature_rows = graph.arrays["feature_candidate_features"]
+    if feature_rows.ndim != 2 or feature_rows.shape[1] != len(FEATURE_CANDIDATE_COLUMNS):
+        raise BrepGraphBuildError(
+            "invalid_feature_candidate_array",
+            "feature_candidate_features must match feature_candidate_columns",
+        )
+    if "feature_candidate_ids" in graph.arrays and graph.arrays["feature_candidate_ids"].shape[0] != feature_rows.shape[0]:
+        raise BrepGraphBuildError("invalid_feature_candidate_ids", "feature_candidate_ids must match candidate row count")
+    if "feature_candidate_metadata_json" in graph.arrays and graph.arrays["feature_candidate_metadata_json"].shape[0] != feature_rows.shape[0]:
+        raise BrepGraphBuildError(
+            "invalid_feature_candidate_metadata",
+            "feature_candidate_metadata_json must match candidate row count",
+        )
+    if graph.candidate_metadata and len(graph.candidate_metadata) != feature_rows.shape[0]:
+        raise BrepGraphBuildError("invalid_feature_candidate_metadata", "candidate_metadata must match candidate row count")
     for edge_type in EDGE_TYPES:
         if edge_type not in graph.adjacency:
             raise BrepGraphBuildError("missing_adjacency_array", f"missing adjacency for {edge_type}")

@@ -19,8 +19,7 @@ from torch import nn
 import torch.nn.functional as F
 
 from ai_mesh_generator.amg.dataset import AmgDatasetSample, load_amg_dataset_sample, load_dataset_index
-from ai_mesh_generator.amg.model import ACTION_NAMES
-from ai_mesh_generator.amg.model.graph_model import FEATURE_TYPES
+from ai_mesh_generator.amg.quality_features import build_quality_feature_vector
 
 
 class AmgQualityTrainingError(ValueError):
@@ -129,78 +128,6 @@ def _quality_summary_path(root: Path) -> Path:
     raise AmgQualityTrainingError("missing_quality_exploration_summary", "quality exploration summary not found", root)
 
 
-def _control_vector(manifest: Mapping[str, Any]) -> np.ndarray:
-    features = [feature for feature in manifest.get("features", []) if isinstance(feature, Mapping)]
-    action_counts = {name: 0.0 for name in ACTION_NAMES}
-    type_counts = {name: 0.0 for name in FEATURE_TYPES}
-    scalars: dict[str, list[float]] = defaultdict(list)
-    suppress_count = 0.0
-    for feature in features:
-        action = str(feature.get("action", ""))
-        feature_type = str(feature.get("type", ""))
-        if action in action_counts:
-            action_counts[action] += 1.0
-        if feature_type in type_counts:
-            type_counts[feature_type] += 1.0
-        if action == "SUPPRESS":
-            suppress_count += 1.0
-        controls = feature.get("controls", {})
-        if isinstance(controls, Mapping):
-            for key in (
-                "edge_target_length_mm",
-                "bend_target_length_mm",
-                "flange_target_length_mm",
-                "growth_rate",
-                "radial_growth_rate",
-                "perimeter_growth_rate",
-                "washer_rings",
-                "bend_rows",
-                "circumferential_divisions",
-                "end_arc_divisions",
-                "straight_edge_divisions",
-                "min_elements_across_width",
-            ):
-                value = controls.get(key)
-                if isinstance(value, (int, float)):
-                    scalars[key].append(float(value))
-    denom = max(1.0, float(len(features)))
-    summary_keys = (
-        "edge_target_length_mm",
-        "bend_target_length_mm",
-        "flange_target_length_mm",
-        "growth_rate",
-        "radial_growth_rate",
-        "perimeter_growth_rate",
-        "washer_rings",
-        "bend_rows",
-        "circumferential_divisions",
-        "end_arc_divisions",
-        "straight_edge_divisions",
-        "min_elements_across_width",
-    )
-    vector = [action_counts[name] / denom for name in ACTION_NAMES]
-    vector.extend(type_counts[name] / denom for name in FEATURE_TYPES)
-    vector.append(suppress_count / denom)
-    for key in summary_keys:
-        values = scalars.get(key, [])
-        vector.append(float(statistics.mean(values)) if values else 0.0)
-        vector.append(float(len(values)) / denom)
-    return np.asarray(vector, dtype=np.float32)
-
-
-def _graph_vector(sample: AmgDatasetSample) -> np.ndarray:
-    arrays = sample.graph.arrays
-    part = np.asarray(arrays["part_features"], dtype=np.float32)
-    candidates = np.asarray(arrays["feature_candidate_features"], dtype=np.float32)
-    if part.ndim != 2 or part.shape[0] != 1:
-        raise AmgQualityTrainingError("malformed_part_features", "part_features must have shape (1, P)", sample.sample_dir)
-    if candidates.ndim != 2:
-        raise AmgQualityTrainingError("malformed_candidate_features", "candidate feature matrix must be rank 2", sample.sample_dir)
-    candidate_mean = candidates.mean(axis=0) if candidates.shape[0] else np.zeros((14,), dtype=np.float32)
-    candidate_std = candidates.std(axis=0) if candidates.shape[0] else np.zeros((14,), dtype=np.float32)
-    return np.concatenate([part[0], candidate_mean, candidate_std]).astype(np.float32)
-
-
 def _load_examples(dataset_root: Path, quality_root: Path) -> tuple[list[dict[str, Any]], dict[str, Path]]:
     summary = _read_json(_quality_summary_path(quality_root), "quality_summary_read_failed")
     records = summary.get("records", [])
@@ -208,7 +135,7 @@ def _load_examples(dataset_root: Path, quality_root: Path) -> tuple[list[dict[st
         raise AmgQualityTrainingError("malformed_quality_summary", "records must be a list", quality_root)
     sample_dirs = _accepted_sample_dirs(dataset_root)
     examples: list[dict[str, Any]] = []
-    graph_cache: dict[str, np.ndarray] = {}
+    sample_cache: dict[str, AmgDatasetSample] = {}
     for record in records:
         if not isinstance(record, Mapping) or not isinstance(record.get("quality_score"), (int, float)):
             continue
@@ -216,14 +143,14 @@ def _load_examples(dataset_root: Path, quality_root: Path) -> tuple[list[dict[st
         manifest_path = record.get("manifest_path")
         if not isinstance(sample_id, str) or sample_id not in sample_dirs or not isinstance(manifest_path, str):
             continue
-        if sample_id not in graph_cache:
-            graph_cache[sample_id] = _graph_vector(load_amg_dataset_sample(sample_dirs[sample_id]))
+        if sample_id not in sample_cache:
+            sample_cache[sample_id] = load_amg_dataset_sample(sample_dirs[sample_id])
         manifest = _read_json(_resolve_path(manifest_path, quality_root), "manifest_read_failed")
         examples.append(
             {
                 "sample_id": sample_id,
                 "evaluation_id": str(record.get("evaluation_id", "")),
-                "features": np.concatenate([graph_cache[sample_id], _control_vector(manifest)]).astype(np.float32),
+                "features": build_quality_feature_vector(sample_cache[sample_id], manifest),
                 "quality_score": float(record["quality_score"]),
             }
         )

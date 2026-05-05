@@ -171,6 +171,34 @@ class _FakeControlBase:
         self.calls.append(("BCSettingsSetValues", fields))
         return 1
 
+    def FillHoleGeom(
+        self,
+        diameter: float,
+        create_point: bool,
+        convert_to_connection_point: bool,
+        create_curve: bool,
+        only_internal_perimeters: bool,
+        always_produce_new_faces: bool,
+        set_id: int,
+        pid_id: int,
+    ) -> int:
+        self.calls.append(
+            (
+                "FillHoleGeom",
+                {
+                    "diameter": diameter,
+                    "create_point": create_point,
+                    "convert_to_connection_point": convert_to_connection_point,
+                    "create_curve": create_curve,
+                    "only_internal_perimeters": only_internal_perimeters,
+                    "always_produce_new_faces": always_produce_new_faces,
+                    "set_id": set_id,
+                    "pid_id": pid_id,
+                },
+            )
+        )
+        return 0
+
 
 class _FakeControlBatchmesh:
     def __init__(self) -> None:
@@ -233,4 +261,26 @@ def test_real_control_binding_calls_fill_for_suppression() -> None:
     assert report["successful_control_paths"] == ["suppression"]
     fill_calls = [args for name, args in fake_mesh.calls if name == "FillSingleBoundHoles"]
     assert fill_calls
-    assert fill_calls[0][0] == pytest.approx(4.0)
+    assert report["suppression_feature_diameter_mm"] == pytest.approx(4.0)
+    assert fill_calls[0][0] == pytest.approx(5.0)
+
+
+def test_real_control_binding_uses_geometry_fill_fallback_for_suppression() -> None:
+    model, fake_mesh, fake_base, _fake_batchmesh = _fake_control_model()
+    fake_mesh.FillSingleBoundHoles = lambda *args: 0  # type: ignore[method-assign]
+    controls = {"suppression_rule": "small_relief_or_drain_area"}
+    feature = {
+        "feature_id": "CUTOUT_RELIEF_0001",
+        "type": "CUTOUT",
+        "action": "SUPPRESS",
+        "geometry_signature": {"geometry_signature": "CUTOUT:10.0:10.0:3.5:3.5"},
+    }
+
+    report = cdf_ansa_api_layer.ansa_apply_cutout_control(model, controls, feature)
+
+    assert report["bound_to_real_ansa_api"] is True
+    assert report["successful_control_paths"] == ["suppression"]
+    assert report["suppression_geom_api_return_is_uninformative"] is True
+    fill_geom_calls = [payload for name, payload in fake_base.calls if name == "FillHoleGeom"]
+    assert fill_geom_calls
+    assert fill_geom_calls[0]["diameter"] == pytest.approx(4.375)

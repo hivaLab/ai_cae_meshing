@@ -5,9 +5,9 @@ Last updated: 2026-05-05 KST
 ## Project State
 
 ```text
-Project state        : T-708 quality-aware iteration real gate complete
+Project state        : T-709 quality ranker recommendation real gate complete
 Active phase         : P7_REAL_PIPELINE_COMPLETION
-Active task          : T-709_QUALITY_RANKER_RECOMMENDATION_TO_REAL_ANSA
+Active task          : T-710_FRESH_QUALITY_CONTROL_PROPOSAL_AND_ACTIVE_LEARNING_LOOP
 Primary source docs  : AMG.md, CDF.md
 Execution backend    : ANSA Batch Mesh through adapter/script boundary
 Dataset factory      : CDF-SM-ANSA-V1
@@ -34,6 +34,7 @@ Verified ANSA path   : C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v
 | Mixed real pipeline benchmark | DONE | T-706, 150 accepted samples and 23/23 test VALID_MESH |
 | Family expansion benchmark | DONE | T-707, 240 accepted samples and 36/36 test VALID_MESH |
 | Fast quality-aware iteration | DONE | T-708, 40 real samples, 120 perturbation evaluations, blocked=0, quality benchmark SUCCESS |
+| Quality ranker recommendation | DONE | T-709, 6 real paired ANSA comparisons, 5 improved, recommendation benchmark SUCCESS |
 
 ## Current Evidence
 
@@ -97,6 +98,18 @@ T-708 quality benchmark:
   same_geometry_quality_delta_mean=1671.256000525
   same_geometry_meaningful_delta_count=40
   validation_pairwise_accuracy=0.6666666666666666
+
+T-709 recommendation gate:
+  recommendation root: runs\t708_quality_exploration_smoke\recommendation_metricfix4
+  benchmark report: runs\t708_quality_exploration_smoke\recommendation_benchmark_metricfix4.json
+  attempted_count=6
+  valid_pair_count=6
+  improved_count=5
+  improvement_rate=0.8333333333333334
+  median_improvement_delta=0.39606200000000547
+  selected_non_baseline_count=5
+  failure_reason_counts={}
+  status=SUCCESS
 ```
 
 ## Blockers And Risks
@@ -112,15 +125,17 @@ T-708 quality benchmark:
 | T-708 real smoke gate | resolved | dataset/validation/quality-explore/training/benchmark succeeded with pass, near-fail, and fail labels |
 | Real ANSA control application | resolved for T-708 | manifest controls now bind to ANSA mesh sizing, washer/refinement, suppression/fill, bend row, and flange sizing API paths |
 | Quality statistics parsing | resolved for T-708 | parser uses the Session-Parts report table and does not confuse element-count TOTAL headers with violating shell totals |
-| Recommendation quality | open | T-709 must prove the ranker can select better controls, not only rank already-evaluated perturbations |
+| Recommendation quality | resolved for T-709 | ranker selected better controls in 5 of 6 paired real ANSA comparisons |
+| Fresh control proposal | open | T-709 selected from evaluated T-708 perturbation manifests; T-710 must propose fresh candidates and close the active-learning loop |
 
 ## Next Task
 
 ```text
-T-709_QUALITY_RANKER_RECOMMENDATION_TO_REAL_ANSA
+T-710_FRESH_QUALITY_CONTROL_PROPOSAL_AND_ACTIVE_LEARNING_LOOP
 
-Use the T-708 quality ranker to select recommended manifests for held-out geometries, run real ANSA,
-and compare recommended mesh quality against baseline and naive control manifests.
+Generate fresh quality-control candidate manifests from the trained ranker/model policy,
+execute them with real ANSA, append evidence, retrain, and verify recommendation quality
+against the T-709 baseline.
 ```
 
 ## Session Log Template
@@ -305,3 +320,52 @@ Blockers:
 
 Next:
   - T-709_QUALITY_RANKER_RECOMMENDATION_TO_REAL_ANSA
+
+## Session 2026-05-05 T-709
+
+Completed:
+  - T-709_QUALITY_RANKER_RECOMMENDATION_TO_REAL_ANSA.
+  - Added AMG-side quality recommendation and recommendation benchmark paths.
+  - Shared the quality ranker feature-vector construction between training and recommendation to avoid train/serve drift.
+  - Extended real ANSA suppression/fill binding so baseline and recommended manifests both produce real mesh artifacts.
+
+Changed files:
+  - ai_mesh_generator/amg/quality_features.py
+  - ai_mesh_generator/amg/training/quality.py
+  - ai_mesh_generator/amg/recommendation/__init__.py
+  - ai_mesh_generator/amg/recommendation/quality.py
+  - ai_mesh_generator/amg/benchmark/__init__.py
+  - ai_mesh_generator/amg/benchmark/recommendation.py
+  - cad_dataset_factory/cdf/oracle/ansa_scripts/cdf_ansa_api_layer.py
+  - pyproject.toml
+  - tests/test_amg_quality_recommendation.py
+  - tests/test_cdf_ansa_internal_script_skeleton.py
+  - docs/STATUS.md
+  - docs/TASKS.md
+  - docs/NEXT_AGENT_PROMPT.md
+
+Tests:
+  - command: python -m pytest tests\test_amg_quality_training.py tests\test_amg_quality_recommendation.py tests\test_amg_quality_benchmark.py tests\test_dependency_boundary.py
+  - result: PASS, 17 passed in 2.42s
+  - command: python -m pytest tests\test_cdf_ansa_internal_script_skeleton.py tests\test_amg_quality_recommendation.py tests\test_dependency_boundary.py
+  - result: PASS, 16 passed in 1.65s
+  - command: python -m pytest
+  - result: PASS, 234 passed and 2 skipped in 10.81s
+
+Real gates:
+  - command: python -m ai_mesh_generator.amg.recommendation.quality --dataset runs\t708_quality_exploration_smoke\dataset --quality-exploration runs\t708_quality_exploration_smoke\quality_exploration_metricfix2 --training runs\t708_quality_exploration_smoke\training_quality_metricfix2 --out runs\t708_quality_exploration_smoke\recommendation_metricfix4 --split test --ansa-executable C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat
+  - result: SUCCESS, attempted_count=6, valid_pair_count=6, improved_count=5, improvement_rate=0.8333333333333334, median_improvement_delta=0.39606200000000547, selected_non_baseline_count=5, failure_reason_counts={}
+  - command: python -m ai_mesh_generator.amg.benchmark.recommendation --recommendation runs\t708_quality_exploration_smoke\recommendation_metricfix4 --out runs\t708_quality_exploration_smoke\recommendation_benchmark_metricfix4.json
+  - result: SUCCESS
+
+Evidence:
+  - recommendation summary: runs\t708_quality_exploration_smoke\recommendation_metricfix4\recommendation_summary.json
+  - recommendation benchmark: runs\t708_quality_exploration_smoke\recommendation_benchmark_metricfix4.json
+  - all 6 paired samples have baseline and recommended real ANSA reports plus non-empty BDF outputs.
+
+Blockers:
+  - none for T-709.
+  - Remaining risk: T-709 chooses among T-708 evaluated perturbation manifests; T-710 must generate fresh candidates, append evidence, and retrain.
+
+Next:
+  - T-710_FRESH_QUALITY_CONTROL_PROPOSAL_AND_ACTIVE_LEARNING_LOOP

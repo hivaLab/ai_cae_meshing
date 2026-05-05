@@ -260,6 +260,7 @@ def _call_control_api(report: dict[str, Any], module: Any, function_name: str, *
     return result not in (0, False, None) or function_name in {
         "ApplyNewLengthToMacros",
         "BCSettingsSetValues",
+        "FillHoleGeom",
         "SetANSAdefaultsValues",
         "SetSessionParameters",
     }
@@ -336,25 +337,53 @@ def _apply_circular_washer(model: AnsaModelRef, report: dict[str, Any], control:
 
 def _apply_fill_or_suppression(model: AnsaModelRef, report: dict[str, Any], feature: Mapping[str, Any]) -> bool:
     modules = _require_modules(str(report["operation"]), model)
-    max_diameter = _diameter_from_geometry_signature(feature.get("geometry_signature")) or 1.0e9
+    feature_diameter = _diameter_from_geometry_signature(feature.get("geometry_signature"))
+    max_diameter = 1.0e9 if feature_diameter is None else max(1.0e-6, 1.25 * feature_diameter)
+    report["suppression_feature_diameter_mm"] = feature_diameter
     report["suppression_max_diameter_mm"] = max_diameter
-    return _call_control_api(
+    attempts = (
+        ("planar", "expand_existing_faces", 2),
+        ("planar", "create_new_faces", 2),
+        ("draft", "create_new_faces", 2),
+        ("bridge", "create_new_faces", 0),
+    )
+    for fill_method, geom_fill_method, reshape_zones in attempts:
+        report["suppression_fill_method"] = fill_method
+        report["suppression_geom_fill_method"] = geom_fill_method
+        if _call_control_api(
+            report,
+            modules.mesh,
+            "FillSingleBoundHoles",
+            max_diameter,
+            False,
+            True,
+            "pid",
+            True,
+            reshape_zones,
+            None,
+            None,
+            False,
+            fill_method,
+            None,
+            geom_fill_method,
+        ):
+            return True
+    if hasattr(modules.base, "FillHoleGeom") and _call_control_api(
         report,
-        modules.mesh,
-        "FillSingleBoundHoles",
+        modules.base,
+        "FillHoleGeom",
         max_diameter,
         False,
+        False,
         True,
-        "PID",
+        True,
         True,
         0,
-        None,
-        None,
-        False,
-        "planar",
-        None,
-        "expand_existing_faces",
-    )
+        0,
+    ):
+        report["suppression_geom_api_return_is_uninformative"] = True
+        return True
+    return False
 
 
 def _diameter_from_geometry_signature(signature: Any) -> float | None:

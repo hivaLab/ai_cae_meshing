@@ -16,6 +16,10 @@ __all__ = [
     "quality_main",
     "write_real_pipeline_benchmark_report",
     "write_quality_benchmark_report",
+    "AmgRecommendationBenchmarkError",
+    "build_recommendation_benchmark_report",
+    "recommendation_main",
+    "write_recommendation_benchmark_report",
 ]
 
 
@@ -30,6 +34,18 @@ def __getattr__(name: str):
 
         module = importlib.import_module("ai_mesh_generator.amg.benchmark.quality")
         if name == "quality_main":
+            return module.main
+        return getattr(module, name)
+    if name in {
+        "AmgRecommendationBenchmarkError",
+        "build_recommendation_benchmark_report",
+        "recommendation_main",
+        "write_recommendation_benchmark_report",
+    }:
+        import importlib
+
+        module = importlib.import_module("ai_mesh_generator.amg.benchmark.recommendation")
+        if name == "recommendation_main":
             return module.main
         return getattr(module, name)
     raise AttributeError(name)

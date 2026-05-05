@@ -1006,7 +1006,7 @@ validation_pairwise_accuracy=0.6666666666666666
 
 ### T-709_QUALITY_RANKER_RECOMMENDATION_TO_REAL_ANSA
 
-Status: TODO
+Status: DONE
 
 Goal:
 
@@ -1029,4 +1029,46 @@ and paired same-geometry quality deltas.
 T-709 is DONE only if the recommended manifest improves lower-is-better quality score over baseline
 for a statistically meaningful fraction of attempted held-out samples, or it remains IN_PROGRESS with
 the exact failure evidence and model/data bottleneck recorded.
+```
+
+Real gate evidence:
+
+```text
+Command:
+python -m ai_mesh_generator.amg.recommendation.quality --dataset runs\t708_quality_exploration_smoke\dataset --quality-exploration runs\t708_quality_exploration_smoke\quality_exploration_metricfix2 --training runs\t708_quality_exploration_smoke\training_quality_metricfix2 --out runs\t708_quality_exploration_smoke\recommendation_metricfix4 --split test --ansa-executable C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat
+Result: SUCCESS, attempted_count=6, valid_pair_count=6, improved_count=5,
+improvement_rate=0.8333333333333334, median_improvement_delta=0.39606200000000547,
+selected_non_baseline_count=5, failure_reason_counts={}.
+
+Command:
+python -m ai_mesh_generator.amg.benchmark.recommendation --recommendation runs\t708_quality_exploration_smoke\recommendation_metricfix4 --out runs\t708_quality_exploration_smoke\recommendation_benchmark_metricfix4.json
+Result: SUCCESS.
+
+Regression:
+python -m pytest -> 234 passed, 2 skipped in 10.81s.
+```
+
+### T-710_FRESH_QUALITY_CONTROL_PROPOSAL_AND_ACTIVE_LEARNING_LOOP
+
+Status: TODO
+
+Goal:
+
+```text
+Move beyond choosing among already evaluated T-708 perturbation manifests. Generate fresh quality-control
+candidate manifests from the trained ranker/model policy, execute them with real ANSA, append the new
+evidence to the quality-learning corpus, retrain, and verify that the loop improves recommendation quality.
+```
+
+Acceptance:
+
+```text
+Fresh candidates are generated without reading quality_score/status labels for selection.
+Generated manifests validate against AMG_MANIFEST_SM_V1 and respect h_min/h_max/growth/division bounds.
+Real ANSA executes the fresh candidates and records pass, near-fail, fail, and blocked outcomes without
+mock, placeholder, unavailable ANSA, or controlled-failure outputs counting as success.
+The appended quality evidence remains file-contract only and does not add graph target columns.
+After retraining, the recommendation benchmark is rerun on a held-out split and compared against the T-709
+baseline. T-710 is DONE only if the refreshed model improves or preserves T-709 recommendation metrics
+while increasing candidate/control diversity.
 ```

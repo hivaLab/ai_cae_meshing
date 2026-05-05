@@ -27,6 +27,7 @@ CONTINUOUS_QUALITY_KEYS = (
     "aspect_ratio_proxy_max",
     "triangles_percent",
 )
+QUALITY_SCORE_NEAR_FAIL_THRESHOLD = 5.0
 
 
 class CdfQualityExplorationError(ValueError):
@@ -165,6 +166,10 @@ def _is_near_fail_quality(quality_report: Mapping[str, Any]) -> bool:
     return any(float(quality.get(key, 0.0) or 0.0) > 0.0 for key in explicit_margins)
 
 
+def _is_near_fail_score(quality_score: float | None) -> bool:
+    return quality_score is not None and quality_score >= QUALITY_SCORE_NEAR_FAIL_THRESHOLD
+
+
 def _clamp_mesh_size(value: float, global_mesh: Mapping[str, Any]) -> float:
     h_min = float(global_mesh.get("h_min_mm", 0.1))
     h_max = float(global_mesh.get("h_max_mm", max(h_min, value)))
@@ -245,7 +250,7 @@ def _record_from_reports(
     accepted = bool(execution.get("accepted")) and bool(quality.get("accepted"))
     mesh_ok = mesh_path is not None and mesh_path.is_file() and mesh_path.stat().st_size > 0
     status = "PASSED" if accepted and mesh_ok and quality_score is not None else "FAILED"
-    if status == "PASSED" and _is_near_fail_quality(quality):
+    if status == "PASSED" and (_is_near_fail_quality(quality) or _is_near_fail_score(quality_score)):
         status = "NEAR_FAIL"
     if blocked_reason is not None:
         status = "BLOCKED"

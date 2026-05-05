@@ -449,6 +449,50 @@ def test_ai_only_recommendation_benchmark_accepts_non_baseline_real_meshes(monke
     assert set(report["selected_evaluation_ids"]) == {"perturb_001"}
 
 
+def test_ai_only_recommendation_benchmark_validates_dataset_split_coverage(monkeypatch) -> None:
+    dataset, quality, training = _write_fixture("ai_only_coverage", sample_count=6)
+    out = RUNS / "ai_only_coverage" / "recommendation"
+    ansa = RUNS / "ai_only_coverage" / "ansa64.bat"
+    ansa.write_text("@echo off\n", encoding="utf-8")
+    monkeypatch.setattr("ai_mesh_generator.amg.recommendation.quality.subprocess.run", _fake_subprocess_run)
+    run_quality_recommendation(
+        QualityRecommendationConfig(
+            dataset_root=dataset,
+            quality_exploration_root=quality,
+            training_root=training,
+            output_dir=out,
+            ansa_executable=ansa,
+        )
+    )
+
+    report = build_recommendation_benchmark_report(
+        recommendation=out,
+        ai_only=True,
+        dataset=dataset,
+        split="test",
+        required_part_classes=("SM_FLAT_PANEL",),
+        required_feature_types=("HOLE",),
+    )
+    missing = build_recommendation_benchmark_report(
+        recommendation=out,
+        ai_only=True,
+        dataset=dataset,
+        split="test",
+        required_part_classes=("SM_FLAT_PANEL", "SM_L_BRACKET"),
+        required_feature_types=("HOLE", "BEND"),
+    )
+
+    assert report["status"] == "SUCCESS"
+    assert report["coverage"]["part_class_counts"] == {"SM_FLAT_PANEL": 6}
+    assert report["coverage"]["feature_type_counts"] == {"HOLE": 6}
+    assert report["success_criteria"]["recommendation_covers_split"] is True
+    assert missing["status"] == "FAILED"
+    assert missing["coverage"]["missing_part_classes"] == ["SM_L_BRACKET"]
+    assert missing["coverage"]["missing_feature_types"] == ["BEND"]
+    assert missing["success_criteria"]["required_part_classes_present"] is False
+    assert missing["success_criteria"]["required_feature_types_present"] is False
+
+
 def test_ai_only_recommendation_benchmark_rejects_baseline_artifacts_and_bad_evidence(monkeypatch) -> None:
     dataset, quality, training = _write_fixture("ai_only_rejects", sample_count=6)
     out = RUNS / "ai_only_rejects" / "recommendation"

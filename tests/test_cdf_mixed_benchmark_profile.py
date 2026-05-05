@@ -72,6 +72,20 @@ def test_quality_exploration_profile_accepts_user_controlled_counts() -> None:
     ]
 
 
+def test_quality_family_generalization_profile_is_closed_and_deterministic() -> None:
+    cases = e2e_dataset._target_cases_for_profile(e2e_dataset.QUALITY_FAMILY_GENERALIZATION_PROFILE, 42)
+
+    assert len(cases) == 42
+    assert cases[: len(e2e_dataset.QUALITY_FAMILY_GENERALIZATION_CASES)] == list(e2e_dataset.QUALITY_FAMILY_GENERALIZATION_CASES)
+    assert {case: cases.count(case) for case in e2e_dataset.QUALITY_FAMILY_GENERALIZATION_CASES} == {
+        case: 3 for case in e2e_dataset.QUALITY_FAMILY_GENERALIZATION_CASES
+    }
+    with pytest.raises(e2e_dataset.CdfPipelineError, match="invalid_profile_count"):
+        e2e_dataset._target_cases_for_profile(e2e_dataset.QUALITY_FAMILY_GENERALIZATION_PROFILE, 28)
+    with pytest.raises(e2e_dataset.CdfPipelineError, match="invalid_profile_count"):
+        e2e_dataset._target_cases_for_profile(e2e_dataset.QUALITY_FAMILY_GENERALIZATION_PROFILE, 43)
+
+
 def test_mixed_profile_specs_cover_required_truth_cases() -> None:
     rng = __import__("random").Random(706)
     hole = e2e_dataset._flat_panel_spec("sample_000001", 1, rng, e2e_dataset.PROFILE_CASE_HOLE)
@@ -187,6 +201,35 @@ def test_quality_profile_splits_are_user_counted_70_15_15() -> None:
     assert len(train) == 28
     assert len(val) == 6
     assert len(test) == 6
+
+
+def test_quality_family_generalization_splits_are_stratified_by_profile_case() -> None:
+    dataset_root = _fresh(RUNS / "quality_family_splits")
+    cases = e2e_dataset._target_cases_for_profile(e2e_dataset.QUALITY_FAMILY_GENERALIZATION_PROFILE, 42)
+    accepted = [
+        {"sample_id": f"sample_{index:06d}", "profile_case": profile_case}
+        for index, profile_case in enumerate(cases, start=1)
+    ]
+
+    e2e_dataset._write_splits(dataset_root, accepted, e2e_dataset.QUALITY_FAMILY_GENERALIZATION_PROFILE)
+
+    split_case_sets = {}
+    sample_case = {item["sample_id"]: item["profile_case"] for item in accepted}
+    for split_name in ("train", "val", "test"):
+        sample_ids = (dataset_root / "splits" / f"{split_name}.txt").read_text(encoding="utf-8").splitlines()
+        split_case_sets[split_name] = {sample_case[sample_id] for sample_id in sample_ids}
+        assert len(sample_ids) == len(e2e_dataset.QUALITY_FAMILY_GENERALIZATION_CASES)
+    assert split_case_sets["train"] == set(e2e_dataset.QUALITY_FAMILY_GENERALIZATION_CASES)
+    assert split_case_sets["val"] == set(e2e_dataset.QUALITY_FAMILY_GENERALIZATION_CASES)
+    assert split_case_sets["test"] == set(e2e_dataset.QUALITY_FAMILY_GENERALIZATION_CASES)
+
+
+def test_quality_family_generalization_split_requires_profile_case_metadata() -> None:
+    dataset_root = _fresh(RUNS / "quality_family_missing_case")
+    accepted = [{"sample_id": f"sample_{index:06d}"} for index in range(1, 43)]
+
+    with pytest.raises(e2e_dataset.CdfPipelineError, match="missing_profile_case"):
+        e2e_dataset._write_splits(dataset_root, accepted, e2e_dataset.QUALITY_FAMILY_GENERALIZATION_PROFILE)
 
 
 def test_mixed_profile_probe_failure_blocks_generation(monkeypatch) -> None:

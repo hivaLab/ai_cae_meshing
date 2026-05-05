@@ -1231,7 +1231,7 @@ Result: SUCCESS, mode=AI_ONLY, valid_mesh_count=6, selected_non_baseline_count=6
 
 ### T-712_AI_ONLY_MIXED_FAMILY_QUALITY_GENERALIZATION
 
-Status: TODO
+Status: DONE
 
 Goal:
 
@@ -1252,4 +1252,57 @@ T-712 is DONE only if every counted recommendation is a non-baseline AI manifest
 real ANSA execution report, real quality report, hard failed element count 0, and non-empty BDF.
 If any family or feature type lacks quality evidence, record it as coverage gap instead of
 claiming generalization.
+```
+
+Completion evidence:
+
+```text
+Dataset command:
+python -m cad_dataset_factory.cdf.cli generate --config configs\cdf_sm_ansa_v1.default.json --out runs\t712_quality_family_generalization\dataset --count 42 --seed 712 --require-ansa --ansa-executable C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat --profile sm_quality_family_generalization_v1
+Result: SUCCESS, accepted_count=42, rejected_count=2.
+
+Validation command:
+python -m cad_dataset_factory.cdf.cli validate --dataset runs\t712_quality_family_generalization\dataset --require-ansa
+Result: SUCCESS, accepted_count=42, error_count=0.
+
+Quality exploration command:
+python -m cad_dataset_factory.cdf.cli quality-explore --dataset runs\t712_quality_family_generalization\dataset --out runs\t712_quality_family_generalization\quality_exploration --perturbations-per-sample 4 --ansa-executable C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat
+Result: SUCCESS, baseline_count=42, evaluated_count=168, passed_count=164,
+near_fail_count=46, failed_count=0, blocked_count=0, quality_score_variance=8.990343582400554.
+
+Training command:
+python -m ai_mesh_generator.amg.training.quality --dataset runs\t712_quality_family_generalization\dataset --quality-exploration runs\t712_quality_family_generalization\quality_exploration --out runs\t712_quality_family_generalization\training_quality --epochs 5 --batch-size 32 --seed 712
+Result: SUCCESS, example_count=210, validation_pairwise_accuracy=0.8978102189781022.
+
+AI-only recommendation command:
+python -m ai_mesh_generator.amg.recommendation.quality --dataset runs\t712_quality_family_generalization\dataset --quality-exploration runs\t712_quality_family_generalization\quality_exploration --training runs\t712_quality_family_generalization\training_quality --out runs\t712_quality_family_generalization\recommendation_ai_only --split test --risk-aware --ansa-executable C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat
+Result: SUCCESS, attempted_count=14, valid_pair_count=14, selected_baseline_count=0, compare_baseline=false.
+
+AI-only coverage benchmark command:
+python -m ai_mesh_generator.amg.benchmark.recommendation --recommendation runs\t712_quality_family_generalization\recommendation_ai_only --out runs\t712_quality_family_generalization\recommendation_ai_only_benchmark.json --ai-only --dataset runs\t712_quality_family_generalization\dataset --split test --required-part-classes SM_FLAT_PANEL,SM_SINGLE_FLANGE,SM_L_BRACKET,SM_U_CHANNEL,SM_HAT_CHANNEL --required-feature-types HOLE,SLOT,CUTOUT,BEND,FLANGE
+Result: SUCCESS, valid_mesh_count=14, selected_non_baseline_count=14,
+selected_baseline_count=0, all required part classes and feature types present.
+```
+
+### T-713_MIXED_FAMILY_FRESH_AI_CONTROL_PROPOSAL
+
+Status: TODO
+
+Goal:
+
+```text
+Move T-712 from choosing among evaluated mixed/family perturbation manifests to generating fresh
+AMG candidate manifests for the same mixed/family held-out set. Evaluate those fresh candidates
+with real ANSA, append the evidence, retrain the quality ranker, and require AI-only non-baseline
+recommendations to produce real ANSA VALID_MESH without baseline fallback.
+```
+
+Acceptance:
+
+```text
+Fresh candidate generation must create schema-valid, non-duplicate, non-baseline manifests for
+the T-712 mixed/family test split. Selection must not read quality_score, status, reports, or mesh
+artifacts. T-713 is DONE only if the refreshed recommendation benchmark succeeds in AI-only mode
+with required mixed/family coverage, selected_baseline_count=0, hard failed element count 0, and
+non-empty real BDF output for every counted recommendation.
 ```

@@ -265,11 +265,43 @@ def test_run_quality_exploration_preserves_near_fail_quality_evidence(monkeypatc
     summary = json.loads(Path(result.summary_path).read_text(encoding="utf-8"))
     perturb = next(record for record in summary["records"] if record["evaluation_id"] == "perturb_001")
     assert result.status == "SUCCESS"
-    assert result.near_fail_count == 1
-    assert summary["near_fail_count"] == 1
+    assert result.near_fail_count >= 1
+    assert summary["near_fail_count"] >= 1
     assert perturb["status"] == "NEAR_FAIL"
     assert perturb["accepted"] is True
     assert perturb["quality_metrics_available"] is True
+
+
+def test_run_quality_exploration_marks_high_cost_score_as_near_fail(monkeypatch) -> None:
+    dataset = _write_dataset(_fresh(RUNS / "near_fail_high_cost"))
+    output = RUNS / "near_fail_high_cost" / "quality"
+
+    def fake_run_ansa_oracle(request, execute=True):
+        quality_report = _quality_report(hard_failed=0, spread=0.2, violating=0, unmeshed=0)
+        quality_report["mesh_stats"]["num_shell_elements"] = 20000
+        quality_report["quality"]["num_shell_elements"] = 20000
+        _write_json(request.execution_report_path, _execution_report())
+        _write_json(request.quality_report_path, quality_report)
+        mesh = request.sample_dir / "meshes" / "ansa_oracle_mesh.bdf"
+        mesh.parent.mkdir(parents=True, exist_ok=True)
+        mesh.write_text("CEND\nBEGIN BULK\nENDDATA\n", encoding="utf-8")
+        return SimpleNamespace(status="COMPLETED", error_code=None)
+
+    monkeypatch.setattr("cad_dataset_factory.cdf.quality.exploration.run_ansa_oracle", fake_run_ansa_oracle)
+
+    result = run_quality_exploration(
+        dataset_root=dataset,
+        output_dir=output,
+        ansa_executable=RUNS / "ansa64.bat",
+        perturbations_per_sample=1,
+    )
+
+    summary = json.loads(Path(result.summary_path).read_text(encoding="utf-8"))
+    perturb = next(record for record in summary["records"] if record["evaluation_id"] == "perturb_001")
+    assert result.near_fail_count >= 1
+    assert summary["near_fail_count"] >= 1
+    assert perturb["status"] == "NEAR_FAIL"
+    assert perturb["quality_score"] >= 5.0
 
 
 @pytest.mark.requires_ansa

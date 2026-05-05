@@ -5,9 +5,9 @@ Last updated: 2026-05-05 KST
 ## Project State
 
 ```text
-Project state        : T-711 AI-only quality recommendation gate complete
+Project state        : T-712 AI-only mixed/family quality generalization complete
 Active phase         : P7_REAL_PIPELINE_COMPLETION
-Active task          : T-712_AI_ONLY_MIXED_FAMILY_QUALITY_GENERALIZATION
+Active task          : T-713_MIXED_FAMILY_FRESH_AI_CONTROL_PROPOSAL
 Primary source docs  : AMG.md, CDF.md
 Execution backend    : ANSA Batch Mesh through adapter/script boundary
 Dataset factory      : CDF-SM-ANSA-V1
@@ -37,6 +37,7 @@ Verified ANSA path   : C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v
 | Quality ranker recommendation | DONE | T-709, 6 real paired ANSA comparisons, 5 improved, recommendation benchmark SUCCESS |
 | Fresh active-learning loop | DONE | T-710, 48 fresh real ANSA candidates, 5/6 improved after retraining, benchmark SUCCESS |
 | AI-only quality recommendation | DONE | T-711, 6/6 non-baseline AI manifests produced real ANSA VALID_MESH, no baseline execution |
+| AI-only mixed/family quality generalization | DONE | T-712, 42 real samples, 14/14 mixed/family test VALID_MESH, coverage benchmark SUCCESS |
 
 ## Current Evidence
 
@@ -156,6 +157,23 @@ T-711 AI-only recommendation gate:
   severe_regression_count=0
   failure_reason_counts={}
   status=SUCCESS
+
+T-712 mixed/family AI-only recommendation gate:
+  dataset: runs\t712_quality_family_generalization\dataset
+  quality exploration: runs\t712_quality_family_generalization\quality_exploration
+  training: runs\t712_quality_family_generalization\training_quality
+  recommendation: runs\t712_quality_family_generalization\recommendation_ai_only
+  benchmark: runs\t712_quality_family_generalization\recommendation_ai_only_benchmark.json
+  accepted_count=42
+  strict validation: SUCCESS, error_count=0
+  quality exploration: baseline_count=42, evaluated_count=168, passed_count=164, near_fail_count=46, failed_count=0, blocked_count=0
+  quality_score_variance=8.990343582400554
+  training: example_count=210, validation_pairwise_accuracy=0.8978102189781022
+  AI-only recommendation: attempted_count=14, valid_mesh_count=14, selected_non_baseline_count=14, selected_baseline_count=0
+  test split coverage:
+    part_class: SM_FLAT_PANEL=10, SM_SINGLE_FLANGE=1, SM_L_BRACKET=1, SM_U_CHANNEL=1, SM_HAT_CHANNEL=1
+    feature_type: HOLE=7, SLOT=4, CUTOUT=4, BEND=8, FLANGE=8
+  status=SUCCESS
 ```
 
 ## Blockers And Risks
@@ -175,16 +193,18 @@ T-711 AI-only recommendation gate:
 | Fresh control proposal | resolved for T-710 | fresh candidates generated and evaluated with real ANSA, then used for refreshed recommendation |
 | Baseline fallback masking | resolved | risk-aware mode no longer selects baseline as a successful recommendation; no candidate means `no_ai_candidate_passed_risk_gate` |
 | AI candidate/model quality | resolved for T-711 smoke gate | every T-710 held-out sample now receives a non-baseline AI recommendation with real ANSA VALID_MESH |
-| Mixed/family quality generalization | open | T-711 uses the retained T-708 smoke held-out set; next task must verify AI-only quality recommendation on broader mixed and bent-family quality evidence |
+| Mixed/family quality generalization | resolved for T-712 compact gate | held-out test split covers all required part classes and feature types with AI-only real ANSA VALID_MESH |
+| Mixed/family fresh proposal | open | T-712 still chooses among evaluated quality-exploration perturbations; next task should generate fresh AMG candidates on the mixed/family set |
 
 ## Next Task
 
 ```text
-T-712_AI_ONLY_MIXED_FAMILY_QUALITY_GENERALIZATION
+T-713_MIXED_FAMILY_FRESH_AI_CONTROL_PROPOSAL
 
-Extend the AI-only quality recommendation path beyond the T-708 smoke held-out set. Build or reuse
-mixed/family real quality evidence, train the quality ranker by file contract only, and require
-non-baseline AI manifest recommendations to produce real ANSA VALID_MESH without baseline fallback.
+Use the T-712 mixed/family dataset and quality ranker to generate fresh AMG candidate manifests
+for the held-out mixed/family split, evaluate them with real ANSA, retrain with appended evidence,
+and require AI-only non-baseline recommendations to produce real ANSA VALID_MESH without baseline
+fallback or choosing only from the original evaluated perturbation pool.
 ```
 
 ## Session Log Template
@@ -561,3 +581,56 @@ Blockers:
 
 Next:
   - T-712_AI_ONLY_MIXED_FAMILY_QUALITY_GENERALIZATION
+
+## Session 2026-05-05 T-712
+
+Completed:
+  - T-712_AI_ONLY_MIXED_FAMILY_QUALITY_GENERALIZATION.
+  - Added the `sm_quality_family_generalization_v1` CDF profile with closed 14-case coverage and stratified train/val/test splits.
+  - Extended AI-only recommendation benchmark with dataset split coverage checks for required part classes and feature types.
+  - Reclassified high-cost real ANSA quality-score evidence as NEAR_FAIL instead of hiding it as uniform PASSED evidence.
+
+Changed files:
+  - cad_dataset_factory/cdf/pipeline/e2e_dataset.py
+  - cad_dataset_factory/cdf/quality/exploration.py
+  - ai_mesh_generator/amg/benchmark/recommendation.py
+  - tests/test_cdf_mixed_benchmark_profile.py
+  - tests/test_cdf_quality_exploration.py
+  - tests/test_amg_quality_recommendation.py
+  - docs/STATUS.md
+  - docs/TASKS.md
+  - docs/NEXT_AGENT_PROMPT.md
+
+Tests:
+  - command: python -m pytest tests\test_cdf_quality_exploration.py tests\test_cdf_mixed_benchmark_profile.py tests\test_amg_quality_recommendation.py
+  - result: PASS, 32 passed and 1 skipped in 2.67s
+  - command: python -m pytest
+  - result: PASS, 252 passed and 2 skipped in 12.68s
+
+Real gates:
+  - command: python -m cad_dataset_factory.cdf.cli generate --config configs\cdf_sm_ansa_v1.default.json --out runs\t712_quality_family_generalization\dataset --count 42 --seed 712 --require-ansa --ansa-executable C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat --profile sm_quality_family_generalization_v1
+  - result: SUCCESS, accepted_count=42, rejected_count=2
+  - command: python -m cad_dataset_factory.cdf.cli validate --dataset runs\t712_quality_family_generalization\dataset --require-ansa
+  - result: SUCCESS, accepted_count=42, error_count=0
+  - command: python -m cad_dataset_factory.cdf.cli quality-explore --dataset runs\t712_quality_family_generalization\dataset --out runs\t712_quality_family_generalization\quality_exploration --perturbations-per-sample 4 --ansa-executable C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat
+  - result: SUCCESS, baseline_count=42, evaluated_count=168, passed_count=164, near_fail_count=46, failed_count=0, blocked_count=0, quality_score_variance=8.990343582400554
+  - command: python -m ai_mesh_generator.amg.training.quality --dataset runs\t712_quality_family_generalization\dataset --quality-exploration runs\t712_quality_family_generalization\quality_exploration --out runs\t712_quality_family_generalization\training_quality --epochs 5 --batch-size 32 --seed 712
+  - result: SUCCESS, example_count=210, validation_pairwise_accuracy=0.8978102189781022
+  - command: python -m ai_mesh_generator.amg.recommendation.quality --dataset runs\t712_quality_family_generalization\dataset --quality-exploration runs\t712_quality_family_generalization\quality_exploration --training runs\t712_quality_family_generalization\training_quality --out runs\t712_quality_family_generalization\recommendation_ai_only --split test --risk-aware --ansa-executable C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat
+  - result: SUCCESS, attempted_count=14, valid_pair_count=14, selected_baseline_count=0, compare_baseline=false
+  - command: python -m ai_mesh_generator.amg.benchmark.recommendation --recommendation runs\t712_quality_family_generalization\recommendation_ai_only --out runs\t712_quality_family_generalization\recommendation_ai_only_benchmark.json --ai-only --dataset runs\t712_quality_family_generalization\dataset --split test --required-part-classes SM_FLAT_PANEL,SM_SINGLE_FLANGE,SM_L_BRACKET,SM_U_CHANNEL,SM_HAT_CHANNEL --required-feature-types HOLE,SLOT,CUTOUT,BEND,FLANGE
+  - result: SUCCESS, mode=AI_ONLY, valid_mesh_count=14, selected_non_baseline_count=14, selected_baseline_count=0
+
+Evidence:
+  - benchmark: runs\t712_quality_family_generalization\recommendation_ai_only_benchmark.json
+  - recommendation summary: runs\t712_quality_family_generalization\recommendation_ai_only\recommendation_summary.json
+  - training metrics: runs\t712_quality_family_generalization\training_quality\quality_training_metrics.json
+  - quality exploration summary: runs\t712_quality_family_generalization\quality_exploration\quality_exploration_summary.json
+  - dataset index: runs\t712_quality_family_generalization\dataset\dataset_index.json
+
+Blockers:
+  - none for T-712.
+  - Remaining risk: T-712 recommends among evaluated perturbation candidates. It proves mixed/family AI-only selection and ANSA validation, but not fresh mixed/family control proposal.
+
+Next:
+  - T-713_MIXED_FAMILY_FRESH_AI_CONTROL_PROPOSAL

@@ -138,11 +138,122 @@ def _quantile(values: Sequence[float], q: float) -> float | None:
     return ordered[lower] * (1.0 - fraction) + ordered[upper] * fraction
 
 
+def _csv_items(value: str | Sequence[str] | None) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        raw_items = value.split(",")
+    else:
+        raw_items = []
+        for item in value:
+            raw_items.extend(str(item).split(","))
+    return tuple(item.strip() for item in raw_items if item.strip())
+
+
+def _split_sample_ids(dataset_root: Path, split: str) -> list[str]:
+    path = dataset_root / "splits" / f"{split}.txt"
+    if not path.is_file():
+        raise AmgRecommendationBenchmarkError("missing_dataset_split", f"dataset split not found: {split}", path)
+    sample_ids = [line.strip() for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    if not sample_ids:
+        raise AmgRecommendationBenchmarkError("empty_dataset_split", f"dataset split is empty: {split}", path)
+    return sample_ids
+
+
+def _accepted_sample_dirs(dataset_root: Path) -> dict[str, Path]:
+    index_path = dataset_root / "dataset_index.json"
+    index = _read_json(index_path, "dataset_index_read_failed")
+    if index.get("schema") != "CDF_DATASET_INDEX_SM_V1":
+        raise AmgRecommendationBenchmarkError("dataset_index_schema_invalid", "dataset index schema must be CDF_DATASET_INDEX_SM_V1", index_path)
+    accepted = index.get("accepted_samples", [])
+    if not isinstance(accepted, list):
+        raise AmgRecommendationBenchmarkError("dataset_index_schema_invalid", "accepted_samples must be a list", index_path)
+    sample_dirs: dict[str, Path] = {}
+    for item in accepted:
+        if isinstance(item, str):
+            sample_id = item
+            sample_dir = dataset_root / "samples" / sample_id
+        elif isinstance(item, Mapping):
+            sample_id = item.get("sample_id")
+            if not isinstance(sample_id, str):
+                raise AmgRecommendationBenchmarkError("dataset_index_schema_invalid", "accepted sample record requires sample_id", index_path)
+            sample_dir = Path(str(item.get("sample_dir", f"samples/{sample_id}")))
+            if not sample_dir.is_absolute():
+                sample_dir = dataset_root / sample_dir
+        else:
+            raise AmgRecommendationBenchmarkError("dataset_index_schema_invalid", "accepted sample records must be objects or strings", index_path)
+        sample_dirs[sample_id] = sample_dir
+    return sample_dirs
+
+
+def _build_dataset_coverage_report(
+    *,
+    dataset: str | Path,
+    split: str,
+    recommendation_sample_ids: Sequence[str],
+    required_part_classes: Sequence[str],
+    required_feature_types: Sequence[str],
+) -> tuple[dict[str, Any], dict[str, bool]]:
+    dataset_root = Path(dataset)
+    split_ids = _split_sample_ids(dataset_root, split)
+    sample_dirs = _accepted_sample_dirs(dataset_root)
+    recommendation_ids = list(recommendation_sample_ids)
+    recommendation_set = set(recommendation_ids)
+    split_set = set(split_ids)
+    part_counts: Counter[str] = Counter()
+    feature_counts: Counter[str] = Counter()
+    missing_sample_ids: list[str] = []
+    for sample_id in split_ids:
+        sample_dir = sample_dirs.get(sample_id)
+        if sample_dir is None:
+            missing_sample_ids.append(sample_id)
+            continue
+        manifest = _read_json(sample_dir / "labels" / "amg_manifest.json", "manifest_read_failed")
+        part = manifest.get("part", {})
+        if isinstance(part, Mapping) and isinstance(part.get("part_class"), str):
+            part_counts[str(part["part_class"])] += 1
+        features = manifest.get("features", [])
+        if isinstance(features, list):
+            for feature in features:
+                if isinstance(feature, Mapping) and isinstance(feature.get("type"), str):
+                    feature_counts[str(feature["type"])] += 1
+    required_parts = tuple(required_part_classes)
+    required_features = tuple(required_feature_types)
+    missing_parts = [part_class for part_class in required_parts if part_counts.get(part_class, 0) <= 0]
+    missing_features = [feature_type for feature_type in required_features if feature_counts.get(feature_type, 0) <= 0]
+    report = {
+        "dataset_root": dataset_root.as_posix(),
+        "split": split,
+        "split_sample_count": len(split_ids),
+        "recommendation_sample_count": len(recommendation_ids),
+        "missing_sample_ids": missing_sample_ids,
+        "missing_recommendation_sample_ids": sorted(split_set - recommendation_set),
+        "extra_recommendation_sample_ids": sorted(recommendation_set - split_set),
+        "part_class_counts": dict(sorted(part_counts.items())),
+        "feature_type_counts": dict(sorted(feature_counts.items())),
+        "required_part_classes": list(required_parts),
+        "required_feature_types": list(required_features),
+        "missing_part_classes": missing_parts,
+        "missing_feature_types": missing_features,
+    }
+    criteria = {
+        "recommendation_covers_split": recommendation_set == split_set,
+        "dataset_samples_resolve": not missing_sample_ids,
+        "required_part_classes_present": not missing_parts,
+        "required_feature_types_present": not missing_features,
+    }
+    return report, criteria
+
+
 def build_recommendation_benchmark_report(
     *,
     recommendation: str | Path,
     baseline: str | Path | None = None,
     ai_only: bool = False,
+    dataset: str | Path | None = None,
+    split: str = "test",
+    required_part_classes: Sequence[str] = (),
+    required_feature_types: Sequence[str] = (),
     min_attempted: int = MIN_ATTEMPTED,
     min_improvement_rate: float = MIN_IMPROVEMENT_RATE,
     min_median_delta: float = MIN_MEDIAN_DELTA,
@@ -169,7 +280,11 @@ def build_recommendation_benchmark_report(
     risk_rejected_candidate_count = 0
     recommended_scores: list[float] = []
     selected_evaluation_ids: list[str] = []
+    recommendation_sample_ids: list[str] = []
     for result in sample_results:
+        sample_id = result.get("sample_id")
+        if isinstance(sample_id, str):
+            recommendation_sample_ids.append(sample_id)
         report = _sample_report(result.get("report_path"), root)
         if report is None:
             failure_counts["missing_sample_report"] += 1
@@ -278,6 +393,16 @@ def build_recommendation_benchmark_report(
             "median_improvement_delta_delta": median_delta_vs_baseline,
             "selected_non_baseline_count_delta": selected_delta,
         }
+    coverage_report = None
+    if dataset is not None:
+        coverage_report, coverage_criteria = _build_dataset_coverage_report(
+            dataset=dataset,
+            split=split,
+            recommendation_sample_ids=recommendation_sample_ids,
+            required_part_classes=tuple(required_part_classes),
+            required_feature_types=tuple(required_feature_types),
+        )
+        criteria.update(coverage_criteria)
     return {
         "schema": "AMG_QUALITY_RECOMMENDATION_BENCHMARK_V1",
         "mode": "AI_ONLY" if ai_only else "BASELINE_COMPARISON",
@@ -308,6 +433,7 @@ def build_recommendation_benchmark_report(
         "invalid_artifact_count": invalid_artifacts,
         "success_criteria": criteria,
         "baseline_comparison": baseline_comparison,
+        "coverage": coverage_report,
     }
 
 
@@ -321,6 +447,10 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--out", required=True)
     parser.add_argument("--baseline", default=None)
     parser.add_argument("--ai-only", action="store_true")
+    parser.add_argument("--dataset", default=None)
+    parser.add_argument("--split", default="test")
+    parser.add_argument("--required-part-classes", default="")
+    parser.add_argument("--required-feature-types", default="")
     parser.add_argument("--min-attempted", type=int, default=MIN_ATTEMPTED)
     parser.add_argument("--min-improvement-rate", type=float, default=MIN_IMPROVEMENT_RATE)
     parser.add_argument("--min-median-delta", type=float, default=MIN_MEDIAN_DELTA)
@@ -337,6 +467,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             recommendation=Path(args.recommendation),
             baseline=Path(args.baseline) if args.baseline else None,
             ai_only=bool(args.ai_only),
+            dataset=Path(args.dataset) if args.dataset else None,
+            split=str(args.split),
+            required_part_classes=_csv_items(args.required_part_classes),
+            required_feature_types=_csv_items(args.required_feature_types),
             min_attempted=args.min_attempted,
             min_improvement_rate=args.min_improvement_rate,
             min_median_delta=args.min_median_delta,

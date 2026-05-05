@@ -63,6 +63,7 @@ DEFAULT_PROFILE = "flat_hole_pilot_v1"
 MIXED_BENCHMARK_PROFILE = "sm_mixed_benchmark_v1"
 FAMILY_EXPANSION_PROFILE = "sm_family_expansion_v1"
 QUALITY_EXPLORATION_PROFILE = "sm_quality_exploration_v1"
+QUALITY_FAMILY_GENERALIZATION_PROFILE = "sm_quality_family_generalization_v1"
 PROFILE_CASE_HOLE = "flat_hole"
 PROFILE_CASE_SLOT = "flat_slot"
 PROFILE_CASE_CUTOUT = "flat_cutout"
@@ -130,6 +131,8 @@ QUALITY_EXPLORATION_CASES = (
     PROFILE_CASE_U_CHANNEL,
     PROFILE_CASE_HAT_CHANNEL,
 )
+QUALITY_FAMILY_GENERALIZATION_CASES = QUALITY_EXPLORATION_CASES
+QUALITY_FAMILY_GENERALIZATION_MIN_COUNT = len(QUALITY_FAMILY_GENERALIZATION_CASES) * 3
 REQUIRED_CONTRACTS = (
     "AMG_MANIFEST_SM_V1.schema.json",
     "AMG_BREP_GRAPH_SM_V1.schema.json",
@@ -221,6 +224,14 @@ def _target_cases_for_profile(profile: str, count: int) -> list[str]:
         return [PROFILE_CASE_HOLE for _ in range(count)]
     if profile == QUALITY_EXPLORATION_PROFILE:
         return [QUALITY_EXPLORATION_CASES[index % len(QUALITY_EXPLORATION_CASES)] for index in range(count)]
+    if profile == QUALITY_FAMILY_GENERALIZATION_PROFILE:
+        case_count = len(QUALITY_FAMILY_GENERALIZATION_CASES)
+        if count < QUALITY_FAMILY_GENERALIZATION_MIN_COUNT or count % case_count != 0:
+            raise CdfPipelineError(
+                "invalid_profile_count",
+                f"{profile} requires count >= {QUALITY_FAMILY_GENERALIZATION_MIN_COUNT} and a multiple of {case_count}",
+            )
+        return [QUALITY_FAMILY_GENERALIZATION_CASES[index % case_count] for index in range(count)]
     if profile in {MIXED_BENCHMARK_PROFILE, FAMILY_EXPANSION_PROFILE}:
         case_counts = MIXED_BENCHMARK_CASE_COUNTS if profile == MIXED_BENCHMARK_PROFILE else FAMILY_EXPANSION_CASE_COUNTS
         required_count = sum(case_count for _case, case_count in case_counts)
@@ -244,7 +255,23 @@ def _write_splits(dataset_root: Path, accepted_samples: list[dict[str, Any]], pr
     splits = dataset_root / "splits"
     splits.mkdir(parents=True, exist_ok=True)
     sample_ids = [str(sample["sample_id"]) for sample in accepted_samples]
-    if profile in {MIXED_BENCHMARK_PROFILE, FAMILY_EXPANSION_PROFILE, QUALITY_EXPLORATION_PROFILE} and sample_ids:
+    if profile == QUALITY_FAMILY_GENERALIZATION_PROFILE and sample_ids:
+        split_map = {"train": [], "val": [], "test": []}
+        grouped: dict[str, list[str]] = {}
+        for sample in accepted_samples:
+            profile_case = sample.get("profile_case")
+            if not isinstance(profile_case, str):
+                raise CdfPipelineError("missing_profile_case", f"{profile} samples require profile_case metadata")
+            grouped.setdefault(profile_case, []).append(str(sample["sample_id"]))
+        missing_cases = [case for case in QUALITY_FAMILY_GENERALIZATION_CASES if len(grouped.get(case, [])) < 3]
+        if missing_cases:
+            raise CdfPipelineError("insufficient_profile_case_coverage", f"{profile} split requires >=3 samples per case; missing {missing_cases[0]}")
+        for profile_case in QUALITY_FAMILY_GENERALIZATION_CASES:
+            ids = grouped[profile_case]
+            split_map["train"].extend(ids[:-2])
+            split_map["val"].append(ids[-2])
+            split_map["test"].append(ids[-1])
+    elif profile in {MIXED_BENCHMARK_PROFILE, FAMILY_EXPANSION_PROFILE, QUALITY_EXPLORATION_PROFILE} and sample_ids:
         train_count = int(0.70 * len(sample_ids))
         val_count = int(0.15 * len(sample_ids))
         split_map = {
@@ -842,7 +869,7 @@ def _build_candidate_attempt(
     )
 
 
-def _promote_accepted_sample(attempt_dir: Path, sample_dir: Path, sample_id: str) -> dict[str, Any]:
+def _promote_accepted_sample(attempt_dir: Path, sample_dir: Path, sample_id: str, *, profile_case: str | None = None) -> dict[str, Any]:
     _require_real_oracle_acceptance(attempt_dir)
     acceptance = _acceptance_document(sample_id, ansa_accepted=True)
     _write_json(attempt_dir / "reports" / "sample_acceptance.json", acceptance)
@@ -850,12 +877,15 @@ def _promote_accepted_sample(attempt_dir: Path, sample_dir: Path, sample_id: str
         shutil.rmtree(sample_dir)
     sample_dir.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(attempt_dir.as_posix(), sample_dir.as_posix())
-    return {
+    record = {
         "sample_id": sample_id,
         "sample_dir": f"samples/{sample_id}",
         "manifest": f"samples/{sample_id}/labels/amg_manifest.json",
         "acceptance_report": f"samples/{sample_id}/reports/sample_acceptance.json",
     }
+    if profile_case is not None:
+        record["profile_case"] = profile_case
+    return record
 
 
 def _blocked_result_with_rejections(
@@ -1026,7 +1056,7 @@ def generate_dataset(
                 rng=rng,
                 config=config,
                 profile_case=profile_case,
-                quality_variant=profile == QUALITY_EXPLORATION_PROFILE,
+                quality_variant=profile in {QUALITY_EXPLORATION_PROFILE, QUALITY_FAMILY_GENERALIZATION_PROFILE},
             )
             ansa_result = run_ansa_oracle(
                 AnsaRunRequest(
@@ -1038,7 +1068,7 @@ def generate_dataset(
             )
             if ansa_result.status != "COMPLETED":
                 raise CdfPipelineError(ansa_result.error_code or "ansa_not_completed", f"ANSA status {ansa_result.status}", sample_id)
-            accepted.append(_promote_accepted_sample(attempt_dir, dataset_root / "samples" / sample_id, sample_id))
+            accepted.append(_promote_accepted_sample(attempt_dir, dataset_root / "samples" / sample_id, sample_id, profile_case=profile_case))
         except (CdfPipelineError, AnsaReportParseError, AnsaRunnerError, OSError, ValueError) as exc:
             code = getattr(exc, "code", type(exc).__name__)
             rejected.append(

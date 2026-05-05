@@ -37,6 +37,7 @@ class QualityTrainingConfig:
     dataset_root: Path
     quality_exploration_root: Path
     output_dir: Path
+    extra_quality_evidence_roots: tuple[Path, ...] = ()
     epochs: int = 10
     batch_size: int = 32
     seed: int = 708
@@ -128,32 +129,44 @@ def _quality_summary_path(root: Path) -> Path:
     raise AmgQualityTrainingError("missing_quality_exploration_summary", "quality exploration summary not found", root)
 
 
-def _load_examples(dataset_root: Path, quality_root: Path) -> tuple[list[dict[str, Any]], dict[str, Path]]:
+def _load_examples(dataset_root: Path, quality_root: Path, extra_roots: Sequence[Path] = ()) -> tuple[list[dict[str, Any]], dict[str, Path]]:
     summary = _read_json(_quality_summary_path(quality_root), "quality_summary_read_failed")
-    records = summary.get("records", [])
-    if not isinstance(records, list):
-        raise AmgQualityTrainingError("malformed_quality_summary", "records must be a list", quality_root)
     sample_dirs = _accepted_sample_dirs(dataset_root)
     examples: list[dict[str, Any]] = []
     sample_cache: dict[str, AmgDatasetSample] = {}
-    for record in records:
-        if not isinstance(record, Mapping) or not isinstance(record.get("quality_score"), (int, float)):
-            continue
-        sample_id = record.get("sample_id")
-        manifest_path = record.get("manifest_path")
-        if not isinstance(sample_id, str) or sample_id not in sample_dirs or not isinstance(manifest_path, str):
-            continue
-        if sample_id not in sample_cache:
-            sample_cache[sample_id] = load_amg_dataset_sample(sample_dirs[sample_id])
-        manifest = _read_json(_resolve_path(manifest_path, quality_root), "manifest_read_failed")
-        examples.append(
-            {
-                "sample_id": sample_id,
-                "evaluation_id": str(record.get("evaluation_id", "")),
-                "features": build_quality_feature_vector(sample_cache[sample_id], manifest),
-                "quality_score": float(record["quality_score"]),
-            }
-        )
+    seen: set[tuple[str, str]] = set()
+
+    def append_records(root: Path, records: Any) -> None:
+        if not isinstance(records, list):
+            raise AmgQualityTrainingError("malformed_quality_summary", "records must be a list", root)
+        for record in records:
+            if not isinstance(record, Mapping) or not isinstance(record.get("quality_score"), (int, float)):
+                continue
+            sample_id = record.get("sample_id")
+            manifest_path = record.get("manifest_path")
+            if not isinstance(sample_id, str) or sample_id not in sample_dirs or not isinstance(manifest_path, str):
+                continue
+            resolved_manifest_path = _resolve_path(manifest_path, root)
+            key = (sample_id, resolved_manifest_path.as_posix())
+            if key in seen:
+                continue
+            seen.add(key)
+            if sample_id not in sample_cache:
+                sample_cache[sample_id] = load_amg_dataset_sample(sample_dirs[sample_id])
+            manifest = _read_json(resolved_manifest_path, "manifest_read_failed")
+            examples.append(
+                {
+                    "sample_id": sample_id,
+                    "evaluation_id": str(record.get("evaluation_id", record.get("candidate_id", ""))),
+                    "features": build_quality_feature_vector(sample_cache[sample_id], manifest),
+                    "quality_score": float(record["quality_score"]),
+                }
+            )
+
+    append_records(quality_root, summary.get("records", []))
+    for extra_root in extra_roots:
+        extra_summary = _read_json(_quality_summary_path(extra_root), "quality_summary_read_failed")
+        append_records(extra_root, extra_summary.get("records", []))
     if not examples:
         raise AmgQualityTrainingError("empty_quality_examples", "no quality-scored examples were found", quality_root)
     return examples, sample_dirs
@@ -227,7 +240,7 @@ def run_quality_training(config: QualityTrainingConfig) -> QualityTrainingResult
         raise AmgQualityTrainingError("invalid_epochs", "epochs must be positive")
     torch.manual_seed(config.seed)
     random.seed(config.seed)
-    examples, _sample_dirs = _load_examples(config.dataset_root, config.quality_exploration_root)
+    examples, _sample_dirs = _load_examples(config.dataset_root, config.quality_exploration_root, config.extra_quality_evidence_roots)
     train_examples, val_examples, split_source = _split_examples(config.dataset_root, examples)
     train_pairs = _pair_indices(train_examples)
     val_pairs = _pair_indices(val_examples)
@@ -281,6 +294,7 @@ def run_quality_training(config: QualityTrainingConfig) -> QualityTrainingResult
         "status": "SUCCESS",
         "dataset_root": config.dataset_root.as_posix(),
         "quality_exploration_root": config.quality_exploration_root.as_posix(),
+        "extra_quality_evidence_roots": [path.as_posix() for path in config.extra_quality_evidence_roots],
         "example_count": len(examples),
         "train_example_count": len(train_examples),
         "validation_example_count": len(val_examples),
@@ -302,6 +316,7 @@ def run_quality_training(config: QualityTrainingConfig) -> QualityTrainingResult
     _write_json(training_config_path, {
         "dataset_root": config.dataset_root.as_posix(),
         "quality_exploration_root": config.quality_exploration_root.as_posix(),
+        "extra_quality_evidence_roots": [path.as_posix() for path in config.extra_quality_evidence_roots],
         "output_dir": config.output_dir.as_posix(),
         "epochs": config.epochs,
         "batch_size": config.batch_size,
@@ -323,6 +338,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train AMG quality-control ranker from real ANSA exploration evidence.")
     parser.add_argument("--dataset", required=True)
     parser.add_argument("--quality-exploration", required=True)
+    parser.add_argument("--extra-quality-evidence", action="append", default=[])
     parser.add_argument("--out", required=True)
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch-size", type=int, default=32)
@@ -340,6 +356,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 dataset_root=Path(args.dataset),
                 quality_exploration_root=Path(args.quality_exploration),
                 output_dir=Path(args.out),
+                extra_quality_evidence_roots=tuple(Path(path) for path in args.extra_quality_evidence),
                 epochs=args.epochs,
                 batch_size=args.batch_size,
                 seed=args.seed,

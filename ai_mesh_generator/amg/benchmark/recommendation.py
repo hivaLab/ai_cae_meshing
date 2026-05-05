@@ -77,6 +77,7 @@ def _sample_report(path_text: Any, root: Path) -> dict[str, Any] | None:
 def build_recommendation_benchmark_report(
     *,
     recommendation: str | Path,
+    baseline: str | Path | None = None,
     min_attempted: int = MIN_ATTEMPTED,
     min_improvement_rate: float = MIN_IMPROVEMENT_RATE,
     min_median_delta: float = MIN_MEDIAN_DELTA,
@@ -130,6 +131,27 @@ def build_recommendation_benchmark_report(
         "improvement_rate_met": improvement_rate >= min_improvement_rate,
         "median_improvement_delta_met": median_delta is not None and median_delta > min_median_delta,
     }
+    baseline_comparison = None
+    if baseline is not None:
+        baseline_root = Path(baseline)
+        baseline_report = _read_json(baseline_root if baseline_root.is_file() else _summary_path(baseline_root), "baseline_benchmark_read_failed")
+        baseline_rate = baseline_report.get("improvement_rate")
+        baseline_median = baseline_report.get("median_improvement_delta")
+        baseline_selected = baseline_report.get("selected_non_baseline_count")
+        rate_delta = improvement_rate - float(baseline_rate) if isinstance(baseline_rate, (int, float)) else None
+        median_delta_vs_baseline = float(median_delta) - float(baseline_median) if isinstance(median_delta, (int, float)) and isinstance(baseline_median, (int, float)) else None
+        selected_delta = selected_non_baseline_count - int(baseline_selected) if isinstance(baseline_selected, int) else None
+        criteria["baseline_improvement_rate_preserved"] = rate_delta is not None and rate_delta >= 0.0
+        criteria["baseline_median_delta_preserved"] = median_delta_vs_baseline is not None and median_delta_vs_baseline >= 0.0
+        baseline_comparison = {
+            "baseline_path": baseline_root.as_posix(),
+            "baseline_improvement_rate": baseline_rate,
+            "baseline_median_improvement_delta": baseline_median,
+            "baseline_selected_non_baseline_count": baseline_selected,
+            "improvement_rate_delta": rate_delta,
+            "median_improvement_delta_delta": median_delta_vs_baseline,
+            "selected_non_baseline_count_delta": selected_delta,
+        }
     return {
         "schema": "AMG_QUALITY_RECOMMENDATION_BENCHMARK_V1",
         "status": "SUCCESS" if all(criteria.values()) else "FAILED",
@@ -145,6 +167,7 @@ def build_recommendation_benchmark_report(
         "failure_reason_counts": dict(sorted((Counter(summary.get("failure_reason_counts", {})) + failure_counts).items())),
         "invalid_artifact_count": invalid_artifacts,
         "success_criteria": criteria,
+        "baseline_comparison": baseline_comparison,
     }
 
 
@@ -156,6 +179,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Benchmark real ANSA quality recommendations.")
     parser.add_argument("--recommendation", required=True)
     parser.add_argument("--out", required=True)
+    parser.add_argument("--baseline", default=None)
     parser.add_argument("--min-attempted", type=int, default=MIN_ATTEMPTED)
     parser.add_argument("--min-improvement-rate", type=float, default=MIN_IMPROVEMENT_RATE)
     parser.add_argument("--min-median-delta", type=float, default=MIN_MEDIAN_DELTA)
@@ -167,6 +191,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         report = build_recommendation_benchmark_report(
             recommendation=Path(args.recommendation),
+            baseline=Path(args.baseline) if args.baseline else None,
             min_attempted=args.min_attempted,
             min_improvement_rate=args.min_improvement_rate,
             min_median_delta=args.min_median_delta,

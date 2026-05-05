@@ -1050,7 +1050,7 @@ python -m pytest -> 234 passed, 2 skipped in 10.81s.
 
 ### T-710_FRESH_QUALITY_CONTROL_PROPOSAL_AND_ACTIVE_LEARNING_LOOP
 
-Status: TODO
+Status: DONE
 
 Goal:
 
@@ -1071,4 +1071,60 @@ The appended quality evidence remains file-contract only and does not add graph 
 After retraining, the recommendation benchmark is rerun on a held-out split and compared against the T-709
 baseline. T-710 is DONE only if the refreshed model improves or preserves T-709 recommendation metrics
 while increasing candidate/control diversity.
+```
+
+Completion evidence:
+
+```text
+Fresh proposal command:
+python -m ai_mesh_generator.amg.recommendation.fresh --dataset runs\t708_quality_exploration_smoke\dataset --quality-exploration runs\t708_quality_exploration_smoke\quality_exploration_metricfix2 --training runs\t708_quality_exploration_smoke\training_quality_metricfix2 --out runs\t710_fresh_quality_loop\fresh_quality_exploration --split test --candidates-per-sample 8 --limit 6 --seed 710 --ansa-executable C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat
+Result: SUCCESS, sample_count=6, generated_count=48, evaluated_count=48, blocked_count=0,
+unique_candidate_hash_count=48, quality_score_variance=2048357.424587557.
+
+Refreshed training command:
+python -m ai_mesh_generator.amg.training.quality --dataset runs\t708_quality_exploration_smoke\dataset --quality-exploration runs\t708_quality_exploration_smoke\quality_exploration_metricfix2 --extra-quality-evidence runs\t710_fresh_quality_loop\fresh_quality_exploration --out runs\t710_fresh_quality_loop\training_refreshed --epochs 5 --batch-size 32 --seed 710
+Result: SUCCESS, example_count=208, validation_pairwise_accuracy=0.6666666666666666.
+
+Refreshed recommendation command:
+python -m ai_mesh_generator.amg.recommendation.quality --dataset runs\t708_quality_exploration_smoke\dataset --quality-exploration runs\t710_fresh_quality_loop\fresh_quality_exploration --training runs\t710_fresh_quality_loop\training_refreshed --out runs\t710_fresh_quality_loop\recommendation_refreshed --split test --limit 6 --ansa-executable C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat
+Result: SUCCESS, attempted_count=6, valid_pair_count=6, improved_count=5,
+improvement_rate=0.8333333333333334, median_improvement_delta=0.7116335000000036,
+selected_non_baseline_count=6.
+
+Benchmark command:
+python -m ai_mesh_generator.amg.benchmark.recommendation --recommendation runs\t710_fresh_quality_loop\recommendation_refreshed --out runs\t710_fresh_quality_loop\recommendation_benchmark_refreshed.json --baseline runs\t708_quality_exploration_smoke\recommendation_benchmark_metricfix4.json
+Result: SUCCESS, improvement_rate_delta=0.0, median_improvement_delta_delta=0.3155714999999981.
+
+Regression:
+python -m pytest -> 238 passed, 2 skipped in 11.11s.
+```
+
+Known remaining risk:
+
+```text
+sample_000036 regressed by -9.106281 in the refreshed recommendation gate.
+T-710 is complete because median and pass-rate criteria are met, but T-711 must add downside-risk guardrails.
+```
+
+### T-711_RISK_AWARE_RECOMMENDATION_GUARDRAILS
+
+Status: TODO
+
+Goal:
+
+```text
+Add risk-aware recommendation criteria and candidate-selection guardrails so quality recommendation
+keeps median gains while preventing severe per-sample regressions like sample_000036 in T-710.
+```
+
+Acceptance:
+
+```text
+Recommendation reports include worst_delta, lower-tail quantiles, and severe_regression_count.
+Benchmark success requires no severe regression below a configured threshold unless explicitly allowed.
+Candidate selection can reject high-uncertainty or high-risk fresh controls and fall back to baseline
+only when that fallback is recorded as a risk decision, not as a hidden success.
+Real ANSA recommendation gate reruns with the same T-710 sample set and produces
+improvement_rate >= 0.8333333333333334, median_improvement_delta >= 0.7116335000000036,
+and severe_regression_count=0.
 ```

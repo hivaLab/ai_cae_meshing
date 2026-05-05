@@ -11,7 +11,7 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from ai_mesh_generator.amg.benchmark.recommendation import build_recommendation_benchmark_report
+from ai_mesh_generator.amg.benchmark.recommendation import build_recommendation_benchmark_report, write_recommendation_benchmark_report
 from ai_mesh_generator.amg.dataset import load_amg_dataset_sample
 from ai_mesh_generator.amg.quality_features import build_quality_feature_vector
 from ai_mesh_generator.amg.recommendation.quality import (
@@ -314,10 +314,16 @@ def test_recommendation_benchmark_accepts_real_improvement_and_rejects_placehold
     )
 
     report = build_recommendation_benchmark_report(recommendation=out)
+    baseline_path = RUNS / "benchmark" / "baseline_benchmark.json"
+    write_recommendation_benchmark_report(baseline_path, report)
+    compared = build_recommendation_benchmark_report(recommendation=out, baseline=baseline_path)
 
     assert result.valid_pair_count == 6
     assert report["status"] == "SUCCESS"
     assert report["improvement_rate"] == 1.0
+    assert compared["status"] == "SUCCESS"
+    assert compared["baseline_comparison"]["improvement_rate_delta"] == 0.0
+    assert compared["median_improvement_delta"] == report["median_improvement_delta"]
     first_mesh = out / "samples" / "sample_000001" / "recommended" / "meshes" / "ansa_oracle_mesh.bdf"
     first_mesh.write_text("placeholder mesh\n", encoding="utf-8")
     rejected = build_recommendation_benchmark_report(recommendation=out)

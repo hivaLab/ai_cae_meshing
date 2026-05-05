@@ -5,9 +5,9 @@ Last updated: 2026-05-05 KST
 ## Project State
 
 ```text
-Project state        : T-709 quality ranker recommendation real gate complete
+Project state        : T-710 fresh quality-control active-learning loop complete
 Active phase         : P7_REAL_PIPELINE_COMPLETION
-Active task          : T-710_FRESH_QUALITY_CONTROL_PROPOSAL_AND_ACTIVE_LEARNING_LOOP
+Active task          : T-711_RISK_AWARE_RECOMMENDATION_GUARDRAILS
 Primary source docs  : AMG.md, CDF.md
 Execution backend    : ANSA Batch Mesh through adapter/script boundary
 Dataset factory      : CDF-SM-ANSA-V1
@@ -35,6 +35,7 @@ Verified ANSA path   : C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v
 | Family expansion benchmark | DONE | T-707, 240 accepted samples and 36/36 test VALID_MESH |
 | Fast quality-aware iteration | DONE | T-708, 40 real samples, 120 perturbation evaluations, blocked=0, quality benchmark SUCCESS |
 | Quality ranker recommendation | DONE | T-709, 6 real paired ANSA comparisons, 5 improved, recommendation benchmark SUCCESS |
+| Fresh active-learning loop | DONE | T-710, 48 fresh real ANSA candidates, 5/6 improved after retraining, benchmark SUCCESS |
 
 ## Current Evidence
 
@@ -110,6 +111,27 @@ T-709 recommendation gate:
   selected_non_baseline_count=5
   failure_reason_counts={}
   status=SUCCESS
+
+T-710 fresh active-learning gate:
+  fresh evidence root: runs\t710_fresh_quality_loop\fresh_quality_exploration
+  refreshed training: runs\t710_fresh_quality_loop\training_refreshed
+  refreshed recommendation: runs\t710_fresh_quality_loop\recommendation_refreshed
+  refreshed benchmark: runs\t710_fresh_quality_loop\recommendation_benchmark_refreshed.json
+  fresh sample_count=6
+  fresh generated_count=48
+  fresh evaluated_count=48
+  fresh blocked_count=0
+  fresh unique_candidate_hash_count=48
+  fresh quality_score_variance=2048357.424587557
+  refreshed recommendation attempted_count=6
+  refreshed valid_pair_count=6
+  refreshed improved_count=5
+  refreshed improvement_rate=0.8333333333333334
+  refreshed median_improvement_delta=0.7116335000000036
+  selected_non_baseline_count=6
+  baseline improvement_rate delta=0.0
+  baseline median delta improvement=0.3155714999999981
+  status=SUCCESS
 ```
 
 ## Blockers And Risks
@@ -126,16 +148,16 @@ T-709 recommendation gate:
 | Real ANSA control application | resolved for T-708 | manifest controls now bind to ANSA mesh sizing, washer/refinement, suppression/fill, bend row, and flange sizing API paths |
 | Quality statistics parsing | resolved for T-708 | parser uses the Session-Parts report table and does not confuse element-count TOTAL headers with violating shell totals |
 | Recommendation quality | resolved for T-709 | ranker selected better controls in 5 of 6 paired real ANSA comparisons |
-| Fresh control proposal | open | T-709 selected from evaluated T-708 perturbation manifests; T-710 must propose fresh candidates and close the active-learning loop |
+| Fresh control proposal | resolved for T-710 | fresh candidates generated and evaluated with real ANSA, then used for refreshed recommendation |
+| Recommendation downside risk | open | T-710 improved median but sample_000036 regressed by -9.106281, making mean improvement negative |
 
 ## Next Task
 
 ```text
-T-710_FRESH_QUALITY_CONTROL_PROPOSAL_AND_ACTIVE_LEARNING_LOOP
+T-711_RISK_AWARE_RECOMMENDATION_GUARDRAILS
 
-Generate fresh quality-control candidate manifests from the trained ranker/model policy,
-execute them with real ANSA, append evidence, retrain, and verify recommendation quality
-against the T-709 baseline.
+Add risk-aware recommendation criteria and safety guards so the ranker preserves median gains
+without allowing severe per-sample regressions like sample_000036 in the T-710 gate.
 ```
 
 ## Session Log Template
@@ -369,3 +391,53 @@ Blockers:
 
 Next:
   - T-710_FRESH_QUALITY_CONTROL_PROPOSAL_AND_ACTIVE_LEARNING_LOOP
+
+## Session 2026-05-05 T-710
+
+Completed:
+  - T-710_FRESH_QUALITY_CONTROL_PROPOSAL_AND_ACTIVE_LEARNING_LOOP.
+  - Added AMG-only fresh candidate proposal and real ANSA evidence append path.
+  - Extended quality training to consume extra fresh evidence roots.
+  - Extended recommendation benchmark with baseline comparison.
+
+Changed files:
+  - ai_mesh_generator/amg/recommendation/fresh.py
+  - ai_mesh_generator/amg/recommendation/__init__.py
+  - ai_mesh_generator/amg/training/quality.py
+  - ai_mesh_generator/amg/benchmark/recommendation.py
+  - pyproject.toml
+  - tests/test_amg_fresh_quality_proposal.py
+  - tests/test_amg_quality_recommendation.py
+  - docs/STATUS.md
+  - docs/TASKS.md
+  - docs/NEXT_AGENT_PROMPT.md
+
+Tests:
+  - command: python -m pytest tests\test_amg_fresh_quality_proposal.py tests\test_amg_quality_recommendation.py tests\test_amg_quality_training.py tests\test_dependency_boundary.py
+  - result: PASS, 15 passed in 2.44s
+  - command: python -m pytest
+  - result: PASS, 238 passed and 2 skipped in 11.11s
+
+Real gates:
+  - command: python -m ai_mesh_generator.amg.recommendation.fresh --dataset runs\t708_quality_exploration_smoke\dataset --quality-exploration runs\t708_quality_exploration_smoke\quality_exploration_metricfix2 --training runs\t708_quality_exploration_smoke\training_quality_metricfix2 --out runs\t710_fresh_quality_loop\fresh_quality_exploration --split test --candidates-per-sample 8 --limit 6 --seed 710 --ansa-executable C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat
+  - result: SUCCESS, sample_count=6, generated_count=48, evaluated_count=48, blocked_count=0, quality_score_variance=2048357.424587557
+  - command: python -m ai_mesh_generator.amg.training.quality --dataset runs\t708_quality_exploration_smoke\dataset --quality-exploration runs\t708_quality_exploration_smoke\quality_exploration_metricfix2 --extra-quality-evidence runs\t710_fresh_quality_loop\fresh_quality_exploration --out runs\t710_fresh_quality_loop\training_refreshed --epochs 5 --batch-size 32 --seed 710
+  - result: SUCCESS, example_count=208, validation_pairwise_accuracy=0.6666666666666666
+  - command: python -m ai_mesh_generator.amg.recommendation.quality --dataset runs\t708_quality_exploration_smoke\dataset --quality-exploration runs\t710_fresh_quality_loop\fresh_quality_exploration --training runs\t710_fresh_quality_loop\training_refreshed --out runs\t710_fresh_quality_loop\recommendation_refreshed --split test --limit 6 --ansa-executable C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat
+  - result: SUCCESS, attempted_count=6, valid_pair_count=6, improved_count=5, improvement_rate=0.8333333333333334, median_improvement_delta=0.7116335000000036
+  - command: python -m ai_mesh_generator.amg.benchmark.recommendation --recommendation runs\t710_fresh_quality_loop\recommendation_refreshed --out runs\t710_fresh_quality_loop\recommendation_benchmark_refreshed.json --baseline runs\t708_quality_exploration_smoke\recommendation_benchmark_metricfix4.json
+  - result: SUCCESS
+
+Evidence:
+  - fresh summary: runs\t710_fresh_quality_loop\fresh_quality_exploration\quality_exploration_summary.json
+  - refreshed benchmark: runs\t710_fresh_quality_loop\recommendation_benchmark_refreshed.json
+  - T-709 improvement_rate was preserved at 0.8333333333333334.
+  - median_improvement_delta improved from 0.39606200000000547 to 0.7116335000000036.
+  - selected_non_baseline_count increased from 5 to 6.
+
+Blockers:
+  - none for T-710.
+  - Remaining risk: sample_000036 regressed by -9.106281, so mean_improvement_delta is negative despite benchmark success.
+
+Next:
+  - T-711_RISK_AWARE_RECOMMENDATION_GUARDRAILS

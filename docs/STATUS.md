@@ -1,13 +1,13 @@
 # STATUS.md
 
-Last updated: 2026-05-03 KST
+Last updated: 2026-05-05 KST
 
 ## Project State
 
 ```text
-Project state        : T-707 real family-expansion benchmark complete
+Project state        : T-708 quality-aware iteration code implemented; real gate pending
 Active phase         : P7_REAL_PIPELINE_COMPLETION
-Active task          : T-708_PRODUCTION_SCALE_DATASET_AND_MODEL_SELECTION
+Active task          : T-708_FAST_QUALITY_AWARE_DATASET_ITERATION
 Primary source docs  : AMG.md, CDF.md
 Execution backend    : ANSA Batch Mesh through adapter/script boundary
 Dataset factory      : CDF-SM-ANSA-V1
@@ -92,15 +92,16 @@ Benchmark report:
 | Single-feature flat-panel overclaim | resolved | T-706 included mixed flat and L-bracket cases |
 | Broader bent-family generalization | resolved for deterministic generated families | T-707 covers SM_SINGLE_FLANGE, SM_L_BRACKET, SM_U_CHANNEL, and SM_HAT_CHANNEL |
 | HAT truth/detector mismatch | resolved | HAT truth now records four structural flange/sidewall patches to match detected graph candidates |
-| Production-scale model quality | open | T-707 proves closed generated benchmark robustness, not large-scale production model selection |
+| Production-scale model quality | reframed | T-708 prioritizes information density, quality response diversity, and ranking evidence over blind sample count |
+| T-708 real smoke gate | open | code/tests pass, but the real 40-sample quality-exploration gate has not been executed in this session |
 
 ## Next Task
 
 ```text
-T-708_PRODUCTION_SCALE_DATASET_AND_MODEL_SELECTION
+T-708_FAST_QUALITY_AWARE_DATASET_ITERATION
 
-Scale the real accepted dataset and compare explicit AMG model/training configurations.
-Select checkpoints using real validation/test evidence, not smoke tests or synthetic targets.
+Run the real quality-aware smoke gate: generate sm_quality_exploration_v1, run cdf quality-explore,
+train amg-train-quality, and build amg-quality-benchmark with entropy, variance, and pairwise ranking evidence.
 ```
 
 ## Session Log Template
@@ -171,4 +172,49 @@ Blockers:
   - Remaining risk: production-scale dataset/model selection is not yet done.
 
 Next:
-  - T-708_PRODUCTION_SCALE_DATASET_AND_MODEL_SELECTION
+  - T-708_FAST_QUALITY_AWARE_DATASET_ITERATION
+
+## Session 2026-05-05 T-708 Code Pass
+
+Completed:
+  - Implemented the code-side pass for T-708_FAST_QUALITY_AWARE_DATASET_ITERATION.
+  - T-708 remains IN_PROGRESS until the real ANSA quality-exploration smoke gate is run and passes.
+
+Changed files:
+  - pyproject.toml
+  - cad_dataset_factory/cdf/cli.py
+  - cad_dataset_factory/cdf/oracle/ansa_scripts/cdf_ansa_api_layer.py
+  - cad_dataset_factory/cdf/pipeline/e2e_dataset.py
+  - cad_dataset_factory/cdf/quality/__init__.py
+  - cad_dataset_factory/cdf/quality/exploration.py
+  - ai_mesh_generator/amg/training/__init__.py
+  - ai_mesh_generator/amg/training/quality.py
+  - ai_mesh_generator/amg/benchmark/__init__.py
+  - ai_mesh_generator/amg/benchmark/quality.py
+  - tests/test_cdf_mixed_benchmark_profile.py
+  - tests/test_cdf_quality_exploration.py
+  - tests/test_amg_quality_training.py
+  - tests/test_amg_quality_benchmark.py
+  - docs/STATUS.md
+  - docs/TASKS.md
+  - docs/NEXT_AGENT_PROMPT.md
+
+Tests:
+  - command: python -m pytest
+  - result: PASS, 223 passed and 1 skipped in 10.35s
+
+Real gates:
+  - not run in this session.
+  - required next gate:
+    python -m cad_dataset_factory.cdf.cli generate --config configs\cdf_sm_ansa_v1.default.json --out runs\t708_quality_exploration_smoke\dataset --count 40 --seed 708 --require-ansa --ansa-executable C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat --profile sm_quality_exploration_v1
+    python -m cad_dataset_factory.cdf.cli quality-explore --dataset runs\t708_quality_exploration_smoke\dataset --out runs\t708_quality_exploration_smoke\quality_exploration --perturbations-per-sample 3 --ansa-executable C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat
+    python -m ai_mesh_generator.amg.training.quality --dataset runs\t708_quality_exploration_smoke\dataset --quality-exploration runs\t708_quality_exploration_smoke\quality_exploration --out runs\t708_quality_exploration_smoke\training_quality --epochs 5 --batch-size 32 --seed 708
+    python -m ai_mesh_generator.amg.benchmark.quality --dataset runs\t708_quality_exploration_smoke\dataset --quality-exploration runs\t708_quality_exploration_smoke\quality_exploration --training runs\t708_quality_exploration_smoke\training_quality --out runs\t708_quality_exploration_smoke\quality_benchmark.json
+
+Blockers:
+  - none for code implementation.
+  - T-708 DONE is blocked on real-gate evidence: nonzero quality-score variance, both pass and fail/near-fail records,
+    action/control entropy, and validation pairwise ranking accuracy above random baseline.
+
+Next:
+  - Execute and analyze the T-708 real quality-exploration smoke gate.

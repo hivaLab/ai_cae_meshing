@@ -25,8 +25,12 @@ from ai_mesh_generator.amg.training.smoke import (
 
 __all__ = [
     "AmgRealTrainingError",
+    "AmgQualityTrainingError",
     "AmgTrainingSmokeError",
     "ManifestSupervisionTargets",
+    "QualityControlRanker",
+    "QualityTrainingConfig",
+    "QualityTrainingResult",
     "RealTrainingConfig",
     "RealTrainingResult",
     "SmokeLossBreakdown",
@@ -39,7 +43,23 @@ __all__ = [
     "load_smoke_checkpoint",
     "main",
     "run_real_dataset_training",
+    "run_quality_training",
     "run_training_smoke",
     "save_smoke_checkpoint",
     "validate_real_training_dataset",
 ]
+
+
+def __getattr__(name: str):
+    if name in {
+        "AmgQualityTrainingError",
+        "QualityControlRanker",
+        "QualityTrainingConfig",
+        "QualityTrainingResult",
+        "run_quality_training",
+    }:
+        import importlib
+
+        module = importlib.import_module("ai_mesh_generator.amg.training.quality")
+        return getattr(module, name)
+    raise AttributeError(name)

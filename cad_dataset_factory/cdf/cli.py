@@ -11,6 +11,7 @@ from typing import Sequence
 
 from cad_dataset_factory.cdf.pipeline import CdfPipelineError, generate_dataset, validate_dataset
 from cad_dataset_factory.cdf.oracle import run_ansa_probe
+from cad_dataset_factory.cdf.quality import CdfQualityExplorationError, run_quality_exploration
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -34,6 +35,14 @@ def build_parser() -> argparse.ArgumentParser:
     probe.add_argument("--ansa-executable", required=True, help="Explicit ANSA executable/batch file path")
     probe.add_argument("--out", default="runs/ansa_probe/ansa_runtime_probe.json", help="Probe report JSON path")
     probe.add_argument("--timeout-sec", type=int, default=90, help="Probe timeout in seconds")
+
+    quality = subparsers.add_parser("quality-explore", help="Run real ANSA perturbation-based quality exploration")
+    quality.add_argument("--dataset", required=True, help="Accepted CDF dataset root")
+    quality.add_argument("--out", required=True, help="Quality exploration output directory")
+    quality.add_argument("--perturbations-per-sample", type=int, default=3)
+    quality.add_argument("--limit", type=int, default=None, help="Optional accepted sample limit for fast iteration")
+    quality.add_argument("--ansa-executable", required=True, help="Explicit ANSA executable/batch file path")
+    quality.add_argument("--timeout-sec", type=int, default=180)
     return parser
 
 
@@ -92,9 +101,35 @@ def main(argv: Sequence[str] | None = None) -> int:
                 }
             )
             return 0 if result.status == "OK" else 2
+        if args.command == "quality-explore":
+            result = run_quality_exploration(
+                dataset_root=args.dataset,
+                output_dir=args.out,
+                perturbations_per_sample=args.perturbations_per_sample,
+                limit=args.limit,
+                ansa_executable=args.ansa_executable,
+                timeout_sec_per_sample=args.timeout_sec,
+            )
+            _print_result(
+                {
+                    "status": result.status,
+                    "output_dir": result.output_dir,
+                    "summary_path": result.summary_path,
+                    "baseline_count": result.baseline_count,
+                    "evaluated_count": result.evaluated_count,
+                    "passed_count": result.passed_count,
+                    "failed_count": result.failed_count,
+                    "blocked_count": result.blocked_count,
+                    "quality_score_variance": result.quality_score_variance,
+                }
+            )
+            return 0 if result.status == "SUCCESS" else 2
     except CdfPipelineError as exc:
         _print_result({"status": "FAILED", "code": exc.code, "message": str(exc)})
         return 1
+    except CdfQualityExplorationError as exc:
+        _print_result({"status": "BLOCKED", "code": exc.code, "message": str(exc)})
+        return 2
     parser.error(f"unsupported command: {args.command}")
     return 1
 

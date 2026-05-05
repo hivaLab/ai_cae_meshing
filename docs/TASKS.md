@@ -910,24 +910,49 @@ splits: train=168, val=36, test=36.
 per-family after-retry VALID_MESH rate: 1.0 for every required part class.
 ```
 
-### T-708_PRODUCTION_SCALE_DATASET_AND_MODEL_SELECTION
+### T-708_FAST_QUALITY_AWARE_DATASET_ITERATION
 
-Status: TODO
+Status: IN_PROGRESS
 
 Goal:
 
 ```text
-Scale from closed benchmark datasets to production-scale real accepted datasets and compare model
-configurations using file-contract training and real ANSA inference evidence.
+Shift T-708 away from blind production-scale sample counts and toward fast,
+quality-aware dataset iteration. Build a user-counted CDF profile with diverse
+shape/control/action coverage, run real ANSA perturbation evaluations, and train
+AMG to rank better and worse mesh-control manifests for the same geometry.
 ```
 
 Acceptance:
 
 ```text
-CDF generates a substantially larger real ANSA-accepted dataset with all validated families and feature types.
-AMG trains at least two explicit model/training configurations on the same real train/val split.
-Held-out real ANSA inference selects a best checkpoint by validation/test evidence, not smoke metrics.
-Reports include dataset size, per-family coverage, per-feature coverage, training curves, validation metrics,
-real ANSA mesh success rates, and failure histograms.
-No mock, placeholder, skipped family, deterministic fallback, or synthetic target path is counted as success.
+CDF profile sm_quality_exploration_v1 accepts arbitrary --count values and does not force 10,000 samples.
+The profile diversifies part class, dimensions, thickness, feature size/position/count/role, bend radius/angle,
+flange width, and manifest actions including KEEP_REFINED, KEEP_WITH_WASHER, SUPPRESS,
+KEEP_WITH_BEND_ROWS, and KEEP_WITH_FLANGE_SIZE.
+cdf quality-explore perturbs accepted baseline manifests, executes real ANSA, and records pass, fail,
+near-fail, blocked, continuous quality metrics, and lower-is-better quality scores without overwriting labels.
+Missing continuous ANSA quality metrics are BLOCKED, not guessed.
+amg-train-quality uses graph + manifest + quality exploration evidence by file contract only and trains
+same-geometry pairwise ranking targets. Graph inputs contain no target action/control columns.
+amg-quality-benchmark reports action/control entropy, quality score variance, pass/fail/near-fail counts,
+pairwise ranking accuracy, and baseline-improvement evidence.
+T-708 is DONE only after at least the real smoke gate completes:
+  cdf generate --profile sm_quality_exploration_v1 --count 40 --require-ansa
+  cdf quality-explore --perturbations-per-sample 3
+  amg-train-quality
+  amg-quality-benchmark
+with nonzero control diversity, nonzero quality-score variance, both pass and fail/near-fail examples,
+and held-out pairwise ranking accuracy above random baseline.
+No mock, placeholder, unavailable ANSA, controlled failure, synthetic graph target, deterministic fallback,
+or hidden skipped case can count as success.
+```
+
+Implemented so far:
+
+```text
+Code and unit/regression tests for the user-counted diversity profile, quality exploration runner,
+continuous metric extraction from ANSA statistics HTML, quality-aware AMG ranker, and quality benchmark
+report are implemented. Full regression command python -m pytest passes with 223 passed and 1 skipped.
+The real T-708 smoke gate has not yet been run in this session, so T-708 remains IN_PROGRESS.
 ```

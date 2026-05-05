@@ -60,6 +60,18 @@ def test_family_expansion_profile_target_plan_is_closed_and_deterministic() -> N
         e2e_dataset._target_cases_for_profile(e2e_dataset.FAMILY_EXPANSION_PROFILE, 239)
 
 
+def test_quality_exploration_profile_accepts_user_controlled_counts() -> None:
+    cases = e2e_dataset._target_cases_for_profile(e2e_dataset.QUALITY_EXPLORATION_PROFILE, 17)
+
+    assert len(cases) == 17
+    assert cases[: len(e2e_dataset.QUALITY_EXPLORATION_CASES)] == list(e2e_dataset.QUALITY_EXPLORATION_CASES)
+    assert cases[-3:] == [
+        e2e_dataset.PROFILE_CASE_HOLE,
+        e2e_dataset.PROFILE_CASE_HOLE_BOLT,
+        e2e_dataset.PROFILE_CASE_HOLE_MOUNT,
+    ]
+
+
 def test_mixed_profile_specs_cover_required_truth_cases() -> None:
     rng = __import__("random").Random(706)
     hole = e2e_dataset._flat_panel_spec("sample_000001", 1, rng, e2e_dataset.PROFILE_CASE_HOLE)
@@ -75,6 +87,29 @@ def test_mixed_profile_specs_cover_required_truth_cases() -> None:
     assert cutout.features[0].role == FeatureRole.PASSAGE
     assert l_bracket.part_class == PartClass.SM_L_BRACKET
     assert l_bracket.flange_width_mm >= 2.0 * l_bracket.thickness_mm
+
+
+def test_quality_exploration_profile_specs_cover_role_and_action_diversity() -> None:
+    rng = __import__("random").Random(708)
+    specs = [
+        e2e_dataset._flat_panel_spec("sample_000001", 1, rng, e2e_dataset.PROFILE_CASE_HOLE_BOLT),
+        e2e_dataset._flat_panel_spec("sample_000002", 2, rng, e2e_dataset.PROFILE_CASE_HOLE_MOUNT),
+        e2e_dataset._flat_panel_spec("sample_000003", 3, rng, e2e_dataset.PROFILE_CASE_HOLE_RELIEF),
+        e2e_dataset._flat_panel_spec("sample_000004", 4, rng, e2e_dataset.PROFILE_CASE_SLOT_DRAIN),
+        e2e_dataset._flat_panel_spec("sample_000005", 5, rng, e2e_dataset.PROFILE_CASE_CUTOUT_RELIEF),
+        e2e_dataset._flat_panel_spec("sample_000006", 6, rng, e2e_dataset.PROFILE_CASE_DENSE_COMBO),
+    ]
+    quality_roles = {feature.role for spec in specs for feature in spec.features}
+    quality_types = {feature.type.value for spec in specs for feature in spec.features}
+
+    assert {FeatureRole.BOLT, FeatureRole.MOUNT, FeatureRole.RELIEF, FeatureRole.DRAIN, FeatureRole.PASSAGE}.issubset(quality_roles)
+    assert {"HOLE", "SLOT", "CUTOUT"}.issubset(quality_types)
+
+    base = e2e_dataset._bent_part_spec("sample_base", 10, e2e_dataset.PROFILE_CASE_L_BRACKET)
+    varied = e2e_dataset._bent_part_spec("sample_varied", 10, e2e_dataset.PROFILE_CASE_L_BRACKET, quality_variant=True)
+    assert base.bend_angle_deg == 90.0
+    assert varied.bend_angle_deg != base.bend_angle_deg
+    assert varied.flange_width_mm != base.flange_width_mm
 
 
 def test_family_expansion_bent_specs_cover_required_part_classes() -> None:
@@ -138,6 +173,20 @@ def test_family_expansion_splits_are_non_empty_70_15_15() -> None:
     assert len(test) == 36
     assert train[0] == "sample_000001"
     assert test[-1] == "sample_000240"
+
+
+def test_quality_profile_splits_are_user_counted_70_15_15() -> None:
+    dataset_root = _fresh(RUNS / "quality_splits")
+    accepted = [{"sample_id": f"sample_{index:06d}"} for index in range(1, 41)]
+
+    e2e_dataset._write_splits(dataset_root, accepted, e2e_dataset.QUALITY_EXPLORATION_PROFILE)
+
+    train = (dataset_root / "splits" / "train.txt").read_text(encoding="utf-8").splitlines()
+    val = (dataset_root / "splits" / "val.txt").read_text(encoding="utf-8").splitlines()
+    test = (dataset_root / "splits" / "test.txt").read_text(encoding="utf-8").splitlines()
+    assert len(train) == 28
+    assert len(val) == 6
+    assert len(test) == 6
 
 
 def test_mixed_profile_probe_failure_blocks_generation(monkeypatch) -> None:

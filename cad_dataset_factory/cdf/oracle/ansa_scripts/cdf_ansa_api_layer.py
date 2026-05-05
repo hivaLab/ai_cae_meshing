@@ -6,7 +6,9 @@ the CDF package without requiring an ANSA installation.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -266,14 +268,80 @@ def ansa_run_quality_checks(model: AnsaModelRef, quality_profile: str) -> dict[s
     hard_failed = 1 if statistics_status == 1 else 0
     if counts["num_shell_elements"] <= 0:
         hard_failed += 1
+    continuous_metrics = _parse_statistics_report(Path(stats_path)) if stats_path else {"quality_metric_unavailable": True}
     report = {
         "quality_profile": quality_profile,
         "statistics_status": statistics_status,
         "num_hard_failed_elements": hard_failed,
         **counts,
+        **continuous_metrics,
     }
     model.reports["quality"] = report
     return report
+
+
+def _cell_texts(html: str) -> list[str]:
+    return [
+        re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", cell)).strip()
+        for cell in re.findall(r"<td[^>]*>(.*?)</td>", html, flags=re.IGNORECASE | re.DOTALL)
+    ]
+
+
+def _float_or_none(value: str) -> float | None:
+    cleaned = value.strip().replace("%", "")
+    if cleaned in {"", "-"}:
+        return None
+    match = re.search(r"[-+]?\d+(?:\.\d+)?", cleaned)
+    if match is None:
+        return None
+    try:
+        return float(match.group(0))
+    except ValueError:
+        return None
+
+
+def _parse_statistics_report(path: Path) -> dict[str, Any]:
+    try:
+        html = path.read_text(encoding="iso-8859-1", errors="ignore")
+    except OSError:
+        return {"quality_metric_unavailable": True}
+    cells = _cell_texts(html)
+    metrics: dict[str, Any] = {}
+    for index, cell in enumerate(cells):
+        if cell == "TOTAL" and index + 4 < len(cells):
+            avg_length = _float_or_none(cells[index + 1])
+            unmeshed = _float_or_none(cells[index + 2])
+            triangles = _float_or_none(cells[index + 3])
+            violating = _float_or_none(cells[index + 4])
+            if avg_length is not None:
+                metrics["average_shell_length_mm"] = avg_length
+            if unmeshed is not None:
+                metrics["unmeshed_shell_count"] = int(unmeshed)
+            if triangles is not None:
+                metrics["triangles_percent"] = triangles
+            if violating is not None:
+                metrics["violating_shell_elements_total"] = int(violating)
+        if cell == "MIN" and index + 3 < len(cells):
+            value = _float_or_none(cells[index + 3])
+            if value is not None:
+                metrics["min_shell_side_length_mm"] = value
+        if cell == "AVERAGE" and index + 3 < len(cells):
+            value = _float_or_none(cells[index + 3])
+            if value is not None:
+                metrics["average_shell_side_length_mm"] = value
+        if cell == "MAX" and index + 3 < len(cells):
+            value = _float_or_none(cells[index + 3])
+            if value is not None:
+                metrics["max_shell_side_length_mm"] = value
+    min_side = metrics.get("min_shell_side_length_mm")
+    max_side = metrics.get("max_shell_side_length_mm")
+    avg_side = metrics.get("average_shell_side_length_mm")
+    if isinstance(min_side, (int, float)) and isinstance(max_side, (int, float)) and isinstance(avg_side, (int, float)) and avg_side > 0:
+        metrics["side_length_spread_ratio"] = max(0.0, float(max_side - min_side) / float(avg_side))
+        metrics["aspect_ratio_proxy_max"] = float(max_side) / max(float(min_side), 1.0e-9)
+    if not metrics:
+        metrics["quality_metric_unavailable"] = True
+    return metrics
 
 
 def ansa_export_solver_deck(model: AnsaModelRef, deck: str, out_path: str) -> dict[str, Any]:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import random
 import shutil
@@ -34,7 +35,7 @@ from cad_dataset_factory.cdf.domain import (
     MeshPolicy,
     PartClass,
 )
-from cad_dataset_factory.cdf.labels import build_amg_manifest, build_aux_labels
+from cad_dataset_factory.cdf.labels import FeatureClearance, build_amg_manifest, build_aux_labels
 from cad_dataset_factory.cdf.labels.sizing import h0_from_midsurface_area, length_bounds_from_h0
 from cad_dataset_factory.cdf.oracle import (
     AnsaReportParseError,
@@ -61,6 +62,7 @@ REAL_MESH_RELATIVE_PATH = Path("meshes") / "ansa_oracle_mesh.bdf"
 DEFAULT_PROFILE = "flat_hole_pilot_v1"
 MIXED_BENCHMARK_PROFILE = "sm_mixed_benchmark_v1"
 FAMILY_EXPANSION_PROFILE = "sm_family_expansion_v1"
+QUALITY_EXPLORATION_PROFILE = "sm_quality_exploration_v1"
 PROFILE_CASE_HOLE = "flat_hole"
 PROFILE_CASE_SLOT = "flat_slot"
 PROFILE_CASE_CUTOUT = "flat_cutout"
@@ -69,6 +71,30 @@ PROFILE_CASE_SINGLE_FLANGE = "single_flange"
 PROFILE_CASE_L_BRACKET = "l_bracket"
 PROFILE_CASE_U_CHANNEL = "u_channel"
 PROFILE_CASE_HAT_CHANNEL = "hat_channel"
+PROFILE_CASE_HOLE_BOLT = "flat_hole_bolt"
+PROFILE_CASE_HOLE_MOUNT = "flat_hole_mount"
+PROFILE_CASE_HOLE_RELIEF = "flat_hole_relief"
+PROFILE_CASE_SLOT_DRAIN = "flat_slot_drain"
+PROFILE_CASE_CUTOUT_RELIEF = "flat_cutout_relief"
+PROFILE_CASE_DENSE_COMBO = "flat_dense_combo"
+FLAT_PROFILE_CASES = {
+    PROFILE_CASE_HOLE,
+    PROFILE_CASE_SLOT,
+    PROFILE_CASE_CUTOUT,
+    PROFILE_CASE_COMBO,
+    PROFILE_CASE_HOLE_BOLT,
+    PROFILE_CASE_HOLE_MOUNT,
+    PROFILE_CASE_HOLE_RELIEF,
+    PROFILE_CASE_SLOT_DRAIN,
+    PROFILE_CASE_CUTOUT_RELIEF,
+    PROFILE_CASE_DENSE_COMBO,
+}
+BENT_PROFILE_CASES = {
+    PROFILE_CASE_SINGLE_FLANGE,
+    PROFILE_CASE_L_BRACKET,
+    PROFILE_CASE_U_CHANNEL,
+    PROFILE_CASE_HAT_CHANNEL,
+}
 MIXED_BENCHMARK_CASE_COUNTS = (
     (PROFILE_CASE_HOLE, 30),
     (PROFILE_CASE_SLOT, 30),
@@ -88,6 +114,22 @@ FAMILY_EXPANSION_CASE_COUNTS = (
     (PROFILE_CASE_HAT_CHANNEL, 30),
 )
 FAMILY_EXPANSION_REQUIRED_CASES = tuple(case for case, _count in FAMILY_EXPANSION_CASE_COUNTS)
+QUALITY_EXPLORATION_CASES = (
+    PROFILE_CASE_HOLE,
+    PROFILE_CASE_HOLE_BOLT,
+    PROFILE_CASE_HOLE_MOUNT,
+    PROFILE_CASE_HOLE_RELIEF,
+    PROFILE_CASE_SLOT,
+    PROFILE_CASE_SLOT_DRAIN,
+    PROFILE_CASE_CUTOUT,
+    PROFILE_CASE_CUTOUT_RELIEF,
+    PROFILE_CASE_COMBO,
+    PROFILE_CASE_DENSE_COMBO,
+    PROFILE_CASE_SINGLE_FLANGE,
+    PROFILE_CASE_L_BRACKET,
+    PROFILE_CASE_U_CHANNEL,
+    PROFILE_CASE_HAT_CHANNEL,
+)
 REQUIRED_CONTRACTS = (
     "AMG_MANIFEST_SM_V1.schema.json",
     "AMG_BREP_GRAPH_SM_V1.schema.json",
@@ -177,6 +219,8 @@ def _copy_contracts(dataset_root: Path) -> None:
 def _target_cases_for_profile(profile: str, count: int) -> list[str]:
     if profile == DEFAULT_PROFILE:
         return [PROFILE_CASE_HOLE for _ in range(count)]
+    if profile == QUALITY_EXPLORATION_PROFILE:
+        return [QUALITY_EXPLORATION_CASES[index % len(QUALITY_EXPLORATION_CASES)] for index in range(count)]
     if profile in {MIXED_BENCHMARK_PROFILE, FAMILY_EXPANSION_PROFILE}:
         case_counts = MIXED_BENCHMARK_CASE_COUNTS if profile == MIXED_BENCHMARK_PROFILE else FAMILY_EXPANSION_CASE_COUNTS
         required_count = sum(case_count for _case, case_count in case_counts)
@@ -200,7 +244,7 @@ def _write_splits(dataset_root: Path, accepted_samples: list[dict[str, Any]], pr
     splits = dataset_root / "splits"
     splits.mkdir(parents=True, exist_ok=True)
     sample_ids = [str(sample["sample_id"]) for sample in accepted_samples]
-    if profile in {MIXED_BENCHMARK_PROFILE, FAMILY_EXPANSION_PROFILE} and sample_ids:
+    if profile in {MIXED_BENCHMARK_PROFILE, FAMILY_EXPANSION_PROFILE, QUALITY_EXPLORATION_PROFILE} and sample_ids:
         train_count = int(0.70 * len(sample_ids))
         val_count = int(0.15 * len(sample_ids))
         split_map = {
@@ -375,9 +419,22 @@ def _flat_panel_spec(
     rng: random.Random,
     profile_case: str,
 ) -> FlatPanelSpec:
-    width_mm = 150.0 + 5.0 * (attempt_index % 4)
-    height_mm = 95.0 + 5.0 * (attempt_index % 3)
-    thickness_mm = 1.2
+    is_quality_profile_case = profile_case in {
+        PROFILE_CASE_HOLE_BOLT,
+        PROFILE_CASE_HOLE_MOUNT,
+        PROFILE_CASE_HOLE_RELIEF,
+        PROFILE_CASE_SLOT_DRAIN,
+        PROFILE_CASE_CUTOUT_RELIEF,
+        PROFILE_CASE_DENSE_COMBO,
+    }
+    if is_quality_profile_case:
+        width_mm = 130.0 + 7.0 * (attempt_index % 9)
+        height_mm = 85.0 + 6.0 * (attempt_index % 7)
+        thickness_mm = 0.9 + 0.15 * (attempt_index % 9)
+    else:
+        width_mm = 150.0 + 5.0 * (attempt_index % 4)
+        height_mm = 95.0 + 5.0 * (attempt_index % 3)
+        thickness_mm = 1.2
     features: list[FlatPanelFeatureSpec]
     if profile_case == PROFILE_CASE_HOLE:
         radius_mm = 4.0
@@ -395,6 +452,51 @@ def _flat_panel_spec(
                 radius_mm=radius_mm,
             )
         ]
+    elif profile_case == PROFILE_CASE_HOLE_BOLT:
+        radius_mm = 3.0 + 0.4 * (attempt_index % 5)
+        center = (
+            rng.uniform(35.0, width_mm - 35.0),
+            rng.uniform(32.0, height_mm - 32.0),
+        )
+        features = [
+            FlatPanelFeatureSpec(
+                feature_id="HOLE_BOLT_0001",
+                type="HOLE",
+                role=FeatureRole.BOLT,
+                center_uv_mm=center,
+                radius_mm=radius_mm,
+            )
+        ]
+    elif profile_case == PROFILE_CASE_HOLE_MOUNT:
+        radius_mm = 4.0 + 0.25 * (attempt_index % 4)
+        center = (
+            rng.uniform(38.0, width_mm - 38.0),
+            rng.uniform(34.0, height_mm - 34.0),
+        )
+        features = [
+            FlatPanelFeatureSpec(
+                feature_id="HOLE_MOUNT_0001",
+                type="HOLE",
+                role=FeatureRole.MOUNT,
+                center_uv_mm=center,
+                radius_mm=radius_mm,
+            )
+        ]
+    elif profile_case == PROFILE_CASE_HOLE_RELIEF:
+        radius_mm = 0.45 + 0.08 * (attempt_index % 4)
+        center = (
+            rng.uniform(24.0, width_mm - 24.0),
+            rng.uniform(22.0, height_mm - 22.0),
+        )
+        features = [
+            FlatPanelFeatureSpec(
+                feature_id="HOLE_RELIEF_0001",
+                type="HOLE",
+                role=FeatureRole.RELIEF,
+                center_uv_mm=center,
+                radius_mm=radius_mm,
+            )
+        ]
     elif profile_case == PROFILE_CASE_SLOT:
         features = [
             FlatPanelFeatureSpec(
@@ -406,6 +508,17 @@ def _flat_panel_spec(
                 length_mm=28.0,
             )
         ]
+    elif profile_case == PROFILE_CASE_SLOT_DRAIN:
+        features = [
+            FlatPanelFeatureSpec(
+                feature_id="SLOT_DRAIN_0001",
+                type="SLOT",
+                role=FeatureRole.DRAIN,
+                center_uv_mm=(width_mm * 0.52, height_mm * 0.50),
+                width_mm=0.9 + 0.1 * (attempt_index % 3),
+                length_mm=8.0 + 1.5 * (attempt_index % 4),
+            )
+        ]
     elif profile_case == PROFILE_CASE_CUTOUT:
         features = [
             FlatPanelFeatureSpec(
@@ -415,6 +528,18 @@ def _flat_panel_spec(
                 center_uv_mm=(width_mm * 0.50, height_mm * 0.50),
                 width_mm=30.0,
                 height_mm=18.0,
+            )
+        ]
+    elif profile_case == PROFILE_CASE_CUTOUT_RELIEF:
+        side = 3.0 + 0.25 * (attempt_index % 4)
+        features = [
+            FlatPanelFeatureSpec(
+                feature_id="CUTOUT_RELIEF_0001",
+                type="CUTOUT",
+                role=FeatureRole.RELIEF,
+                center_uv_mm=(width_mm * 0.50, height_mm * 0.50),
+                width_mm=side,
+                height_mm=side,
             )
         ]
     elif profile_case == PROFILE_CASE_COMBO:
@@ -445,6 +570,42 @@ def _flat_panel_spec(
                 height_mm=18.0,
             ),
         ]
+    elif profile_case == PROFILE_CASE_DENSE_COMBO:
+        width_mm = 205.0 + 6.0 * (attempt_index % 6)
+        height_mm = 120.0 + 5.0 * (attempt_index % 5)
+        thickness_mm = 1.0 + 0.2 * (attempt_index % 6)
+        features = [
+            FlatPanelFeatureSpec(
+                feature_id="HOLE_BOLT_0001",
+                type="HOLE",
+                role=FeatureRole.BOLT,
+                center_uv_mm=(34.0, height_mm * 0.36),
+                radius_mm=3.0 + 0.25 * (attempt_index % 4),
+            ),
+            FlatPanelFeatureSpec(
+                feature_id="HOLE_RELIEF_0001",
+                type="HOLE",
+                role=FeatureRole.RELIEF,
+                center_uv_mm=(34.0, height_mm * 0.70),
+                radius_mm=0.55,
+            ),
+            FlatPanelFeatureSpec(
+                feature_id="SLOT_DRAIN_0001",
+                type="SLOT",
+                role=FeatureRole.DRAIN,
+                center_uv_mm=(95.0, height_mm * 0.50),
+                width_mm=1.0,
+                length_mm=10.0 + 1.0 * (attempt_index % 4),
+            ),
+            FlatPanelFeatureSpec(
+                feature_id="CUTOUT_PASSAGE_0001",
+                type="CUTOUT",
+                role=FeatureRole.PASSAGE,
+                center_uv_mm=(155.0, height_mm * 0.50),
+                width_mm=24.0 + 2.0 * (attempt_index % 4),
+                height_mm=15.0 + 1.5 * (attempt_index % 3),
+            ),
+        ]
     else:
         raise CdfPipelineError("unsupported_profile_case", f"unsupported flat-panel profile case: {profile_case}", sample_id)
     return FlatPanelSpec(
@@ -461,7 +622,7 @@ def _candidate_spec(sample_id: str, attempt_index: int, rng: random.Random) -> F
     return _flat_panel_spec(sample_id, attempt_index, rng, PROFILE_CASE_HOLE)
 
 
-def _bent_part_spec(sample_id: str, attempt_index: int, profile_case: str) -> BentPartSpec:
+def _bent_part_spec(sample_id: str, attempt_index: int, profile_case: str, *, quality_variant: bool = False) -> BentPartSpec:
     part_classes = {
         PROFILE_CASE_SINGLE_FLANGE: PartClass.SM_SINGLE_FLANGE,
         PROFILE_CASE_L_BRACKET: PartClass.SM_L_BRACKET,
@@ -474,23 +635,23 @@ def _bent_part_spec(sample_id: str, attempt_index: int, profile_case: str) -> Be
     if part_class == PartClass.SM_SINGLE_FLANGE:
         length_mm = 105.0 + 4.0 * (attempt_index % 4)
         web_width_mm = 62.0 + 3.0 * (attempt_index % 3)
-        flange_width_mm = 28.0
+        flange_width_mm = 24.0 + (4.0 if not quality_variant else 2.0 * (attempt_index % 8))
         side_wall_width = None
     elif part_class == PartClass.SM_L_BRACKET:
         length_mm = 125.0 + 5.0 * (attempt_index % 4)
         web_width_mm = 82.0 + 4.0 * (attempt_index % 3)
-        flange_width_mm = 40.0
+        flange_width_mm = 32.0 + (8.0 if not quality_variant else 2.5 * (attempt_index % 9))
         side_wall_width = None
     elif part_class == PartClass.SM_U_CHANNEL:
         length_mm = 135.0 + 5.0 * (attempt_index % 4)
         web_width_mm = 92.0 + 4.0 * (attempt_index % 3)
-        flange_width_mm = 34.0
+        flange_width_mm = 28.0 + (6.0 if not quality_variant else 2.0 * (attempt_index % 8))
         side_wall_width = None
     elif part_class == PartClass.SM_HAT_CHANNEL:
         length_mm = 145.0 + 5.0 * (attempt_index % 4)
         web_width_mm = 88.0 + 4.0 * (attempt_index % 3)
-        flange_width_mm = 42.0
-        side_wall_width = 36.0 + 2.0 * (attempt_index % 3)
+        flange_width_mm = 34.0 + (8.0 if not quality_variant else 2.0 * (attempt_index % 7))
+        side_wall_width = 30.0 + 2.0 * (attempt_index % 6)
     else:
         raise CdfPipelineError("unsupported_profile_case", f"unsupported bent-part profile case: {profile_case}", sample_id)
     return BentPartSpec(
@@ -501,8 +662,9 @@ def _bent_part_spec(sample_id: str, attempt_index: int, profile_case: str) -> Be
         web_width_mm=web_width_mm,
         flange_width_mm=flange_width_mm,
         thickness_mm=1.2,
-        inner_radius_mm=1.0,
         side_wall_width_mm=side_wall_width,
+        bend_angle_deg=75.0 + 5.0 * (attempt_index % 10) if quality_variant else 90.0,
+        inner_radius_mm=0.9 + 0.15 * (attempt_index % 7) if quality_variant else 1.0,
     )
 
 
@@ -532,6 +694,36 @@ def _entity_signatures_from_matches(
         part_name=feature_truth.part.part_name,
         features=signatures,
     )
+
+
+def _feature_clearances_from_truth(feature_truth: FeatureTruthDocument) -> dict[str, FeatureClearance]:
+    part_width = float(feature_truth.part.width_mm or 0.0)
+    part_height = float(feature_truth.part.height_mm or 0.0)
+    clearances: dict[str, FeatureClearance] = {}
+    hole_bounds: list[tuple[str, float, float, float]] = []
+    for feature in feature_truth.features:
+        if getattr(feature, "type", None) != "HOLE":
+            continue
+        center_uv = getattr(feature, "center_uv_mm", None)
+        radius = float(getattr(feature, "radius_mm", 0.0))
+        if center_uv is None or radius <= 0 or part_width <= 0 or part_height <= 0:
+            continue
+        u, v = float(center_uv[0]), float(center_uv[1])
+        hole_bounds.append((feature.feature_id, u, v, radius))
+    for feature_id, u, v, radius in hole_bounds:
+        boundary = min(u - radius, part_width - u - radius, v - radius, part_height - v - radius)
+        nearest = float("inf")
+        for other_id, other_u, other_v, other_radius in hole_bounds:
+            if other_id == feature_id:
+                continue
+            nearest = min(nearest, math.hypot(u - other_u, v - other_v) - radius - other_radius)
+        if math.isinf(nearest):
+            nearest = max(part_width, part_height)
+        clearances[feature_id] = FeatureClearance(
+            clearance_to_boundary_mm=max(0.001, boundary),
+            clearance_to_nearest_feature_mm=max(0.001, nearest),
+        )
+    return clearances
 
 
 def _write_graph_outputs(sample_dir: Path, graph: Any) -> None:
@@ -600,13 +792,14 @@ def _build_candidate_attempt(
     rng: random.Random,
     config: Mapping[str, Any],
     profile_case: str = PROFILE_CASE_HOLE,
+    quality_variant: bool = False,
 ) -> None:
-    if profile_case in {PROFILE_CASE_HOLE, PROFILE_CASE_SLOT, PROFILE_CASE_CUTOUT, PROFILE_CASE_COMBO}:
+    if profile_case in FLAT_PROFILE_CASES:
         spec = _flat_panel_spec(sample_id, attempt_index, rng, profile_case)
         generated = build_flat_panel_part(spec)
         write_flat_panel_outputs(attempt_dir, generated)
-    elif profile_case in {PROFILE_CASE_SINGLE_FLANGE, PROFILE_CASE_L_BRACKET, PROFILE_CASE_U_CHANNEL, PROFILE_CASE_HAT_CHANNEL}:
-        spec = _bent_part_spec(sample_id, attempt_index, profile_case)
+    elif profile_case in BENT_PROFILE_CASES:
+        spec = _bent_part_spec(sample_id, attempt_index, profile_case, quality_variant=quality_variant)
         generated = build_bent_part(spec)
         write_bent_part_outputs(attempt_dir, generated)
     else:
@@ -625,12 +818,16 @@ def _build_candidate_attempt(
         raise CdfPipelineError("missing_part_extents", "generated feature truth must include width_mm and height_mm", sample_id)
     midsurface_area_mm2 = float(part_width) * float(part_height)
     mesh_policy = _mesh_policy(float(part_width), float(part_height), config)
+    feature_policy = _feature_policy(config)
+    if profile_case in QUALITY_EXPLORATION_CASES:
+        feature_policy["allow_small_feature_suppression"] = True
     manifest = build_amg_manifest(
         feature_truth=generated.feature_truth,
         entity_signatures=entity_signatures,
         mesh_policy=mesh_policy,
-        feature_policy=_feature_policy(config),
+        feature_policy=feature_policy,
         midsurface_area_mm2=midsurface_area_mm2,
+        feature_clearances=_feature_clearances_from_truth(generated.feature_truth),
     )
     aux_labels = build_aux_labels(sample_id, manifest, mesh_policy)
     write_sample_directory(
@@ -723,6 +920,7 @@ def _run_mixed_profile_probe_matrix(
                 rng=rng,
                 config=config,
                 profile_case=profile_case,
+                quality_variant=False,
             )
             ansa_result = run_ansa_oracle(
                 AnsaRunRequest(
@@ -828,6 +1026,7 @@ def generate_dataset(
                 rng=rng,
                 config=config,
                 profile_case=profile_case,
+                quality_variant=profile == QUALITY_EXPLORATION_PROFILE,
             )
             ansa_result = run_ansa_oracle(
                 AnsaRunRequest(

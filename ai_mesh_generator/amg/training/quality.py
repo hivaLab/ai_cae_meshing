@@ -19,7 +19,7 @@ from torch import nn
 import torch.nn.functional as F
 
 from ai_mesh_generator.amg.dataset import AmgDatasetSample, load_amg_dataset_sample, load_dataset_index
-from ai_mesh_generator.amg.quality_features import build_quality_feature_vector
+from ai_mesh_generator.amg.quality_features import QUALITY_CONTROL_SUMMARY_KEYS, build_quality_feature_vector
 
 
 class AmgQualityTrainingError(ValueError):
@@ -61,6 +61,8 @@ class QualityControlRanker(nn.Module):
         super().__init__()
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
+        self.register_buffer("feature_mean", torch.zeros(input_dim, dtype=torch.float32))
+        self.register_buffer("feature_std", torch.ones(input_dim, dtype=torch.float32))
         self.network = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
             nn.ReLU(),
@@ -69,8 +71,17 @@ class QualityControlRanker(nn.Module):
             nn.Linear(hidden_dim, 1),
         )
 
+    def set_feature_normalization(self, features: torch.Tensor) -> None:
+        if features.ndim != 2 or features.shape[1] != self.input_dim:
+            raise AmgQualityTrainingError("feature_dimension_mismatch", "normalization features must match ranker input_dim")
+        mean = features.mean(dim=0)
+        std = features.std(dim=0, unbiased=False).clamp_min(1.0e-6)
+        self.feature_mean.copy_(mean.detach())
+        self.feature_std.copy_(std.detach())
+
     def forward(self, features: torch.Tensor) -> torch.Tensor:
-        return self.network(features).squeeze(-1)
+        normalized = (features - self.feature_mean) / self.feature_std
+        return self.network(normalized).squeeze(-1)
 
 
 def _read_json(path: Path, code: str) -> dict[str, Any]:
@@ -188,7 +199,7 @@ def _split_examples(dataset_root: Path, examples: list[dict[str, Any]]) -> tuple
     if not val:
         val = train[-1:]
         train = train[:-1] or val
-    return train, val, "deterministic_80_20_fallback"
+    return train, val, "deterministic_80_20_split"
 
 
 def _pair_indices(examples: Sequence[dict[str, Any]]) -> list[tuple[int, int]]:
@@ -247,11 +258,12 @@ def run_quality_training(config: QualityTrainingConfig) -> QualityTrainingResult
     if not train_pairs:
         raise AmgQualityTrainingError("empty_pairwise_targets", "train split has no unequal quality pairs")
 
-    input_dim = int(train_examples[0]["features"].shape[0])
-    model = QualityControlRanker(input_dim=input_dim, hidden_dim=config.hidden_dim)
-    optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate)
     train_x = _tensor(train_examples)
     train_scores = _quality_targets(train_examples)
+    input_dim = int(train_x.shape[1])
+    model = QualityControlRanker(input_dim=input_dim, hidden_dim=config.hidden_dim)
+    model.set_feature_normalization(train_x)
+    optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate)
     rng = random.Random(config.seed)
     for _epoch in range(config.epochs):
         order = list(train_pairs)
@@ -284,6 +296,7 @@ def run_quality_training(config: QualityTrainingConfig) -> QualityTrainingResult
         {
             "model_state": model.state_dict(),
             "input_dim": input_dim,
+            "quality_control_summary_keys": list(QUALITY_CONTROL_SUMMARY_KEYS),
             "hidden_dim": config.hidden_dim,
             "metrics_path": metrics_path.as_posix(),
         },
@@ -311,6 +324,7 @@ def run_quality_training(config: QualityTrainingConfig) -> QualityTrainingResult
         "seed": config.seed,
         "learning_rate": config.learning_rate,
         "hidden_dim": config.hidden_dim,
+        "quality_control_summary_keys": list(QUALITY_CONTROL_SUMMARY_KEYS),
         "checkpoint_path": checkpoint_path.as_posix(),
     }
     _write_json(training_config_path, {
@@ -323,6 +337,7 @@ def run_quality_training(config: QualityTrainingConfig) -> QualityTrainingResult
         "seed": config.seed,
         "learning_rate": config.learning_rate,
         "hidden_dim": config.hidden_dim,
+        "quality_control_summary_keys": list(QUALITY_CONTROL_SUMMARY_KEYS),
     })
     _write_json(metrics_path, metrics)
     return QualityTrainingResult(

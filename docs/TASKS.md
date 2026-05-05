@@ -740,7 +740,7 @@ Checkpoint: runs\amg_training_real_pilot\checkpoint.pt
 Metrics: runs\amg_training_real_pilot\metrics.json
 Training metrics record sample_count=100, candidate_count=100, manifest_feature_count=100,
 matched_target_count=100, label_coverage_ratio=1.0, train_sample_count=80,
-validation_sample_count=20, and split_source=deterministic_80_20_fallback.
+validation_sample_count=20, and split_source=deterministic_80_20_split.
 python -m pytest passed with 186 passed and 1 skipped.
 ```
 
@@ -1108,7 +1108,7 @@ T-710 is complete because median and pass-rate criteria are met, but T-711 must 
 
 ### T-711_RISK_AWARE_RECOMMENDATION_GUARDRAILS
 
-Status: TODO
+Status: IN_PROGRESS
 
 Goal:
 
@@ -1122,9 +1122,88 @@ Acceptance:
 ```text
 Recommendation reports include worst_delta, lower-tail quantiles, and severe_regression_count.
 Benchmark success requires no severe regression below a configured threshold unless explicitly allowed.
-Candidate selection can reject high-uncertainty or high-risk fresh controls and fall back to baseline
-only when that fallback is recorded as a risk decision, not as a hidden success.
+Candidate selection can reject high-uncertainty or high-risk fresh controls, but it must fail closed
+when no non-baseline AI candidate passes the risk threshold. Selecting baseline is not a valid
+AI recommendation result.
 Real ANSA recommendation gate reruns with the same T-710 sample set and produces
 improvement_rate >= 0.8333333333333334, median_improvement_delta >= 0.7116335000000036,
 and severe_regression_count=0.
+```
+
+Corrective evidence:
+
+```text
+Risk-aware fail-closed recommendation command:
+python -m ai_mesh_generator.amg.recommendation.quality --dataset runs\t708_quality_exploration_smoke\dataset --quality-exploration runs\t710_fresh_quality_loop\fresh_quality_exploration --training runs\t710_fresh_quality_loop\training_refreshed --out runs\t710_fresh_quality_loop\recommendation_risk_failclosed --split test --limit 6 --risk-aware --ansa-executable C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat
+Result: PARTIAL_FAILED, attempted_count=6, valid_pair_count=5, improved_count=5,
+improvement_rate=1.0 over valid AI pairs, median_improvement_delta=0.7940939999999973,
+worst_improvement_delta=0.5720929999999935 over valid AI pairs, severe_regression_count=0,
+selected_non_baseline_count=5, selected_baseline_count=0,
+failure_reason_counts={no_ai_candidate_passed_risk_gate: 1}.
+
+Risk-aware benchmark command:
+python -m ai_mesh_generator.amg.benchmark.recommendation --recommendation runs\t710_fresh_quality_loop\recommendation_risk_failclosed --out runs\t710_fresh_quality_loop\recommendation_benchmark_risk_failclosed.json --baseline runs\t710_fresh_quality_loop\recommendation_benchmark_refreshed.json --min-improvement-rate 0.8333333333333334 --min-median-delta 0.7116335000000036 --severe-regression-threshold -1.0 --max-severe-regression-count 0
+Result: FAILED because all_pairs_valid=false. This is intentional: sample_000036 has no
+non-baseline AI candidate passing the risk threshold, and baseline fallback is forbidden.
+
+Regression:
+python -m pytest tests\test_amg_quality_recommendation.py -> 6 passed in 1.68s.
+```
+
+Known remaining risk:
+
+```text
+T-711 is not complete. The current implementation correctly refuses to hide the problem with
+baseline fallback. Baseline is now comparison evidence only, but the AI candidate
+generation/training path still fails sample_000036.
+```
+
+Implementation progress:
+
+```text
+Added an AMG-only quality candidate diagnostic CLI:
+python -m ai_mesh_generator.amg.diagnostics.quality_candidates --dataset runs\t708_quality_exploration_smoke\dataset --quality-exploration runs\t710_fresh_quality_loop\fresh_quality_exploration --sample-id sample_000036 --out runs\t710_fresh_quality_loop\sample_000036_candidate_diagnostic.json
+
+The diagnostic confirms sample_000036 baseline/reference score is 1.9891719999999915 and
+the best old non-baseline fresh candidate score is 3.4967189999999975, so the old candidate
+space lacked a better AI candidate.
+
+Fresh candidate generation now keeps small RELIEF/DRAIN suppression in the search space and
+adds suppression_max_diameter_scale as a real ANSA-bound control parameter. This prevents
+the previous mistake where every suppressed relief cutout was forced into KEEP_REFINED.
+
+Recommendation now executes only the selected non-baseline AI manifest by default. Baseline
+ANSA execution is available only through --compare-baseline for explicit audit/benchmark work.
+
+Sanity real probe:
+python -m ai_mesh_generator.amg.recommendation.fresh --dataset runs\t708_quality_exploration_smoke\dataset --quality-exploration runs\t710_fresh_quality_loop\fresh_quality_exploration --training runs\t711_ai_candidate_quality_improvement\training_quality_v2 --out runs\t711_ai_candidate_quality_improvement\fresh_quality_sample_000036_probe --sample-id sample_000036 --candidates-per-sample 4 --seed 711 --ansa-executable C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat
+Result: SUCCESS, generated_count=4, blocked_count=0. Best non-baseline fresh score=0.039156000000002675.
+
+AI-only recommendation probe:
+python -m ai_mesh_generator.amg.recommendation.quality --dataset runs\t708_quality_exploration_smoke\dataset --quality-exploration runs\t711_ai_candidate_quality_improvement\fresh_quality_sample_000036_probe --training runs\t711_ai_candidate_quality_improvement\training_quality_v2 --out runs\t711_ai_candidate_quality_improvement\recommendation_sample_000036_ai_only_probe --sample-id sample_000036 --risk-aware --ansa-executable C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat
+Result: SUCCESS, valid_pair_count=1, selected_baseline_count=0, status=VALID_MESH, recommended_score=0.45267200000000596.
+
+Regression:
+python -m pytest -> 244 passed, 2 skipped in 12.23s.
+```
+
+### T-711_AI_CANDIDATE_QUALITY_IMPROVEMENT
+
+Status: TODO
+
+Goal:
+
+```text
+Improve the AMG quality ranker and fresh candidate generation so sample_000036 and similar
+cases receive non-baseline AI recommendations that pass real ANSA quality validation.
+```
+
+Acceptance:
+
+```text
+No recommendation path may select baseline as fallback.
+Candidate generation must produce at least one non-baseline schema-valid manifest per held-out sample.
+Recommendation selection must use only graph/control features and trained model outputs, not quality labels.
+Real ANSA gate must reach valid_pair_count=6, selected_baseline_count=0, severe_regression_count=0,
+and no_ai_candidate_passed_risk_gate=0 on the T-710 held-out sample set.
 ```

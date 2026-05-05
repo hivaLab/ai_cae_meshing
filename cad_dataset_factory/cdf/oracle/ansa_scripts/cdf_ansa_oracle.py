@@ -41,7 +41,7 @@ try:
         ansa_save_database,
         load_ansa_modules,
     )
-except ModuleNotFoundError:  # pragma: no cover - fallback for direct ANSA script execution contexts
+except ModuleNotFoundError:  # pragma: no cover - direct ANSA script execution import path
     from cdf_ansa_api_layer import (  # type: ignore[no-redef]
         AnsaApiUnavailable,
         AnsaModelRef,

@@ -264,7 +264,7 @@ def test_manifest_supervision_targets_map_actions_and_numeric_controls() -> None
     assert targets.manifest_feature_count == 2
 
 
-def test_empty_validation_split_uses_deterministic_fallback_and_writes_metrics() -> None:
+def test_empty_validation_split_uses_deterministic_split_and_writes_metrics() -> None:
     dataset_root = _write_dataset("train_run", sample_count=5)
     output_dir = RUNS / "real_training"
 
@@ -272,7 +272,7 @@ def test_empty_validation_split_uses_deterministic_fallback_and_writes_metrics()
 
     assert Path(result.checkpoint_path).is_file()
     assert Path(result.metrics_path).is_file()
-    assert result.metrics["split_source"] == "deterministic_80_20_fallback"
+    assert result.metrics["split_source"] == "deterministic_80_20_split"
     assert result.metrics["sample_count"] == 5
     assert result.metrics["label_coverage_ratio"] == 1.0
     assert result.metrics["train_sample_count"] == 4

@@ -13,6 +13,9 @@ from typing import Any
 MIN_ATTEMPTED = 6
 MIN_IMPROVEMENT_RATE = 0.60
 MIN_MEDIAN_DELTA = 0.01
+IMPROVEMENT_EPSILON = 0.01
+SEVERE_REGRESSION_THRESHOLD = -1.0
+MAX_SEVERE_REGRESSION_COUNT = 0
 
 
 class AmgRecommendationBenchmarkError(ValueError):
@@ -74,6 +77,21 @@ def _sample_report(path_text: Any, root: Path) -> dict[str, Any] | None:
     return _read_json(path, "sample_report_read_failed")
 
 
+def _quantile(values: Sequence[float], q: float) -> float | None:
+    if not values:
+        return None
+    if q <= 0.0:
+        return float(min(values))
+    if q >= 1.0:
+        return float(max(values))
+    ordered = sorted(float(value) for value in values)
+    position = (len(ordered) - 1) * q
+    lower = int(position)
+    upper = min(lower + 1, len(ordered) - 1)
+    fraction = position - lower
+    return ordered[lower] * (1.0 - fraction) + ordered[upper] * fraction
+
+
 def build_recommendation_benchmark_report(
     *,
     recommendation: str | Path,
@@ -81,6 +99,9 @@ def build_recommendation_benchmark_report(
     min_attempted: int = MIN_ATTEMPTED,
     min_improvement_rate: float = MIN_IMPROVEMENT_RATE,
     min_median_delta: float = MIN_MEDIAN_DELTA,
+    improvement_epsilon: float = IMPROVEMENT_EPSILON,
+    severe_regression_threshold: float = SEVERE_REGRESSION_THRESHOLD,
+    max_severe_regression_count: int = MAX_SEVERE_REGRESSION_COUNT,
 ) -> dict[str, Any]:
     root = Path(recommendation)
     summary_path = _summary_path(root)
@@ -94,13 +115,24 @@ def build_recommendation_benchmark_report(
     valid_pair_count = 0
     improved_count = 0
     selected_non_baseline_count = 0
+    selected_baseline_count = 0
+    risk_rejected_candidate_count = 0
     for result in sample_results:
         report = _sample_report(result.get("report_path"), root)
         if report is None:
             failure_counts["missing_sample_report"] += 1
             continue
+        result_status = result.get("status")
+        report_status = report.get("status")
+        if result_status == "FAILED" or report_status == "FAILED":
+            code = result.get("error_code") or report.get("error_code") or "sample_failed"
+            failure_counts[str(code)] += 1
+            continue
         if result.get("selected_evaluation_id") not in {None, "baseline"}:
             selected_non_baseline_count += 1
+        elif result.get("selected_evaluation_id") == "baseline":
+            selected_baseline_count += 1
+        risk_rejected_candidate_count += int(result.get("risk_rejected_candidate_count", 0) or 0)
         baseline_run = report.get("baseline_run", {})
         recommended_run = report.get("recommended_run", {})
         if not isinstance(baseline_run, Mapping) or not isinstance(recommended_run, Mapping):
@@ -118,18 +150,26 @@ def build_recommendation_benchmark_report(
             continue
         valid_pair_count += 1
         deltas.append(float(delta))
-        if float(delta) > min_median_delta:
+        if float(delta) > improvement_epsilon:
             improved_count += 1
     attempted_count = len(sample_results)
     improvement_rate = improved_count / valid_pair_count if valid_pair_count else 0.0
     median_delta = statistics.median(deltas) if deltas else None
+    mean_delta = statistics.mean(deltas) if deltas else None
+    worst_delta = min(deltas) if deltas else None
+    lower_tail_p10 = _quantile(deltas, 0.10)
+    lower_tail_p25 = _quantile(deltas, 0.25)
+    severe_regression_count = sum(1 for delta in deltas if delta < severe_regression_threshold)
     criteria = {
         "minimum_attempted": attempted_count >= min_attempted,
         "all_pairs_valid": valid_pair_count == attempted_count and attempted_count > 0,
         "no_invalid_artifacts": invalid_artifacts == 0,
         "non_baseline_selected": selected_non_baseline_count > 0,
+        "no_baseline_recommendations": selected_baseline_count == 0,
         "improvement_rate_met": improvement_rate >= min_improvement_rate,
-        "median_improvement_delta_met": median_delta is not None and median_delta > min_median_delta,
+        "median_improvement_delta_met": median_delta is not None and median_delta >= min_median_delta,
+        "severe_regression_count_met": severe_regression_count <= max_severe_regression_count,
+        "worst_improvement_delta_met": worst_delta is not None and worst_delta >= severe_regression_threshold,
     }
     baseline_comparison = None
     if baseline is not None:
@@ -161,10 +201,18 @@ def build_recommendation_benchmark_report(
         "valid_pair_count": valid_pair_count,
         "improved_count": improved_count,
         "improvement_rate": improvement_rate,
-        "mean_improvement_delta": statistics.mean(deltas) if deltas else None,
+        "improvement_epsilon": improvement_epsilon,
+        "mean_improvement_delta": mean_delta,
         "median_improvement_delta": median_delta,
+        "worst_improvement_delta": worst_delta,
+        "lower_tail_delta_p10": lower_tail_p10,
+        "lower_tail_delta_p25": lower_tail_p25,
+        "severe_regression_threshold": severe_regression_threshold,
+        "severe_regression_count": severe_regression_count,
         "selected_non_baseline_count": selected_non_baseline_count,
-        "failure_reason_counts": dict(sorted((Counter(summary.get("failure_reason_counts", {})) + failure_counts).items())),
+        "selected_baseline_count": selected_baseline_count,
+        "risk_rejected_candidate_count": risk_rejected_candidate_count,
+        "failure_reason_counts": dict(sorted(failure_counts.items())),
         "invalid_artifact_count": invalid_artifacts,
         "success_criteria": criteria,
         "baseline_comparison": baseline_comparison,
@@ -183,6 +231,9 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--min-attempted", type=int, default=MIN_ATTEMPTED)
     parser.add_argument("--min-improvement-rate", type=float, default=MIN_IMPROVEMENT_RATE)
     parser.add_argument("--min-median-delta", type=float, default=MIN_MEDIAN_DELTA)
+    parser.add_argument("--improvement-epsilon", type=float, default=IMPROVEMENT_EPSILON)
+    parser.add_argument("--severe-regression-threshold", type=float, default=SEVERE_REGRESSION_THRESHOLD)
+    parser.add_argument("--max-severe-regression-count", type=int, default=MAX_SEVERE_REGRESSION_COUNT)
     return parser.parse_args(argv)
 
 
@@ -195,6 +246,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             min_attempted=args.min_attempted,
             min_improvement_rate=args.min_improvement_rate,
             min_median_delta=args.min_median_delta,
+            improvement_epsilon=args.improvement_epsilon,
+            severe_regression_threshold=args.severe_regression_threshold,
+            max_severe_regression_count=args.max_severe_regression_count,
         )
         write_recommendation_benchmark_report(args.out, report)
     except AmgRecommendationBenchmarkError as exc:

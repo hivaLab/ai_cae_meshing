@@ -5,9 +5,9 @@ Last updated: 2026-05-05 KST
 ## Project State
 
 ```text
-Project state        : T-710 fresh quality-control active-learning loop complete
+Project state        : T-711 fail-closed AI recommendation gate exposes candidate/model gap
 Active phase         : P7_REAL_PIPELINE_COMPLETION
-Active task          : T-711_RISK_AWARE_RECOMMENDATION_GUARDRAILS
+Active task          : T-711_AI_CANDIDATE_QUALITY_IMPROVEMENT
 Primary source docs  : AMG.md, CDF.md
 Execution backend    : ANSA Batch Mesh through adapter/script boundary
 Dataset factory      : CDF-SM-ANSA-V1
@@ -40,7 +40,12 @@ Verified ANSA path   : C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v
 ## Current Evidence
 
 ```text
-T-707 benchmark root:
+Note:
+  Older generated run directories through T-707 were cleaned from the workspace after completion.
+  Their counts below are historical recorded evidence, not currently retained run artifacts.
+  Retained real ANSA artifacts for immediate reuse are T-708, T-710, and T-711 outputs.
+
+Historical T-707 benchmark root:
   runs\t707_family_benchmark
 
 Dataset:
@@ -132,6 +137,23 @@ T-710 fresh active-learning gate:
   baseline improvement_rate delta=0.0
   baseline median delta improvement=0.3155714999999981
   status=SUCCESS
+
+T-711 fail-closed AI recommendation gate:
+  recommendation root: runs\t710_fresh_quality_loop\recommendation_risk_failclosed
+  benchmark report: runs\t710_fresh_quality_loop\recommendation_benchmark_risk_failclosed.json
+  attempted_count=6
+  valid_pair_count=5
+  improved_count=5
+  improvement_rate=1.0 over valid AI pairs
+  median_improvement_delta=0.7940939999999973
+  mean_improvement_delta=0.8044342000000004
+  worst_improvement_delta=0.5720929999999935 over valid AI pairs
+  severe_regression_threshold=-1.0
+  severe_regression_count=0
+  selected_non_baseline_count=5
+  selected_baseline_count=0
+  failure_reason_counts={no_ai_candidate_passed_risk_gate: 1}
+  status=FAILED because sample_000036 had no non-baseline AI candidate above the risk threshold
 ```
 
 ## Blockers And Risks
@@ -149,15 +171,16 @@ T-710 fresh active-learning gate:
 | Quality statistics parsing | resolved for T-708 | parser uses the Session-Parts report table and does not confuse element-count TOTAL headers with violating shell totals |
 | Recommendation quality | resolved for T-709 | ranker selected better controls in 5 of 6 paired real ANSA comparisons |
 | Fresh control proposal | resolved for T-710 | fresh candidates generated and evaluated with real ANSA, then used for refreshed recommendation |
-| Recommendation downside risk | open | T-710 improved median but sample_000036 regressed by -9.106281, making mean improvement negative |
+| Baseline fallback masking | resolved | risk-aware mode no longer selects baseline as a successful recommendation; no candidate means `no_ai_candidate_passed_risk_gate` |
+| AI candidate/model quality | open | sample_000036 has no non-baseline fresh candidate that beats the risk gate, so T-711 remains IN_PROGRESS |
 
 ## Next Task
 
 ```text
-T-711_RISK_AWARE_RECOMMENDATION_GUARDRAILS
+T-711_AI_CANDIDATE_QUALITY_IMPROVEMENT
 
-Add risk-aware recommendation criteria and safety guards so the ranker preserves median gains
-without allowing severe per-sample regressions like sample_000036 in the T-710 gate.
+Continue T-711 by improving the AI candidate generation/training path so every held-out sample,
+including sample_000036, receives a non-baseline AI recommendation that passes real ANSA validation.
 ```
 
 ## Session Log Template
@@ -441,3 +464,53 @@ Blockers:
 
 Next:
   - T-711_RISK_AWARE_RECOMMENDATION_GUARDRAILS
+
+## Session 2026-05-05 T-711 Corrective Pass
+
+Completed:
+  - Removed baseline fallback as a successful recommendation path.
+  - Removed baseline selection from the non-risk-aware recommendation path as well; baseline is comparison evidence only.
+  - Added fail-closed risk-aware candidate selection: if no non-baseline AI candidate passes risk thresholds, the sample fails with no_ai_candidate_passed_risk_gate.
+  - Added downside-risk metrics to recommendation summaries and benchmark reports.
+  - Split per-sample improvement epsilon from median acceptance threshold so benchmark statistics do not hide or distort safety criteria.
+
+Changed files:
+  - ai_mesh_generator/amg/recommendation/quality.py
+  - ai_mesh_generator/amg/benchmark/recommendation.py
+  - tests/test_amg_quality_recommendation.py
+  - docs/STATUS.md
+  - docs/TASKS.md
+  - docs/NEXT_AGENT_PROMPT.md
+
+Tests:
+  - command: python -m pytest tests\test_amg_fresh_quality_proposal.py tests\test_amg_quality_candidate_diagnostics.py tests\test_amg_quality_training.py tests\test_cdf_ansa_internal_script_skeleton.py tests\test_amg_quality_recommendation.py
+  - result: PASS, 24 passed in 2.99s
+  - command: python -m pytest
+  - result: PASS, 244 passed and 2 skipped in 12.23s
+
+Real gates:
+  - command: python -m ai_mesh_generator.amg.recommendation.quality --dataset runs\t708_quality_exploration_smoke\dataset --quality-exploration runs\t710_fresh_quality_loop\fresh_quality_exploration --training runs\t710_fresh_quality_loop\training_refreshed --out runs\t710_fresh_quality_loop\recommendation_risk_failclosed --split test --limit 6 --risk-aware --ansa-executable C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat
+  - result: PARTIAL_FAILED, attempted_count=6, valid_pair_count=5, improvement_rate=1.0 over valid AI pairs, median_improvement_delta=0.7940939999999973, severe_regression_count=0, failure_reason_counts={no_ai_candidate_passed_risk_gate: 1}
+  - command: python -m ai_mesh_generator.amg.benchmark.recommendation --recommendation runs\t710_fresh_quality_loop\recommendation_risk_failclosed --out runs\t710_fresh_quality_loop\recommendation_benchmark_risk_failclosed.json --baseline runs\t710_fresh_quality_loop\recommendation_benchmark_refreshed.json --min-improvement-rate 0.8333333333333334 --min-median-delta 0.7116335000000036 --severe-regression-threshold -1.0 --max-severe-regression-count 0
+  - result: FAILED, all_pairs_valid=false, failure_reason_counts={no_ai_candidate_passed_risk_gate: 1}, selected_baseline_count=0
+
+Evidence:
+  - recommendation summary: runs\t710_fresh_quality_loop\recommendation_risk_failclosed\recommendation_summary.json
+  - recommendation benchmark: runs\t710_fresh_quality_loop\recommendation_benchmark_risk_failclosed.json
+  - sample_000036 diagnostic: runs\t710_fresh_quality_loop\sample_000036_candidate_diagnostic.json
+  - sample_000036 no longer falls back to baseline; it is reported as no_ai_candidate_passed_risk_gate.
+  - 5 paired samples have non-baseline AI recommendations with real ANSA reports plus non-empty BDF outputs.
+  - Fresh candidate generation now includes non-baseline SUPPRESS candidates with suppression_max_diameter_scale for small relief/drain features.
+  - The ANSA API layer passes suppression_max_diameter_scale into the real fill/suppression API path.
+  - Recommendation now runs only the selected non-baseline AI manifest by default; baseline ANSA execution requires --compare-baseline.
+  - Sanity retraining with feature normalization and the updated quality vector completed at runs\t711_ai_candidate_quality_improvement\training_quality_v2 with validation_pairwise_accuracy=0.6666666666666666.
+  - Real ANSA single-sample probe for sample_000036 generated four non-baseline SUPPRESS candidates; best fresh score was 0.039156000000002675 versus old recorded baseline/reference score 1.9891719999999915.
+  - AI-only recommendation probe for sample_000036 succeeded with selected_baseline_count=0 and recommended_score=0.45267200000000596.
+
+Blockers:
+  - T-711 is not DONE. sample_000036 needs improved AI candidate generation/training, not baseline fallback.
+  - The quality feature vector changed, so existing quality-ranker checkpoints from T-710 are intentionally stale for new T-711 candidates and must be retrained.
+  - The single-sample probe is not a full T-711 gate. The full six-sample held-out gate still needs to be rerun after generating fresh candidates for all six samples.
+
+Next:
+  - T-711_AI_CANDIDATE_QUALITY_IMPROVEMENT

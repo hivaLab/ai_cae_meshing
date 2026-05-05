@@ -16,6 +16,7 @@ from ai_mesh_generator.amg.dataset import load_amg_dataset_sample
 from ai_mesh_generator.amg.quality_features import build_quality_feature_vector
 from ai_mesh_generator.amg.recommendation.quality import (
     AmgQualityRecommendationError,
+    CandidateManifestScore,
     QualityRecommendationConfig,
     load_candidate_manifests,
     load_quality_ranker,
@@ -284,6 +285,7 @@ def test_run_quality_recommendation_writes_separate_real_evidence(monkeypatch) -
             training_root=training,
             output_dir=out,
             ansa_executable=ansa,
+            compare_baseline=True,
         )
     )
 
@@ -295,6 +297,91 @@ def test_run_quality_recommendation_writes_separate_real_evidence(monkeypatch) -
     assert report["improvement_delta"] > 0.01
     assert (out / "samples" / "sample_000001" / "baseline" / "meshes" / "ansa_oracle_mesh.bdf").is_file()
     assert (out / "samples" / "sample_000001" / "recommended" / "meshes" / "ansa_oracle_mesh.bdf").is_file()
+
+
+def test_recommendation_never_selects_baseline_when_baseline_scores_best(monkeypatch) -> None:
+    dataset, quality, training = _write_fixture("baseline_scores_best")
+    out = RUNS / "baseline_scores_best" / "recommendation"
+    ansa = RUNS / "baseline_scores_best" / "ansa64.bat"
+    ansa.write_text("@echo off\n", encoding="utf-8")
+    monkeypatch.setattr("ai_mesh_generator.amg.recommendation.quality.subprocess.run", _fake_subprocess_run)
+
+    def fake_scores(sample, candidates, ranker):
+        return [
+            CandidateManifestScore(
+                sample_id=sample.sample_id,
+                evaluation_id="baseline",
+                manifest_path=str(candidates[0]["manifest_path"]),
+                predicted_score=-10.0,
+                rank=1,
+                is_baseline=True,
+                manifest=dict(candidates[0]["manifest"]),
+            ),
+            CandidateManifestScore(
+                sample_id=sample.sample_id,
+                evaluation_id="perturb_001",
+                manifest_path=str(candidates[1]["manifest_path"]),
+                predicted_score=10.0,
+                rank=2,
+                is_baseline=False,
+                manifest=dict(candidates[1]["manifest"]),
+            ),
+        ]
+
+    monkeypatch.setattr("ai_mesh_generator.amg.recommendation.quality.score_candidate_manifests", fake_scores)
+
+    result = run_quality_recommendation(
+        QualityRecommendationConfig(
+            dataset_root=dataset,
+            quality_exploration_root=quality,
+            training_root=training,
+            output_dir=out,
+            ansa_executable=ansa,
+        )
+    )
+
+    assert result.selected_baseline_count == 0
+    assert result.selected_non_baseline_count == 1
+    report = json.loads(Path(result.sample_results[0].report_path).read_text(encoding="utf-8"))
+    assert report["status"] == "VALID_MESH"
+    assert report["baseline_run"] is None
+    assert report["selected_evaluation_id"] == "perturb_001"
+    assert report["selection_reason"] == "RANKER_ARGMIN_NON_BASELINE"
+    assert not (out / "samples" / "sample_000001" / "baseline").exists()
+
+
+def test_risk_aware_recommendation_fails_closed_without_baseline_fallback(monkeypatch) -> None:
+    dataset, quality, training = _write_fixture("risk_guard")
+    out = RUNS / "risk_guard" / "recommendation"
+    ansa = RUNS / "risk_guard" / "ansa64.bat"
+    ansa.write_text("@echo off\n", encoding="utf-8")
+    monkeypatch.setattr("ai_mesh_generator.amg.recommendation.quality.subprocess.run", _fake_subprocess_run)
+
+    result = run_quality_recommendation(
+        QualityRecommendationConfig(
+            dataset_root=dataset,
+            quality_exploration_root=quality,
+            training_root=training,
+            output_dir=out,
+            ansa_executable=ansa,
+            risk_aware=True,
+            min_predicted_improvement=999.0,
+        )
+    )
+
+    assert result.status == "PARTIAL_FAILED"
+    assert result.valid_pair_count == 0
+    assert result.selected_baseline_count == 0
+    assert result.selected_non_baseline_count == 0
+    assert result.risk_rejected_candidate_count == 0
+    assert result.severe_regression_count == 0
+    sample = result.sample_results[0]
+    assert sample.status == "FAILED"
+    assert sample.error_code == "no_ai_candidate_passed_risk_gate"
+    assert sample.selected_evaluation_id is None
+    report = json.loads(Path(sample.report_path).read_text(encoding="utf-8"))
+    assert report["status"] == "FAILED"
+    assert report["error_code"] == "no_ai_candidate_passed_risk_gate"
 
 
 def test_recommendation_benchmark_accepts_real_improvement_and_rejects_placeholder(monkeypatch) -> None:
@@ -310,6 +397,7 @@ def test_recommendation_benchmark_accepts_real_improvement_and_rejects_placehold
             training_root=training,
             output_dir=out,
             ansa_executable=ansa,
+            compare_baseline=True,
         )
     )
 
@@ -329,6 +417,38 @@ def test_recommendation_benchmark_accepts_real_improvement_and_rejects_placehold
     rejected = build_recommendation_benchmark_report(recommendation=out)
     assert rejected["status"] == "FAILED"
     assert rejected["success_criteria"]["no_invalid_artifacts"] is False
+
+
+def test_recommendation_benchmark_reports_tail_risk(monkeypatch) -> None:
+    dataset, quality, training = _write_fixture("tail_risk", sample_count=6)
+    out = RUNS / "tail_risk" / "recommendation"
+    ansa = RUNS / "tail_risk" / "ansa64.bat"
+    ansa.write_text("@echo off\n", encoding="utf-8")
+    monkeypatch.setattr("ai_mesh_generator.amg.recommendation.quality.subprocess.run", _fake_subprocess_run)
+    result = run_quality_recommendation(
+        QualityRecommendationConfig(
+            dataset_root=dataset,
+            quality_exploration_root=quality,
+            training_root=training,
+            output_dir=out,
+            ansa_executable=ansa,
+            compare_baseline=True,
+        )
+    )
+    summary_path = Path(result.summary_path)
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary["sample_results"][0]["improvement_delta"] = -2.0
+    summary["sample_results"][0]["baseline_score"] = 0.0
+    summary["sample_results"][0]["recommended_score"] = 2.0
+    summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    report = build_recommendation_benchmark_report(recommendation=out, severe_regression_threshold=-1.0)
+
+    assert report["status"] == "FAILED"
+    assert report["severe_regression_count"] == 1
+    assert report["worst_improvement_delta"] == -2.0
+    assert report["lower_tail_delta_p10"] is not None
+    assert report["success_criteria"]["severe_regression_count_met"] is False
 
 
 def test_recommendation_rejects_empty_test_split_and_source_boundaries() -> None:

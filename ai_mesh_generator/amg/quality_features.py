@@ -26,6 +26,7 @@ QUALITY_CONTROL_SUMMARY_KEYS = (
     "end_arc_divisions",
     "straight_edge_divisions",
     "min_elements_across_width",
+    "suppression_max_diameter_scale",
 )
 
 

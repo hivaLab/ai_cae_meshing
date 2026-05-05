@@ -20,12 +20,14 @@ from jsonschema import Draft202012Validator
 
 from ai_mesh_generator.amg.dataset import AmgDatasetSample, load_amg_dataset_sample, load_dataset_index
 from ai_mesh_generator.amg.inference.real_mesh import DEFAULT_ANSA_EXECUTABLE, DEFAULT_BATCH_SCRIPT, _build_ansa_command, _mesh_is_real
-from ai_mesh_generator.amg.quality_features import build_quality_feature_vector
+from ai_mesh_generator.amg.quality_features import build_quality_feature_vector, control_vector
 from ai_mesh_generator.amg.training.quality import QualityControlRanker
 
 MANIFEST_SCHEMA = "AMG_MANIFEST_SM_V1"
 SUMMARY_SCHEMA = "AMG_QUALITY_RECOMMENDATION_SUMMARY_V1"
 SAMPLE_SCHEMA = "AMG_QUALITY_RECOMMENDATION_SAMPLE_REPORT_V1"
+DEFAULT_SEVERE_REGRESSION_THRESHOLD = -1.0
+DEFAULT_MIN_PREDICTED_IMPROVEMENT: float | None = None
 
 
 class AmgQualityRecommendationError(ValueError):
@@ -50,6 +52,11 @@ class QualityRecommendationConfig:
     sample_ids: tuple[str, ...] = ()
     batch_script: Path = DEFAULT_BATCH_SCRIPT
     timeout_sec_per_sample: int = 180
+    risk_aware: bool = False
+    min_predicted_improvement: float | None = DEFAULT_MIN_PREDICTED_IMPROVEMENT
+    max_control_distance: float | None = None
+    severe_regression_threshold: float = DEFAULT_SEVERE_REGRESSION_THRESHOLD
+    compare_baseline: bool = False
 
 
 @dataclass(frozen=True)
@@ -61,6 +68,8 @@ class CandidateManifestScore:
     rank: int
     is_baseline: bool
     manifest: dict[str, Any]
+    predicted_margin_vs_baseline: float | None = None
+    control_distance_from_baseline: float | None = None
 
 
 @dataclass(frozen=True)
@@ -73,6 +82,8 @@ class QualityRecommendationSampleResult:
     selected_evaluation_id: str | None
     selected_manifest_path: str | None
     report_path: str
+    selection_reason: str | None = None
+    risk_rejected_candidate_count: int = 0
     error_code: str | None = None
 
 
@@ -86,7 +97,14 @@ class QualityRecommendationResult:
     improved_count: int
     improvement_rate: float
     median_improvement_delta: float | None
+    mean_improvement_delta: float | None
+    worst_improvement_delta: float | None
+    lower_tail_delta_p10: float | None
+    lower_tail_delta_p25: float | None
+    severe_regression_count: int
     selected_non_baseline_count: int
+    selected_baseline_count: int
+    risk_rejected_candidate_count: int
     failure_reason_counts: dict[str, int]
     sample_results: tuple[QualityRecommendationSampleResult, ...]
 
@@ -277,6 +295,9 @@ def score_candidate_manifests(
         raise AmgQualityRecommendationError("feature_dimension_mismatch", "candidate feature vector does not match ranker input_dim", sample.sample_dir)
     with torch.no_grad():
         predictions = ranker(torch.as_tensor(rows, dtype=torch.float32)).detach().cpu().tolist()
+    baseline_index = next((index for index, candidate in enumerate(candidates) if bool(candidate.get("is_baseline"))), None)
+    baseline_prediction = float(predictions[baseline_index]) if baseline_index is not None else None
+    baseline_controls = control_vector(candidates[baseline_index]["manifest"]) if baseline_index is not None else None
     ordered = sorted(
         [
             CandidateManifestScore(
@@ -287,6 +308,12 @@ def score_candidate_manifests(
                 rank=0,
                 is_baseline=bool(candidate.get("is_baseline")),
                 manifest=dict(candidate["manifest"]),
+                predicted_margin_vs_baseline=(None if baseline_prediction is None else baseline_prediction - float(prediction)),
+                control_distance_from_baseline=(
+                    None
+                    if baseline_controls is None
+                    else float(np.linalg.norm(control_vector(candidate["manifest"]) - baseline_controls))
+                ),
             )
             for candidate, prediction in zip(candidates, predictions, strict=True)
         ],
@@ -301,9 +328,58 @@ def score_candidate_manifests(
             rank=index,
             is_baseline=item.is_baseline,
             manifest=item.manifest,
+            predicted_margin_vs_baseline=item.predicted_margin_vs_baseline,
+            control_distance_from_baseline=item.control_distance_from_baseline,
         )
         for index, item in enumerate(ordered, start=1)
     ]
+
+
+def _select_recommendation_candidate(
+    scored: Sequence[CandidateManifestScore],
+    *,
+    risk_aware: bool,
+    min_predicted_improvement: float | None,
+    max_control_distance: float | None,
+) -> tuple[CandidateManifestScore, str, list[dict[str, Any]]]:
+    baseline = next((item for item in scored if item.is_baseline), None)
+    if baseline is None:
+        raise AmgQualityRecommendationError("missing_baseline_candidate", "candidate pool requires a baseline manifest")
+    if not risk_aware:
+        for item in scored:
+            if not item.is_baseline:
+                return item, "RANKER_ARGMIN_NON_BASELINE", []
+        raise AmgQualityRecommendationError(
+            "no_non_baseline_candidates",
+            "candidate pool contains no non-baseline AI manifest candidates",
+        )
+    rejected: list[dict[str, Any]] = []
+    for item in scored:
+        if item.is_baseline:
+            continue
+        reasons: list[str] = []
+        margin = float(item.predicted_margin_vs_baseline or 0.0)
+        if min_predicted_improvement is not None and margin < min_predicted_improvement:
+            reasons.append("predicted_margin_below_threshold")
+        distance = item.control_distance_from_baseline
+        if max_control_distance is not None and distance is not None and distance > max_control_distance:
+            reasons.append("control_distance_above_threshold")
+        if reasons:
+            rejected.append(
+                {
+                    "evaluation_id": item.evaluation_id,
+                    "predicted_score": item.predicted_score,
+                    "predicted_margin_vs_baseline": item.predicted_margin_vs_baseline,
+                    "control_distance_from_baseline": item.control_distance_from_baseline,
+                    "reasons": reasons,
+                }
+            )
+            continue
+        return item, "RISK_AWARE_RANKER", rejected
+    raise AmgQualityRecommendationError(
+        "no_ai_candidate_passed_risk_gate",
+        f"no non-baseline AI candidate met risk thresholds; rejected={len(rejected)}",
+    )
 
 
 def _copy_input_step(sample: AmgDatasetSample, run_dir: Path) -> None:
@@ -361,6 +437,21 @@ def _quality_score(quality_report: Mapping[str, Any], execution_report: Mapping[
         + 0.001 * shell_elements
         + 0.001 * runtime
     )
+
+
+def _quantile(values: Sequence[float], q: float) -> float | None:
+    if not values:
+        return None
+    if q <= 0.0:
+        return float(min(values))
+    if q >= 1.0:
+        return float(max(values))
+    ordered = sorted(float(value) for value in values)
+    position = (len(ordered) - 1) * q
+    lower = int(position)
+    upper = min(lower + 1, len(ordered) - 1)
+    fraction = position - lower
+    return ordered[lower] * (1.0 - fraction) + ordered[upper] * fraction
 
 
 def _decode_command_payload(command: Sequence[str]) -> dict[str, Any]:
@@ -468,6 +559,8 @@ def run_quality_recommendation(config: QualityRecommendationConfig) -> QualityRe
     failure_counts: Counter[str] = Counter()
     deltas: list[float] = []
     selected_non_baseline = 0
+    selected_baseline = 0
+    risk_rejected_total = 0
     improved = 0
     valid_pairs = 0
     for sample in samples:
@@ -477,19 +570,30 @@ def run_quality_recommendation(config: QualityRecommendationConfig) -> QualityRe
             candidates = load_candidate_manifests(quality_exploration_root=config.quality_exploration_root, sample_id=sample.sample_id)
             scored = score_candidate_manifests(sample, candidates, ranker)
             baseline = next((item for item in scored if item.is_baseline), None)
-            recommended = scored[0]
             if baseline is None:
                 raise AmgQualityRecommendationError("missing_baseline_candidate", "candidate pool requires a baseline manifest", sample.sample_dir)
+            recommended, selection_reason, risk_rejections = _select_recommendation_candidate(
+                scored,
+                risk_aware=config.risk_aware,
+                min_predicted_improvement=config.min_predicted_improvement,
+                max_control_distance=config.max_control_distance,
+            )
+            risk_rejected_total += len(risk_rejections)
             if not recommended.is_baseline:
                 selected_non_baseline += 1
-            baseline_run = _run_ansa_manifest(
-                sample=sample,
-                run_dir=sample_dir / "baseline",
-                manifest=baseline.manifest,
-                executable=executable,
-                batch_script=batch_script,
-                timeout_sec=config.timeout_sec_per_sample,
-            )
+            else:
+                selected_baseline += 1
+            baseline_run: dict[str, Any] | None = None
+            baseline_score: float | None = None
+            if config.compare_baseline:
+                baseline_run = _run_ansa_manifest(
+                    sample=sample,
+                    run_dir=sample_dir / "baseline",
+                    manifest=baseline.manifest,
+                    executable=executable,
+                    batch_script=batch_script,
+                    timeout_sec=config.timeout_sec_per_sample,
+                )
             recommended_run = _run_ansa_manifest(
                 sample=sample,
                 run_dir=sample_dir / "recommended",
@@ -498,18 +602,20 @@ def run_quality_recommendation(config: QualityRecommendationConfig) -> QualityRe
                 batch_script=batch_script,
                 timeout_sec=config.timeout_sec_per_sample,
             )
-            if baseline_run["status"] != "VALID_EVIDENCE":
+            if baseline_run is not None and baseline_run["status"] != "VALID_EVIDENCE":
                 raise AmgQualityRecommendationError(str(baseline_run["reason"]), "baseline ANSA evidence is invalid", sample.sample_dir)
             if recommended_run["status"] != "VALID_EVIDENCE":
                 raise AmgQualityRecommendationError(str(recommended_run["reason"]), "recommended ANSA evidence is invalid", sample.sample_dir)
-            baseline_score = float(baseline_run["quality_score"])
             recommended_score = float(recommended_run["quality_score"])
-            delta = baseline_score - recommended_score
-            deltas.append(delta)
+            delta: float | None = None
+            if baseline_run is not None:
+                baseline_score = float(baseline_run["quality_score"])
+                delta = baseline_score - recommended_score
+                deltas.append(delta)
+                if delta > 0.01:
+                    improved += 1
             valid_pairs += 1
-            if delta > 0.01:
-                improved += 1
-            status = "IMPROVED" if delta > 0.01 else "NOT_IMPROVED"
+            status = "VALID_MESH" if delta is None else ("IMPROVED" if delta > 0.01 else "NOT_IMPROVED")
             report = {
                 "schema": SAMPLE_SCHEMA,
                 "sample_id": sample.sample_id,
@@ -517,8 +623,12 @@ def run_quality_recommendation(config: QualityRecommendationConfig) -> QualityRe
                 "candidate_scores": [item.__dict__ | {"manifest": None} for item in scored],
                 "selected_evaluation_id": recommended.evaluation_id,
                 "selected_manifest_path": recommended.manifest_path,
+                "selection_reason": selection_reason,
+                "risk_rejected_candidates": risk_rejections,
                 "baseline_predicted_score": baseline.predicted_score,
                 "recommended_predicted_score": recommended.predicted_score,
+                "recommended_predicted_margin_vs_baseline": recommended.predicted_margin_vs_baseline,
+                "recommended_control_distance_from_baseline": recommended.control_distance_from_baseline,
                 "baseline_run": baseline_run,
                 "recommended_run": recommended_run,
                 "baseline_quality_score": baseline_score,
@@ -536,6 +646,8 @@ def run_quality_recommendation(config: QualityRecommendationConfig) -> QualityRe
                     selected_evaluation_id=recommended.evaluation_id,
                     selected_manifest_path=recommended.manifest_path,
                     report_path=report_path.as_posix(),
+                    selection_reason=selection_reason,
+                    risk_rejected_candidate_count=len(risk_rejections),
                 )
             )
         except AmgQualityRecommendationError as exc:
@@ -558,12 +670,19 @@ def run_quality_recommendation(config: QualityRecommendationConfig) -> QualityRe
                     selected_evaluation_id=None,
                     selected_manifest_path=None,
                     report_path=report_path.as_posix(),
+                    selection_reason=None,
+                    risk_rejected_candidate_count=0,
                     error_code=exc.code,
                 )
             )
     attempted = len(results)
     improvement_rate = improved / valid_pairs if valid_pairs else 0.0
     median_delta = statistics.median(deltas) if deltas else None
+    mean_delta = statistics.mean(deltas) if deltas else None
+    worst_delta = min(deltas) if deltas else None
+    lower_tail_p10 = _quantile(deltas, 0.10)
+    lower_tail_p25 = _quantile(deltas, 0.25)
+    severe_regression_count = sum(1 for delta in deltas if delta < config.severe_regression_threshold)
     status = "SUCCESS" if valid_pairs == attempted and attempted > 0 else "PARTIAL_FAILED"
     summary = {
         "schema": SUMMARY_SCHEMA,
@@ -573,13 +692,24 @@ def run_quality_recommendation(config: QualityRecommendationConfig) -> QualityRe
         "training_root": Path(config.training_root).as_posix(),
         "output_dir": config.output_dir.as_posix(),
         "split": config.split,
+        "risk_aware": config.risk_aware,
+        "min_predicted_improvement": config.min_predicted_improvement,
+        "max_control_distance": config.max_control_distance,
+        "compare_baseline": config.compare_baseline,
+        "severe_regression_threshold": config.severe_regression_threshold,
         "attempted_count": attempted,
         "valid_pair_count": valid_pairs,
         "improved_count": improved,
         "improvement_rate": improvement_rate,
-        "mean_improvement_delta": statistics.mean(deltas) if deltas else None,
+        "mean_improvement_delta": mean_delta,
         "median_improvement_delta": median_delta,
+        "worst_improvement_delta": worst_delta,
+        "lower_tail_delta_p10": lower_tail_p10,
+        "lower_tail_delta_p25": lower_tail_p25,
+        "severe_regression_count": severe_regression_count,
         "selected_non_baseline_count": selected_non_baseline,
+        "selected_baseline_count": selected_baseline,
+        "risk_rejected_candidate_count": risk_rejected_total,
         "failure_reason_counts": dict(sorted(failure_counts.items())),
         "sample_results": [result.__dict__ for result in results],
     }
@@ -594,7 +724,14 @@ def run_quality_recommendation(config: QualityRecommendationConfig) -> QualityRe
         improved_count=improved,
         improvement_rate=improvement_rate,
         median_improvement_delta=median_delta,
+        mean_improvement_delta=mean_delta,
+        worst_improvement_delta=worst_delta,
+        lower_tail_delta_p10=lower_tail_p10,
+        lower_tail_delta_p25=lower_tail_p25,
+        severe_regression_count=severe_regression_count,
         selected_non_baseline_count=selected_non_baseline,
+        selected_baseline_count=selected_baseline,
+        risk_rejected_candidate_count=risk_rejected_total,
         failure_reason_counts=dict(sorted(failure_counts.items())),
         sample_results=tuple(results),
     )
@@ -611,6 +748,11 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--sample-id", action="append", default=[])
     parser.add_argument("--ansa-executable", default=DEFAULT_ANSA_EXECUTABLE)
     parser.add_argument("--timeout-sec", type=int, default=180)
+    parser.add_argument("--risk-aware", action="store_true")
+    parser.add_argument("--min-predicted-improvement", type=float, default=DEFAULT_MIN_PREDICTED_IMPROVEMENT)
+    parser.add_argument("--max-control-distance", type=float, default=None)
+    parser.add_argument("--severe-regression-threshold", type=float, default=DEFAULT_SEVERE_REGRESSION_THRESHOLD)
+    parser.add_argument("--compare-baseline", action="store_true")
     return parser.parse_args(argv)
 
 
@@ -628,6 +770,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                 limit=args.limit,
                 sample_ids=tuple(args.sample_id),
                 timeout_sec_per_sample=args.timeout_sec,
+                risk_aware=bool(args.risk_aware),
+                min_predicted_improvement=(
+                    None if args.min_predicted_improvement is None else float(args.min_predicted_improvement)
+                ),
+                max_control_distance=args.max_control_distance,
+                severe_regression_threshold=float(args.severe_regression_threshold),
+                compare_baseline=bool(args.compare_baseline),
             )
         )
     except AmgQualityRecommendationError as exc:
@@ -641,6 +790,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "valid_pair_count": result.valid_pair_count,
                 "improvement_rate": result.improvement_rate,
                 "median_improvement_delta": result.median_improvement_delta,
+                "worst_improvement_delta": result.worst_improvement_delta,
+                "severe_regression_count": result.severe_regression_count,
                 "summary_path": result.summary_path,
             },
             indent=2,

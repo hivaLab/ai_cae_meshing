@@ -31,6 +31,7 @@ amg-quality-benchmark = "ai_mesh_generator.amg.benchmark.quality:main"
 amg-recommend-quality = "ai_mesh_generator.amg.recommendation.quality:main"
 amg-recommendation-benchmark = "ai_mesh_generator.amg.benchmark.recommendation:main"
 amg-propose-quality = "ai_mesh_generator.amg.recommendation.fresh:main"
+amg-diagnose-quality-candidates = "ai_mesh_generator.amg.diagnostics.quality_candidates:main"
 
 [tool.setuptools.packages.find]
 include = ["ai_mesh_generator*", "cad_dataset_factory*"]

@@ -55,7 +55,7 @@ def test_fresh_candidates_are_schema_valid_deterministic_and_not_prior_perturbat
     assert all(candidate.predicted_score is not None for candidate in scored)
 
 
-def test_fresh_candidates_expand_suppressed_cutout_into_refined_controls() -> None:
+def test_fresh_candidates_explore_suppression_and_refinement_controls() -> None:
     dataset, _quality, _training = _write_fixture("fresh_suppressed")
     sample = load_amg_dataset_sample(dataset / "samples" / "sample_000001")
     suppressed = dict(sample.manifest.manifest)
@@ -73,14 +73,28 @@ def test_fresh_candidates_expand_suppressed_cutout_into_refined_controls() -> No
     generated = generate_fresh_candidate_manifests(
         sample,
         suppressed,
-        candidates_per_sample=2,
+        candidates_per_sample=3,
         seed=710,
         disallowed_hashes={_canonical_hash(suppressed)},
     )
 
-    assert len(generated) == 2
-    assert all(candidate.manifest["features"][0]["action"] == "KEEP_REFINED" for candidate in generated)
-    assert all("edge_target_length_mm" in candidate.manifest["features"][0]["controls"] for candidate in generated)
+    assert len(generated) == 3
+    actions = [candidate.manifest["features"][0]["action"] for candidate in generated]
+    assert "SUPPRESS" in actions
+    assert "KEEP_REFINED" in actions
+    suppress_controls = [
+        candidate.manifest["features"][0]["controls"]
+        for candidate in generated
+        if candidate.manifest["features"][0]["action"] == "SUPPRESS"
+    ]
+    assert suppress_controls
+    assert all("suppression_max_diameter_scale" in controls for controls in suppress_controls)
+    refined_controls = [
+        candidate.manifest["features"][0]["controls"]
+        for candidate in generated
+        if candidate.manifest["features"][0]["action"] == "KEEP_REFINED"
+    ]
+    assert all("edge_target_length_mm" in controls for controls in refined_controls)
 
 
 def test_fresh_proposal_writes_appendable_real_evidence_and_training_reads_it(monkeypatch) -> None:

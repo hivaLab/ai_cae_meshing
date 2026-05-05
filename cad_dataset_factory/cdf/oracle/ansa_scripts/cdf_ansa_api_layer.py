@@ -335,11 +335,14 @@ def _apply_circular_washer(model: AnsaModelRef, report: dict[str, Any], control:
     )
 
 
-def _apply_fill_or_suppression(model: AnsaModelRef, report: dict[str, Any], feature: Mapping[str, Any]) -> bool:
+def _apply_fill_or_suppression(model: AnsaModelRef, report: dict[str, Any], feature: Mapping[str, Any], control: Mapping[str, Any]) -> bool:
     modules = _require_modules(str(report["operation"]), model)
     feature_diameter = _diameter_from_geometry_signature(feature.get("geometry_signature"))
-    max_diameter = 1.0e9 if feature_diameter is None else max(1.0e-6, 1.25 * feature_diameter)
+    scale = float(control.get("suppression_max_diameter_scale", 1.25) or 1.25)
+    scale = max(1.01, min(3.0, scale))
+    max_diameter = 1.0e9 if feature_diameter is None else max(1.0e-6, scale * feature_diameter)
     report["suppression_feature_diameter_mm"] = feature_diameter
+    report["suppression_max_diameter_scale"] = scale
     report["suppression_max_diameter_mm"] = max_diameter
     attempts = (
         ("planar", "expand_existing_faces", 2),
@@ -431,7 +434,7 @@ def _apply_mesh_control(
         successes.append("perimeter_divisions")
     if washer and _apply_circular_washer(model_or_feature_ref, report, control_map):
         successes.append("washer")
-    if suppress and _apply_fill_or_suppression(model_or_feature_ref, report, feature_map):
+    if suppress and _apply_fill_or_suppression(model_or_feature_ref, report, feature_map, control_map):
         successes.append("suppression")
 
     report["bound_to_real_ansa_api"] = bool(successes)

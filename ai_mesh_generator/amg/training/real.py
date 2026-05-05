@@ -362,7 +362,7 @@ def _split_samples(dataset_root: Path, samples: list[AmgDatasetSample]) -> tuple
     split_index = max(1, int(0.80 * len(ordered)))
     if split_index >= len(ordered):
         split_index = len(ordered) - 1
-    return ordered[:split_index], ordered[split_index:], "deterministic_80_20_fallback"
+    return ordered[:split_index], ordered[split_index:], "deterministic_80_20_split"
 
 
 def _batch_slices(samples: list[AmgDatasetSample], batch_size: int) -> list[list[AmgDatasetSample]]:

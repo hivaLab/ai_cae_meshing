@@ -150,6 +150,14 @@ def _mutate_controls(manifest: Mapping[str, Any], *, index: int, seed: int) -> d
             continue
         feature_type = str(feature.get("type", ""))
         if feature.get("action") == "SUPPRESS" and feature_type in {"HOLE", "SLOT", "CUTOUT"}:
+            if index % 3 != 0:
+                scale_options = (1.05, 1.12, 1.18, 1.32, 1.50, 1.75)
+                scale = scale_options[(index + seed) % len(scale_options)]
+                controls = dict(feature.get("controls", {})) if isinstance(feature.get("controls"), Mapping) else {}
+                controls.setdefault("suppression_rule", "ai_quality_suppression_candidate")
+                controls["suppression_max_diameter_scale"] = scale
+                feature["controls"] = controls
+                continue
             feature["action"] = "KEEP_REFINED"
             if feature_type == "CUTOUT":
                 dims = _signature_dimensions(feature.get("geometry_signature"))

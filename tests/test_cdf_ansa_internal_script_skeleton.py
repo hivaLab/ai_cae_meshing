@@ -265,10 +265,10 @@ def test_real_control_binding_calls_fill_for_suppression() -> None:
     assert fill_calls[0][0] == pytest.approx(5.0)
 
 
-def test_real_control_binding_uses_geometry_fill_fallback_for_suppression() -> None:
+def test_real_control_binding_uses_geometry_fill_alternative_for_suppression() -> None:
     model, fake_mesh, fake_base, _fake_batchmesh = _fake_control_model()
     fake_mesh.FillSingleBoundHoles = lambda *args: 0  # type: ignore[method-assign]
-    controls = {"suppression_rule": "small_relief_or_drain_area"}
+    controls = {"suppression_rule": "small_relief_or_drain_area", "suppression_max_diameter_scale": 1.5}
     feature = {
         "feature_id": "CUTOUT_RELIEF_0001",
         "type": "CUTOUT",
@@ -281,6 +281,7 @@ def test_real_control_binding_uses_geometry_fill_fallback_for_suppression() -> N
     assert report["bound_to_real_ansa_api"] is True
     assert report["successful_control_paths"] == ["suppression"]
     assert report["suppression_geom_api_return_is_uninformative"] is True
+    assert report["suppression_max_diameter_scale"] == pytest.approx(1.5)
     fill_geom_calls = [payload for name, payload in fake_base.calls if name == "FillHoleGeom"]
     assert fill_geom_calls
-    assert fill_geom_calls[0]["diameter"] == pytest.approx(4.375)
+    assert fill_geom_calls[0]["diameter"] == pytest.approx(5.25)

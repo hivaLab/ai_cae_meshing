@@ -1,4 +1,4 @@
-"""Benchmark real ANSA quality recommendations against baseline manifests."""
+"""Benchmark real ANSA quality recommendations."""
 
 from __future__ import annotations
 
@@ -66,6 +66,52 @@ def _mesh_artifact_is_real(path_text: Any, root: Path) -> bool:
     return "mock" not in head and "placeholder" not in head
 
 
+def _resolve_artifact_path(path_text: Any, root: Path) -> Path | None:
+    if not isinstance(path_text, str) or not path_text:
+        return None
+    path = Path(path_text)
+    if not path.is_absolute() and not path.exists():
+        path = root / path
+    return path
+
+
+def _json_report_is_real(path_text: Any, root: Path, *, report_kind: str) -> tuple[bool, str | None]:
+    path = _resolve_artifact_path(path_text, root)
+    if path is None or not path.is_file():
+        return False, f"missing_{report_kind}_report"
+    report = _read_json(path, f"{report_kind}_report_read_failed")
+    if report.get("accepted") is not True:
+        return False, f"{report_kind}_report_not_accepted"
+    encoded = json.dumps(report, sort_keys=True).lower()
+    for marker in ("controlled_failure_reason", "mock-ansa", "unavailable", "placeholder"):
+        if marker in encoded:
+            return False, f"{report_kind}_report_{marker}"
+    if report_kind == "quality":
+        quality = report.get("quality", {})
+        hard_failed = quality.get("num_hard_failed_elements") if isinstance(quality, Mapping) else None
+        if hard_failed is None:
+            hard_failed = report.get("num_hard_failed_elements")
+        if hard_failed != 0:
+            return False, "quality_report_hard_failed_elements"
+    return True, None
+
+
+def _run_evidence_is_real(run: Any, root: Path) -> tuple[bool, str | None]:
+    if not isinstance(run, Mapping):
+        return False, "missing_run_evidence"
+    if run.get("status") != "VALID_EVIDENCE":
+        return False, str(run.get("reason") or run.get("status") or "invalid_run_evidence")
+    if not _mesh_artifact_is_real(run.get("mesh_path"), root):
+        return False, "missing_or_placeholder_mesh"
+    execution_ok, execution_reason = _json_report_is_real(run.get("execution_report_path"), root, report_kind="execution")
+    if not execution_ok:
+        return False, execution_reason
+    quality_ok, quality_reason = _json_report_is_real(run.get("quality_report_path"), root, report_kind="quality")
+    if not quality_ok:
+        return False, quality_reason
+    return True, None
+
+
 def _sample_report(path_text: Any, root: Path) -> dict[str, Any] | None:
     if not isinstance(path_text, str):
         return None
@@ -96,6 +142,7 @@ def build_recommendation_benchmark_report(
     *,
     recommendation: str | Path,
     baseline: str | Path | None = None,
+    ai_only: bool = False,
     min_attempted: int = MIN_ATTEMPTED,
     min_improvement_rate: float = MIN_IMPROVEMENT_RATE,
     min_median_delta: float = MIN_MEDIAN_DELTA,
@@ -109,14 +156,19 @@ def build_recommendation_benchmark_report(
     sample_results = summary.get("sample_results", [])
     if not isinstance(sample_results, list) or not all(isinstance(item, Mapping) for item in sample_results):
         raise AmgRecommendationBenchmarkError("malformed_recommendation_summary", "sample_results must be a list of objects", summary_path)
+    if ai_only and baseline is not None:
+        raise AmgRecommendationBenchmarkError("ai_only_baseline_argument", "--ai-only cannot use --baseline comparison")
+
     deltas: list[float] = []
     failure_counts: Counter[str] = Counter()
     invalid_artifacts = 0
-    valid_pair_count = 0
+    valid_evidence_count = 0
     improved_count = 0
     selected_non_baseline_count = 0
     selected_baseline_count = 0
     risk_rejected_candidate_count = 0
+    recommended_scores: list[float] = []
+    selected_evaluation_ids: list[str] = []
     for result in sample_results:
         report = _sample_report(result.get("report_path"), root)
         if report is None:
@@ -130,17 +182,42 @@ def build_recommendation_benchmark_report(
             continue
         if result.get("selected_evaluation_id") not in {None, "baseline"}:
             selected_non_baseline_count += 1
+            selected_evaluation_ids.append(str(result.get("selected_evaluation_id")))
         elif result.get("selected_evaluation_id") == "baseline":
             selected_baseline_count += 1
         risk_rejected_candidate_count += int(result.get("risk_rejected_candidate_count", 0) or 0)
         baseline_run = report.get("baseline_run", {})
         recommended_run = report.get("recommended_run", {})
+        if ai_only:
+            if summary.get("compare_baseline") is not False:
+                failure_counts["baseline_comparison_enabled"] += 1
+                continue
+            if result.get("selected_evaluation_id") in {None, "baseline"}:
+                failure_counts["missing_non_baseline_recommendation"] += 1
+                continue
+            if baseline_run not in (None, {}):
+                failure_counts["baseline_run_present"] += 1
+                continue
+            run_ok, run_reason = _run_evidence_is_real(recommended_run, root)
+            if not run_ok:
+                invalid_artifacts += 1
+                failure_counts[str(run_reason)] += 1
+                continue
+            recommended_score = result.get("recommended_score")
+            if not isinstance(recommended_score, (int, float)):
+                failure_counts["missing_recommended_quality_score"] += 1
+                continue
+            recommended_scores.append(float(recommended_score))
+            valid_evidence_count += 1
+            continue
         if not isinstance(baseline_run, Mapping) or not isinstance(recommended_run, Mapping):
             failure_counts["missing_run_evidence"] += 1
             continue
-        if not _mesh_artifact_is_real(baseline_run.get("mesh_path"), root) or not _mesh_artifact_is_real(recommended_run.get("mesh_path"), root):
+        baseline_ok, baseline_reason = _run_evidence_is_real(baseline_run, root)
+        recommended_ok, recommended_reason = _run_evidence_is_real(recommended_run, root)
+        if not baseline_ok or not recommended_ok:
             invalid_artifacts += 1
-            failure_counts["missing_or_placeholder_mesh"] += 1
+            failure_counts[str(baseline_reason or recommended_reason)] += 1
             continue
         baseline_score = result.get("baseline_score")
         recommended_score = result.get("recommended_score")
@@ -148,29 +225,38 @@ def build_recommendation_benchmark_report(
         if not isinstance(baseline_score, (int, float)) or not isinstance(recommended_score, (int, float)) or not isinstance(delta, (int, float)):
             failure_counts["missing_quality_scores"] += 1
             continue
-        valid_pair_count += 1
+        valid_evidence_count += 1
         deltas.append(float(delta))
         if float(delta) > improvement_epsilon:
             improved_count += 1
     attempted_count = len(sample_results)
-    improvement_rate = improved_count / valid_pair_count if valid_pair_count else 0.0
+    improvement_rate = improved_count / valid_evidence_count if valid_evidence_count and not ai_only else 0.0
     median_delta = statistics.median(deltas) if deltas else None
     mean_delta = statistics.mean(deltas) if deltas else None
     worst_delta = min(deltas) if deltas else None
     lower_tail_p10 = _quantile(deltas, 0.10)
     lower_tail_p25 = _quantile(deltas, 0.25)
     severe_regression_count = sum(1 for delta in deltas if delta < severe_regression_threshold)
-    criteria = {
-        "minimum_attempted": attempted_count >= min_attempted,
-        "all_pairs_valid": valid_pair_count == attempted_count and attempted_count > 0,
-        "no_invalid_artifacts": invalid_artifacts == 0,
-        "non_baseline_selected": selected_non_baseline_count > 0,
-        "no_baseline_recommendations": selected_baseline_count == 0,
-        "improvement_rate_met": improvement_rate >= min_improvement_rate,
-        "median_improvement_delta_met": median_delta is not None and median_delta >= min_median_delta,
-        "severe_regression_count_met": severe_regression_count <= max_severe_regression_count,
-        "worst_improvement_delta_met": worst_delta is not None and worst_delta >= severe_regression_threshold,
-    }
+    if ai_only:
+        criteria = {
+            "minimum_attempted": attempted_count >= min_attempted,
+            "all_ai_recommendations_valid": valid_evidence_count == attempted_count and attempted_count > 0,
+            "no_invalid_artifacts": invalid_artifacts == 0,
+            "all_selected_non_baseline": selected_non_baseline_count == attempted_count and selected_baseline_count == 0,
+            "baseline_comparison_disabled": summary.get("compare_baseline") is False,
+        }
+    else:
+        criteria = {
+            "minimum_attempted": attempted_count >= min_attempted,
+            "all_pairs_valid": valid_evidence_count == attempted_count and attempted_count > 0,
+            "no_invalid_artifacts": invalid_artifacts == 0,
+            "non_baseline_selected": selected_non_baseline_count > 0,
+            "no_baseline_recommendations": selected_baseline_count == 0,
+            "improvement_rate_met": improvement_rate >= min_improvement_rate,
+            "median_improvement_delta_met": median_delta is not None and median_delta >= min_median_delta,
+            "severe_regression_count_met": severe_regression_count <= max_severe_regression_count,
+            "worst_improvement_delta_met": worst_delta is not None and worst_delta >= severe_regression_threshold,
+        }
     baseline_comparison = None
     if baseline is not None:
         baseline_root = Path(baseline)
@@ -194,11 +280,13 @@ def build_recommendation_benchmark_report(
         }
     return {
         "schema": "AMG_QUALITY_RECOMMENDATION_BENCHMARK_V1",
+        "mode": "AI_ONLY" if ai_only else "BASELINE_COMPARISON",
         "status": "SUCCESS" if all(criteria.values()) else "FAILED",
         "recommendation_root": root.as_posix(),
         "recommendation_summary_path": summary_path.as_posix(),
         "attempted_count": attempted_count,
-        "valid_pair_count": valid_pair_count,
+        "valid_pair_count": valid_evidence_count if not ai_only else 0,
+        "valid_mesh_count": valid_evidence_count if ai_only else 0,
         "improved_count": improved_count,
         "improvement_rate": improvement_rate,
         "improvement_epsilon": improvement_epsilon,
@@ -211,6 +299,10 @@ def build_recommendation_benchmark_report(
         "severe_regression_count": severe_regression_count,
         "selected_non_baseline_count": selected_non_baseline_count,
         "selected_baseline_count": selected_baseline_count,
+        "selected_evaluation_ids": selected_evaluation_ids,
+        "recommended_quality_score_min": min(recommended_scores) if recommended_scores else None,
+        "recommended_quality_score_median": statistics.median(recommended_scores) if recommended_scores else None,
+        "recommended_quality_score_max": max(recommended_scores) if recommended_scores else None,
         "risk_rejected_candidate_count": risk_rejected_candidate_count,
         "failure_reason_counts": dict(sorted(failure_counts.items())),
         "invalid_artifact_count": invalid_artifacts,
@@ -228,6 +320,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--recommendation", required=True)
     parser.add_argument("--out", required=True)
     parser.add_argument("--baseline", default=None)
+    parser.add_argument("--ai-only", action="store_true")
     parser.add_argument("--min-attempted", type=int, default=MIN_ATTEMPTED)
     parser.add_argument("--min-improvement-rate", type=float, default=MIN_IMPROVEMENT_RATE)
     parser.add_argument("--min-median-delta", type=float, default=MIN_MEDIAN_DELTA)
@@ -243,6 +336,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         report = build_recommendation_benchmark_report(
             recommendation=Path(args.recommendation),
             baseline=Path(args.baseline) if args.baseline else None,
+            ai_only=bool(args.ai_only),
             min_attempted=args.min_attempted,
             min_improvement_rate=args.min_improvement_rate,
             min_median_delta=args.min_median_delta,

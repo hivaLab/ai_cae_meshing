@@ -419,6 +419,96 @@ def test_recommendation_benchmark_accepts_real_improvement_and_rejects_placehold
     assert rejected["success_criteria"]["no_invalid_artifacts"] is False
 
 
+def test_ai_only_recommendation_benchmark_accepts_non_baseline_real_meshes(monkeypatch) -> None:
+    dataset, quality, training = _write_fixture("ai_only_benchmark", sample_count=6)
+    out = RUNS / "ai_only_benchmark" / "recommendation"
+    ansa = RUNS / "ai_only_benchmark" / "ansa64.bat"
+    ansa.write_text("@echo off\n", encoding="utf-8")
+    monkeypatch.setattr("ai_mesh_generator.amg.recommendation.quality.subprocess.run", _fake_subprocess_run)
+
+    result = run_quality_recommendation(
+        QualityRecommendationConfig(
+            dataset_root=dataset,
+            quality_exploration_root=quality,
+            training_root=training,
+            output_dir=out,
+            ansa_executable=ansa,
+        )
+    )
+
+    report = build_recommendation_benchmark_report(recommendation=out, ai_only=True)
+
+    assert result.status == "SUCCESS"
+    assert result.selected_baseline_count == 0
+    assert report["status"] == "SUCCESS"
+    assert report["mode"] == "AI_ONLY"
+    assert report["valid_mesh_count"] == 6
+    assert report["valid_pair_count"] == 0
+    assert report["selected_baseline_count"] == 0
+    assert report["success_criteria"]["baseline_comparison_disabled"] is True
+    assert set(report["selected_evaluation_ids"]) == {"perturb_001"}
+
+
+def test_ai_only_recommendation_benchmark_rejects_baseline_artifacts_and_bad_evidence(monkeypatch) -> None:
+    dataset, quality, training = _write_fixture("ai_only_rejects", sample_count=6)
+    out = RUNS / "ai_only_rejects" / "recommendation"
+    ansa = RUNS / "ai_only_rejects" / "ansa64.bat"
+    ansa.write_text("@echo off\n", encoding="utf-8")
+    monkeypatch.setattr("ai_mesh_generator.amg.recommendation.quality.subprocess.run", _fake_subprocess_run)
+    run_quality_recommendation(
+        QualityRecommendationConfig(
+            dataset_root=dataset,
+            quality_exploration_root=quality,
+            training_root=training,
+            output_dir=out,
+            ansa_executable=ansa,
+        )
+    )
+
+    first_report_path = out / "samples" / "sample_000001" / "recommendation_report.json"
+    first_report = json.loads(first_report_path.read_text(encoding="utf-8"))
+    first_report["baseline_run"] = {"status": "VALID_EVIDENCE"}
+    first_report_path.write_text(json.dumps(first_report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    rejected_baseline = build_recommendation_benchmark_report(recommendation=out, ai_only=True)
+    assert rejected_baseline["status"] == "FAILED"
+    assert rejected_baseline["failure_reason_counts"]["baseline_run_present"] == 1
+
+    first_report["baseline_run"] = None
+    first_report_path.write_text(json.dumps(first_report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    mesh = out / "samples" / "sample_000002" / "recommended" / "meshes" / "ansa_oracle_mesh.bdf"
+    mesh.write_text("mock placeholder mesh\n", encoding="utf-8")
+    rejected_mesh = build_recommendation_benchmark_report(recommendation=out, ai_only=True)
+    assert rejected_mesh["status"] == "FAILED"
+    assert rejected_mesh["failure_reason_counts"]["missing_or_placeholder_mesh"] == 1
+
+
+def test_ai_only_recommendation_benchmark_rejects_hard_failed_quality_report(monkeypatch) -> None:
+    dataset, quality, training = _write_fixture("ai_only_hard_failed", sample_count=6)
+    out = RUNS / "ai_only_hard_failed" / "recommendation"
+    ansa = RUNS / "ai_only_hard_failed" / "ansa64.bat"
+    ansa.write_text("@echo off\n", encoding="utf-8")
+    monkeypatch.setattr("ai_mesh_generator.amg.recommendation.quality.subprocess.run", _fake_subprocess_run)
+    run_quality_recommendation(
+        QualityRecommendationConfig(
+            dataset_root=dataset,
+            quality_exploration_root=quality,
+            training_root=training,
+            output_dir=out,
+            ansa_executable=ansa,
+        )
+    )
+    sample_report = json.loads((out / "samples" / "sample_000001" / "recommendation_report.json").read_text(encoding="utf-8"))
+    quality_path = Path(sample_report["recommended_run"]["quality_report_path"])
+    quality_report = json.loads(quality_path.read_text(encoding="utf-8"))
+    quality_report["quality"]["num_hard_failed_elements"] = 1
+    quality_path.write_text(json.dumps(quality_report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    report = build_recommendation_benchmark_report(recommendation=out, ai_only=True)
+
+    assert report["status"] == "FAILED"
+    assert report["failure_reason_counts"]["quality_report_hard_failed_elements"] == 1
+
+
 def test_recommendation_benchmark_reports_tail_risk(monkeypatch) -> None:
     dataset, quality, training = _write_fixture("tail_risk", sample_count=6)
     out = RUNS / "tail_risk" / "recommendation"

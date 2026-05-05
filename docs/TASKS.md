@@ -912,7 +912,7 @@ per-family after-retry VALID_MESH rate: 1.0 for every required part class.
 
 ### T-708_FAST_QUALITY_AWARE_DATASET_ITERATION
 
-Status: IN_PROGRESS
+Status: DONE
 
 Goal:
 
@@ -932,7 +932,9 @@ flange width, and manifest actions including KEEP_REFINED, KEEP_WITH_WASHER, SUP
 KEEP_WITH_BEND_ROWS, and KEEP_WITH_FLANGE_SIZE.
 cdf quality-explore perturbs accepted baseline manifests, executes real ANSA, and records pass, fail,
 near-fail, blocked, continuous quality metrics, and lower-is-better quality scores without overwriting labels.
-Missing continuous ANSA quality metrics are BLOCKED, not guessed.
+Missing continuous ANSA quality metrics are BLOCKED for accepted meshes and are not guessed.
+Real hard-failed ANSA reports with num_hard_failed_elements > 0 are recorded as FAILED labels even
+when continuous statistics are unavailable.
 amg-train-quality uses graph + manifest + quality exploration evidence by file contract only and trains
 same-geometry pairwise ranking targets. Graph inputs contain no target action/control columns.
 amg-quality-benchmark reports action/control entropy, quality score variance, pass/fail/near-fail counts,
@@ -953,10 +955,11 @@ Implemented so far:
 ```text
 Code and unit/regression tests for the user-counted diversity profile, quality exploration runner,
 continuous metric extraction from ANSA statistics HTML, quality-aware AMG ranker, and quality benchmark
-report are implemented. The real T-708 smoke gate was executed and is intentionally not accepted as DONE.
-Dataset generation and validation succeeded, but the quality benchmark failed because manifest control
-perturbations do not materially change same-geometry ANSA quality.
-Latest regression after benchmark hardening: python -m pytest -> 224 passed, 1 skipped in 10.43s.
+report are implemented. Real ANSA control application is now bound for manifest edge length,
+washer/refinement, suppression/fill, bend row, and flange sizing paths through the ANSA script boundary.
+The ANSA statistics parser reads the Session-Parts quality table only, so element-count TOTAL rows
+do not masquerade as violating shell counts.
+Latest regression: python -m pytest -> 229 passed, 2 skipped in 10.54s.
 ```
 
 Real smoke gate evidence:
@@ -972,41 +975,58 @@ Result: SUCCESS, accepted_count=40, error_count=0.
 
 Command:
 python -m cad_dataset_factory.cdf.cli quality-explore --dataset runs\t708_quality_exploration_smoke\dataset --out runs\t708_quality_exploration_smoke\quality_exploration --perturbations-per-sample 3 --ansa-executable C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat
-Result: SUCCESS, baseline_count=40, evaluated_count=120, blocked_count=0, passed_count=160,
-failed_count=0, quality_score_variance=9231610.37480431.
+Original result before real control binding: SUCCESS, but same-geometry control response was not meaningful.
 
 Command:
-python -m ai_mesh_generator.amg.training.quality --dataset runs\t708_quality_exploration_smoke\dataset --quality-exploration runs\t708_quality_exploration_smoke\quality_exploration --out runs\t708_quality_exploration_smoke\training_quality --epochs 5 --batch-size 32 --seed 708
-Result: SUCCESS, validation_pairwise_accuracy=0.6785714285714286.
+python -m cad_dataset_factory.cdf.cli quality-explore --dataset runs\t708_quality_exploration_smoke\dataset --out runs\t708_quality_exploration_smoke\quality_exploration_metricfix2 --perturbations-per-sample 3 --ansa-executable C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat
+Result: SUCCESS, baseline_count=40, evaluated_count=120, blocked_count=0, passed_count=84,
+near_fail_count=40, failed_count=36, quality_score_variance=2814384.4276997964.
 
 Command:
-python -m ai_mesh_generator.amg.benchmark.quality --dataset runs\t708_quality_exploration_smoke\dataset --quality-exploration runs\t708_quality_exploration_smoke\quality_exploration --training runs\t708_quality_exploration_smoke\training_quality --out runs\t708_quality_exploration_smoke\quality_benchmark.json
-Result: FAILED.
-Failed criteria:
-  has_pass_and_fail_or_near_fail_examples=false
-  same_geometry_quality_delta_meaningful=false
+python -m ai_mesh_generator.amg.training.quality --dataset runs\t708_quality_exploration_smoke\dataset --quality-exploration runs\t708_quality_exploration_smoke\quality_exploration_metricfix2 --out runs\t708_quality_exploration_smoke\training_quality_metricfix2 --epochs 5 --batch-size 32 --seed 708
+Result: SUCCESS, validation_pairwise_accuracy=0.6666666666666666.
+
+Command:
+python -m ai_mesh_generator.amg.benchmark.quality --dataset runs\t708_quality_exploration_smoke\dataset --quality-exploration runs\t708_quality_exploration_smoke\quality_exploration_metricfix2 --training runs\t708_quality_exploration_smoke\training_quality_metricfix2 --out runs\t708_quality_exploration_smoke\quality_benchmark_metricfix2.json
+Result: SUCCESS.
+
+Quality benchmark evidence:
+action_entropy_bits=2.272088893287269
+feature_type_entropy_bits=2.28558992945765
+control_value_variance=28.23013372004848
+passed_count=84
+near_fail_count=76
+failed_count=36
+blocked_count=0
+quality_score_variance=2814384.4276997964
+same_geometry_quality_delta_mean=1671.256000525
+same_geometry_meaningful_delta_count=40
+validation_pairwise_accuracy=0.6666666666666666
 ```
 
-Current blocker:
+### T-709_QUALITY_RANKER_RECOMMENDATION_TO_REAL_ANSA
+
+Status: TODO
+
+Goal:
 
 ```text
-quality_score_variance is dominated by geometry-to-geometry differences, not by control perturbation response.
-same_geometry_quality_delta_mean=4.2975000086498125e-05
-same_geometry_quality_delta_max=0.0001560000000608852
-same_geometry_meaningful_delta_count=0
-baseline_best_improvement_mean=4.102500008701382e-05
-
-The root cause is in cad_dataset_factory/cdf/oracle/ansa_scripts/cdf_ansa_api_layer.py:
-ansa_apply_hole_control, ansa_apply_slot_control, ansa_apply_cutout_control,
-ansa_apply_bend_control, and ansa_apply_flange_control currently record controls in reports
-but do not bind those controls to actual ANSA mesh sizing, washer/suppression, bend row,
-or flange sizing operations.
+Use the T-708 quality ranker as an actual recommendation component: for held-out accepted geometries,
+score candidate manifest controls, select the best predicted control manifest, run real ANSA, and compare
+the resulting mesh quality against the baseline AMG manifest and a naive control baseline.
 ```
 
-Next acceptance work:
+Acceptance:
 
 ```text
-Implement real ANSA control application for at least edge length refinement, washer/fill or suppression,
-bend rows, and flange sizing. Then rerun the T-708 real gate and require meaningful same-geometry
-quality response plus pass/fail or near-fail examples before marking T-708 DONE.
+Input dataset and quality exploration artifacts are read by file contract only.
+No CDF import, mock ANSA output, deterministic rule fallback, graph target columns, or reference_midsurface
+model input can count toward success.
+The recommender writes predicted AMG_MANIFEST_SM_V1 files and schema-valid per-sample comparison reports.
+For a real smoke set, real ANSA executes baseline and recommended manifests, with non-empty BDF outputs.
+The aggregate report includes baseline score, recommended score, improvement rate, failure histogram,
+and paired same-geometry quality deltas.
+T-709 is DONE only if the recommended manifest improves lower-is-better quality score over baseline
+for a statistically meaningful fraction of attempted held-out samples, or it remains IN_PROGRESS with
+the exact failure evidence and model/data bottleneck recorded.
 ```

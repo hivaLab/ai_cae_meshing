@@ -227,15 +227,15 @@ def _apply_manifest_controls(model: AnsaModelRef, manifest: dict[str, Any]) -> l
         feature_type = feature.get("type")
         controls = feature.get("controls", {})
         if feature_type == "HOLE":
-            reports.append(ansa_apply_hole_control(model, controls))
+            reports.append(ansa_apply_hole_control(model, controls, feature))
         elif feature_type == "SLOT":
-            reports.append(ansa_apply_slot_control(model, controls))
+            reports.append(ansa_apply_slot_control(model, controls, feature))
         elif feature_type == "CUTOUT":
-            reports.append(ansa_apply_cutout_control(model, controls))
+            reports.append(ansa_apply_cutout_control(model, controls, feature))
         elif feature_type == "BEND":
-            reports.append(ansa_apply_bend_control(model, controls))
+            reports.append(ansa_apply_bend_control(model, controls, feature))
         elif feature_type == "FLANGE":
-            reports.append(ansa_apply_flange_control(model, controls))
+            reports.append(ansa_apply_flange_control(model, controls, feature))
     return reports
 
 

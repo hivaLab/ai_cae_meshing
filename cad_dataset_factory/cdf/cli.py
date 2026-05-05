@@ -118,6 +118,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "baseline_count": result.baseline_count,
                     "evaluated_count": result.evaluated_count,
                     "passed_count": result.passed_count,
+                    "near_fail_count": result.near_fail_count,
                     "failed_count": result.failed_count,
                     "blocked_count": result.blocked_count,
                     "quality_score_variance": result.quality_score_variance,

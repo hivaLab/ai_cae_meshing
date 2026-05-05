@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 from pathlib import Path
 from types import SimpleNamespace
@@ -8,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from cad_dataset_factory.cdf.oracle.ansa_scripts.cdf_ansa_api_layer import _parse_statistics_report
+from cad_dataset_factory.cdf.pipeline.e2e_dataset import generate_dataset, validate_dataset
 from cad_dataset_factory.cdf.quality import CdfQualityExplorationError, compute_quality_score, perturb_manifest, run_quality_exploration
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -72,7 +74,13 @@ def _manifest(*, relief: bool = False) -> dict:
     }
 
 
-def _quality_report(*, hard_failed: int = 0, spread: float = 0.5) -> dict:
+def _quality_report(
+    *,
+    hard_failed: int = 0,
+    spread: float = 0.5,
+    violating: int | None = None,
+    unmeshed: int = 0,
+) -> dict:
     return {
         "schema": "CDF_ANSA_QUALITY_REPORT_SM_V1",
         "sample_id": "sample_000001",
@@ -81,7 +89,8 @@ def _quality_report(*, hard_failed: int = 0, spread: float = 0.5) -> dict:
         "quality": {
             "num_hard_failed_elements": hard_failed,
             "num_shell_elements": 20,
-            "violating_shell_elements_total": hard_failed,
+            "violating_shell_elements_total": hard_failed if violating is None else violating,
+            "unmeshed_shell_count": unmeshed,
             "side_length_spread_ratio": spread,
             "aspect_ratio_proxy_max": 1.5 + spread,
             "triangles_percent": 4.0,
@@ -137,6 +146,11 @@ def test_quality_score_requires_continuous_metrics() -> None:
     with pytest.raises(CdfQualityExplorationError) as exc_info:
         compute_quality_score({"schema": "CDF_ANSA_QUALITY_REPORT_SM_V1", "quality": {"num_hard_failed_elements": 0}})
     assert exc_info.value.code == "quality_metric_unavailable"
+    hard_fail_without_continuous = compute_quality_score(
+        {"schema": "CDF_ANSA_QUALITY_REPORT_SM_V1", "quality": {"num_hard_failed_elements": 1}},
+        _execution_report(),
+    )
+    assert hard_fail_without_continuous >= 1000.0
 
 
 def test_perturb_manifest_produces_schema_valid_control_variants() -> None:
@@ -173,6 +187,30 @@ def test_statistics_report_parser_extracts_continuous_quality_metrics() -> None:
     assert metrics["aspect_ratio_proxy_max"] == 4.0
 
 
+def test_statistics_report_parser_ignores_overall_number_total_header() -> None:
+    stats = RUNS / "statistics_with_multiple_totals.html"
+    stats.parent.mkdir(parents=True, exist_ok=True)
+    stats.write_text(
+        """
+        <table summary="Session-Parts Report Table">
+          <tr><td>Name</td><td>Property ID</td><td>Session</td><td>Aver.Length Shells</td><td>Unmeshed</td><td>Triangles %</td><td>Total</td></tr>
+          <tr><td>part</td><td>1</td><td>session</td><td>1.31</td><td>0</td><td>0.02</td><td>0</td></tr>
+          <tr><td colspan="3"><b>TOTAL</b></td><td>1.31</td><td>0</td><td>0.02</td><td>0</td></tr>
+        </table>
+        <table summary="Statistics Report Table">
+          <tr><td>TYPE</td><td>Tria</td><td>Quad</td><td>TOTAL</td></tr>
+          <tr><td>NUMBER</td><td>0</td><td>9064</td><td>9064</td></tr>
+        </table>
+        """,
+        encoding="utf-8",
+    )
+
+    metrics = _parse_statistics_report(stats)
+
+    assert metrics["triangles_percent"] == 0.02
+    assert metrics["violating_shell_elements_total"] == 0
+
+
 def test_run_quality_exploration_records_real_failed_cases_without_hiding(monkeypatch) -> None:
     dataset = _write_dataset(_fresh(RUNS / "explore"))
     output = RUNS / "explore" / "quality"
@@ -201,3 +239,73 @@ def test_run_quality_exploration_records_real_failed_cases_without_hiding(monkey
     assert result.failed_count == 1
     assert result.quality_score_variance > 0.0
     assert {record["evaluation_id"] for record in summary["records"]} == {"baseline", "perturb_001"}
+
+
+def test_run_quality_exploration_preserves_near_fail_quality_evidence(monkeypatch) -> None:
+    dataset = _write_dataset(_fresh(RUNS / "near_fail"))
+    output = RUNS / "near_fail" / "quality"
+
+    def fake_run_ansa_oracle(request, execute=True):
+        _write_json(request.execution_report_path, _execution_report())
+        _write_json(request.quality_report_path, _quality_report(hard_failed=0, spread=1.4, violating=3, unmeshed=1))
+        mesh = request.sample_dir / "meshes" / "ansa_oracle_mesh.bdf"
+        mesh.parent.mkdir(parents=True, exist_ok=True)
+        mesh.write_text("CEND\nBEGIN BULK\nENDDATA\n", encoding="utf-8")
+        return SimpleNamespace(status="COMPLETED", error_code=None)
+
+    monkeypatch.setattr("cad_dataset_factory.cdf.quality.exploration.run_ansa_oracle", fake_run_ansa_oracle)
+
+    result = run_quality_exploration(
+        dataset_root=dataset,
+        output_dir=output,
+        ansa_executable=RUNS / "ansa64.bat",
+        perturbations_per_sample=1,
+    )
+
+    summary = json.loads(Path(result.summary_path).read_text(encoding="utf-8"))
+    perturb = next(record for record in summary["records"] if record["evaluation_id"] == "perturb_001")
+    assert result.status == "SUCCESS"
+    assert result.near_fail_count == 1
+    assert summary["near_fail_count"] == 1
+    assert perturb["status"] == "NEAR_FAIL"
+    assert perturb["accepted"] is True
+    assert perturb["quality_metrics_available"] is True
+
+
+@pytest.mark.requires_ansa
+def test_real_ansa_control_perturbations_change_same_geometry_quality() -> None:
+    ansa_executable = os.environ.get("ANSA_EXECUTABLE")
+    if not ansa_executable:
+        pytest.skip("ANSA_EXECUTABLE is not configured")
+    dataset = _fresh(RUNS / "real_control_response" / "dataset")
+    quality = RUNS / "real_control_response" / "quality"
+
+    generated = generate_dataset(
+        config_path=ROOT / "configs" / "cdf_sm_ansa_v1.default.json",
+        out_dir=dataset,
+        count=1,
+        seed=1708,
+        require_ansa=True,
+        env={**os.environ, "ANSA_EXECUTABLE": ansa_executable},
+        profile="sm_quality_exploration_v1",
+    )
+    assert generated.status == "SUCCESS"
+    assert validate_dataset(dataset_root=dataset, require_ansa=True).exit_code == 0
+
+    result = run_quality_exploration(
+        dataset_root=dataset,
+        output_dir=quality,
+        ansa_executable=ansa_executable,
+        perturbations_per_sample=3,
+    )
+
+    summary = json.loads(Path(result.summary_path).read_text(encoding="utf-8"))
+    scores = [float(record["quality_score"]) for record in summary["records"] if isinstance(record.get("quality_score"), (int, float))]
+    assert len(scores) >= 2
+    assert max(scores) - min(scores) >= 0.01
+    control_reports = [
+        json.loads(Path(record["execution_report_path"]).read_text(encoding="utf-8"))["outputs"]["controls_applied"][0]
+        for record in summary["records"]
+        if record.get("evaluation_id") != "baseline"
+    ]
+    assert any(report.get("bound_to_real_ansa_api") is True for report in control_reports)

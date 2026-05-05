@@ -151,7 +151,8 @@ def _quality_evidence(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     near_fail_count = sum(
         1
         for record in records
-        if record.get("status") == "FAILED" and isinstance(record.get("quality_score"), (int, float))
+        if record.get("status") == "NEAR_FAIL"
+        or (record.get("status") == "FAILED" and isinstance(record.get("quality_score"), (int, float)))
     )
     by_sample: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
     for record in records:

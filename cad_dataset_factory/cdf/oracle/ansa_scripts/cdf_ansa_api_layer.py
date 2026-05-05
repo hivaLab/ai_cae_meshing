@@ -10,7 +10,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Mapping
 
 
 class AnsaApiUnavailable(RuntimeError):
@@ -219,24 +219,261 @@ def _record_control(model_or_feature_ref: Any, operation: str, control: Any) -> 
     return {"operation": operation, "control": control}
 
 
-def ansa_apply_hole_control(feature_ref: Any, control: Any) -> dict[str, Any]:
-    return _record_control(feature_ref, "ansa_apply_hole_control", control)
+def _control_mapping(control: Any) -> Mapping[str, Any]:
+    return control if isinstance(control, Mapping) else {}
 
 
-def ansa_apply_slot_control(feature_ref: Any, control: Any) -> dict[str, Any]:
-    return _record_control(feature_ref, "ansa_apply_slot_control", control)
+def _feature_mapping(feature: Any) -> Mapping[str, Any]:
+    return feature if isinstance(feature, Mapping) else {}
 
 
-def ansa_apply_cutout_control(feature_ref: Any, control: Any) -> dict[str, Any]:
-    return _record_control(feature_ref, "ansa_apply_cutout_control", control)
+def _first_numeric(control: Mapping[str, Any], keys: tuple[str, ...]) -> tuple[str, float] | None:
+    for key in keys:
+        value = control.get(key)
+        if isinstance(value, (int, float)) and float(value) > 0.0:
+            return key, float(value)
+    return None
 
 
-def ansa_apply_bend_control(feature_ref: Any, control: Any) -> dict[str, Any]:
-    return _record_control(feature_ref, "ansa_apply_bend_control", control)
+def _first_int(control: Mapping[str, Any], keys: tuple[str, ...]) -> tuple[str, int] | None:
+    for key in keys:
+        value = control.get(key)
+        if isinstance(value, (int, float)) and int(value) > 0:
+            return key, int(value)
+    return None
 
 
-def ansa_apply_flange_control(feature_ref: Any, control: Any) -> dict[str, Any]:
-    return _record_control(feature_ref, "ansa_apply_flange_control", control)
+def _call_control_api(report: dict[str, Any], module: Any, function_name: str, *args: Any, **kwargs: Any) -> bool:
+    function = getattr(module, function_name, None)
+    if not callable(function):
+        report.setdefault("unavailable_api", []).append(function_name)
+        return False
+    try:
+        result = function(*args, **kwargs)
+    except TypeError as exc:
+        report.setdefault("failed_api", []).append({"function": function_name, "error": str(exc)})
+        return False
+    except Exception as exc:
+        report.setdefault("failed_api", []).append({"function": function_name, "error": str(exc)})
+        return False
+    report.setdefault("applied_api", []).append({"function": function_name, "result": _jsonable_api_result(result)})
+    return result not in (0, False, None) or function_name in {
+        "ApplyNewLengthToMacros",
+        "BCSettingsSetValues",
+        "SetANSAdefaultsValues",
+        "SetSessionParameters",
+    }
+
+
+def _jsonable_api_result(result: Any) -> Any:
+    if result is None or isinstance(result, (str, int, float, bool)):
+        return result
+    if isinstance(result, (list, tuple)):
+        return [_jsonable_api_result(item) for item in result[:10]]
+    if isinstance(result, dict):
+        return {str(key): _jsonable_api_result(value) for key, value in list(result.items())[:20]}
+    if hasattr(result, "_id"):
+        return {"entity_id": getattr(result, "_id", None), "entity_type": getattr(result, "_ansa_type", type(result).__name__)}
+    if hasattr(result, "meshed_ents"):
+        return {"meshed_ents_count": len(getattr(result, "meshed_ents", []) or [])}
+    return repr(result)
+
+
+def _set_global_mesh_length(model: AnsaModelRef, report: dict[str, Any], target_length_mm: float) -> bool:
+    modules = _require_modules(str(report["operation"]), model)
+    success = False
+    if _call_control_api(report, modules.mesh, "SetMeshParamTargetLength", "absolute", float(target_length_mm)):
+        success = True
+    if _call_control_api(report, modules.mesh, "ApplyNewLengthToMacros", f"{float(target_length_mm):.9g}", 0, False):
+        success = True
+    defaults = {
+        "target_element_length": f"{float(target_length_mm):.9g}",
+        "perimeter_length": f"{float(target_length_mm):.9g}",
+    }
+    if hasattr(modules.base, "BCSettingsSetValues") and _call_control_api(report, modules.base, "BCSettingsSetValues", defaults):
+        success = True
+    elif _call_control_api(report, modules.base, "SetANSAdefaultsValues", defaults):
+        success = True
+    if model.session is not None:
+        session_fields = {
+            "target_element_length": f"{float(target_length_mm):.9g}",
+            "perimeter_length": f"{float(target_length_mm):.9g}",
+        }
+        if _call_control_api(report, modules.batchmesh, "SetSessionParameters", model.session, session_fields):
+            success = True
+    report["target_length_mm"] = float(target_length_mm)
+    return success
+
+
+def _apply_perimeter_divisions(model: AnsaModelRef, report: dict[str, Any], divisions: int) -> bool:
+    modules = _require_modules(str(report["operation"]), model)
+    report["perimeter_divisions"] = int(divisions)
+    return _call_control_api(report, modules.mesh, "NumberPerimeters", 0, str(int(divisions)), False, False, "edges", False)
+
+
+def _apply_circular_washer(model: AnsaModelRef, report: dict[str, Any], control: Mapping[str, Any]) -> bool:
+    modules = _require_modules(str(report["operation"]), model)
+    rings = int(control.get("washer_rings", 1) or 1)
+    target = float(control.get("edge_target_length_mm", 1.0) or 1.0)
+    growth = float(control.get("radial_growth_rate", control.get("growth_rate", 1.2)) or 1.2)
+    report["washer_rings"] = rings
+    return _call_control_api(
+        report,
+        modules.mesh,
+        "CreateCircularMesh",
+        0,
+        True,
+        True,
+        10.0,
+        "o-grid",
+        max(1, rings),
+        max(1, rings),
+        target,
+        growth,
+        10.0,
+    )
+
+
+def _apply_fill_or_suppression(model: AnsaModelRef, report: dict[str, Any], feature: Mapping[str, Any]) -> bool:
+    modules = _require_modules(str(report["operation"]), model)
+    max_diameter = _diameter_from_geometry_signature(feature.get("geometry_signature")) or 1.0e9
+    report["suppression_max_diameter_mm"] = max_diameter
+    return _call_control_api(
+        report,
+        modules.mesh,
+        "FillSingleBoundHoles",
+        max_diameter,
+        False,
+        True,
+        "PID",
+        True,
+        0,
+        None,
+        None,
+        False,
+        "planar",
+        None,
+        "expand_existing_faces",
+    )
+
+
+def _diameter_from_geometry_signature(signature: Any) -> float | None:
+    if isinstance(signature, Mapping):
+        raw = signature.get("geometry_signature")
+    else:
+        raw = signature
+    if not isinstance(raw, str):
+        return None
+    values = [float(item) for item in re.findall(r"[-+]?\d+(?:\.\d+)?", raw)]
+    if len(values) >= 4:
+        return max(values[-2], values[-1])
+    return None
+
+
+def _apply_mesh_control(
+    model_or_feature_ref: Any,
+    operation: str,
+    control: Any,
+    *,
+    feature: Any = None,
+    length_keys: tuple[str, ...] = ("edge_target_length_mm",),
+    division_keys: tuple[str, ...] = (),
+    washer: bool = False,
+    suppress: bool = False,
+) -> dict[str, Any]:
+    report = _record_control(model_or_feature_ref, operation, control)
+    feature_map = _feature_mapping(feature)
+    if feature_map:
+        report["feature_id"] = feature_map.get("feature_id")
+        report["type"] = feature_map.get("type")
+        report["action"] = feature_map.get("action")
+    if not isinstance(model_or_feature_ref, AnsaModelRef):
+        return report
+
+    control_map = _control_mapping(control)
+    successes: list[str] = []
+    numeric = _first_numeric(control_map, length_keys)
+    if numeric is not None and _set_global_mesh_length(model_or_feature_ref, report, numeric[1]):
+        report["target_length_key"] = numeric[0]
+        successes.append("mesh_length")
+    divisions = _first_int(control_map, division_keys)
+    if divisions is not None and _apply_perimeter_divisions(model_or_feature_ref, report, divisions[1]):
+        report["division_key"] = divisions[0]
+        successes.append("perimeter_divisions")
+    if washer and _apply_circular_washer(model_or_feature_ref, report, control_map):
+        successes.append("washer")
+    if suppress and _apply_fill_or_suppression(model_or_feature_ref, report, feature_map):
+        successes.append("suppression")
+
+    report["bound_to_real_ansa_api"] = bool(successes)
+    report["successful_control_paths"] = successes
+    if not successes:
+        raise AnsaApiUnavailable(operation, f"no ANSA mesh-control API accepted control {control_map!r}")
+    return report
+
+
+def ansa_apply_hole_control(feature_ref: Any, control: Any, feature: Any = None) -> dict[str, Any]:
+    feature_map = _feature_mapping(feature)
+    action = feature_map.get("action")
+    control_map = _control_mapping(control)
+    return _apply_mesh_control(
+        feature_ref,
+        "ansa_apply_hole_control",
+        control,
+        feature=feature,
+        length_keys=("edge_target_length_mm",),
+        division_keys=("circumferential_divisions",),
+        washer=action == "KEEP_WITH_WASHER" or "washer_rings" in control_map,
+        suppress=action == "SUPPRESS" or "suppression_rule" in control_map,
+    )
+
+
+def ansa_apply_slot_control(feature_ref: Any, control: Any, feature: Any = None) -> dict[str, Any]:
+    feature_map = _feature_mapping(feature)
+    return _apply_mesh_control(
+        feature_ref,
+        "ansa_apply_slot_control",
+        control,
+        feature=feature,
+        length_keys=("edge_target_length_mm",),
+        division_keys=("end_arc_divisions", "straight_edge_divisions"),
+        suppress=feature_map.get("action") == "SUPPRESS" or "suppression_rule" in _control_mapping(control),
+    )
+
+
+def ansa_apply_cutout_control(feature_ref: Any, control: Any, feature: Any = None) -> dict[str, Any]:
+    feature_map = _feature_mapping(feature)
+    return _apply_mesh_control(
+        feature_ref,
+        "ansa_apply_cutout_control",
+        control,
+        feature=feature,
+        length_keys=("edge_target_length_mm",),
+        division_keys=(),
+        suppress=feature_map.get("action") == "SUPPRESS" or "suppression_rule" in _control_mapping(control),
+    )
+
+
+def ansa_apply_bend_control(feature_ref: Any, control: Any, feature: Any = None) -> dict[str, Any]:
+    return _apply_mesh_control(
+        feature_ref,
+        "ansa_apply_bend_control",
+        control,
+        feature=feature,
+        length_keys=("bend_target_length_mm", "edge_target_length_mm"),
+        division_keys=("bend_rows",),
+    )
+
+
+def ansa_apply_flange_control(feature_ref: Any, control: Any, feature: Any = None) -> dict[str, Any]:
+    return _apply_mesh_control(
+        feature_ref,
+        "ansa_apply_flange_control",
+        control,
+        feature=feature,
+        length_keys=("flange_target_length_mm", "free_edge_target_length_mm", "edge_target_length_mm"),
+        division_keys=("min_elements_across_width",),
+    )
 
 
 def ansa_run_batch_mesh(model: AnsaModelRef, session_name: str) -> dict[str, Any]:
@@ -306,13 +543,19 @@ def _parse_statistics_report(path: Path) -> dict[str, Any]:
     except OSError:
         return {"quality_metric_unavailable": True}
     cells = _cell_texts(html)
+    session_table = re.search(
+        r"<table[^>]*summary=[\"']Session-Parts Report Table[\"'][^>]*>(.*?)</table>",
+        html,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    session_cells = _cell_texts(session_table.group(0)) if session_table is not None else cells
     metrics: dict[str, Any] = {}
-    for index, cell in enumerate(cells):
-        if cell == "TOTAL" and index + 4 < len(cells):
-            avg_length = _float_or_none(cells[index + 1])
-            unmeshed = _float_or_none(cells[index + 2])
-            triangles = _float_or_none(cells[index + 3])
-            violating = _float_or_none(cells[index + 4])
+    for index, cell in enumerate(session_cells):
+        if cell == "TOTAL" and index + 4 < len(session_cells):
+            avg_length = _float_or_none(session_cells[index + 1])
+            unmeshed = _float_or_none(session_cells[index + 2])
+            triangles = _float_or_none(session_cells[index + 3])
+            violating = _float_or_none(session_cells[index + 4])
             if avg_length is not None:
                 metrics["average_shell_length_mm"] = avg_length
             if unmeshed is not None:
@@ -321,6 +564,8 @@ def _parse_statistics_report(path: Path) -> dict[str, Any]:
                 metrics["triangles_percent"] = triangles
             if violating is not None:
                 metrics["violating_shell_elements_total"] = int(violating)
+            break
+    for index, cell in enumerate(cells):
         if cell == "MIN" and index + 3 < len(cells):
             value = _float_or_none(cells[index + 3])
             if value is not None:

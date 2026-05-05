@@ -47,6 +47,7 @@ class QualityExplorationResult:
     baseline_count: int
     evaluated_count: int
     passed_count: int
+    near_fail_count: int
     failed_count: int
     blocked_count: int
     quality_score_variance: float
@@ -121,13 +122,15 @@ def compute_quality_score(quality_report: Mapping[str, Any], execution_report: M
     if not isinstance(quality, Mapping):
         raise CdfQualityExplorationError("malformed_quality_report", "quality must be an object")
     hard_failed = int(quality.get("num_hard_failed_elements", 1))
-    if not _has_continuous_quality(quality):
-        raise CdfQualityExplorationError("quality_metric_unavailable", "continuous quality metrics are required")
     boundary_error = 0.0
     if isinstance(feature_checks, list):
         for check in feature_checks:
             if isinstance(check, Mapping) and isinstance(check.get("boundary_size_error"), (int, float)):
                 boundary_error = max(boundary_error, abs(float(check["boundary_size_error"])))
+    if not _has_continuous_quality(quality):
+        if hard_failed > 0:
+            return 1000.0 * hard_failed + 10.0 * boundary_error
+        raise CdfQualityExplorationError("quality_metric_unavailable", "continuous quality metrics are required")
     violating = float(quality.get("violating_shell_elements_total", 0.0) or 0.0)
     spread = float(quality.get("side_length_spread_ratio", 0.0) or 0.0)
     aspect_proxy = max(1.0, float(quality.get("aspect_ratio_proxy_max", 1.0) or 1.0))
@@ -146,6 +149,20 @@ def compute_quality_score(quality_report: Mapping[str, Any], execution_report: M
         + 0.001 * shell_elements
         + 0.001 * runtime
     )
+
+
+def _is_near_fail_quality(quality_report: Mapping[str, Any]) -> bool:
+    quality = quality_report.get("quality", {})
+    if not isinstance(quality, Mapping):
+        return False
+    hard_failed = int(quality.get("num_hard_failed_elements", 0) or 0)
+    if hard_failed > 0:
+        return False
+    explicit_margins = (
+        "violating_shell_elements_total",
+        "unmeshed_shell_count",
+    )
+    return any(float(quality.get(key, 0.0) or 0.0) > 0.0 for key in explicit_margins)
 
 
 def _clamp_mesh_size(value: float, global_mesh: Mapping[str, Any]) -> float:
@@ -228,6 +245,8 @@ def _record_from_reports(
     accepted = bool(execution.get("accepted")) and bool(quality.get("accepted"))
     mesh_ok = mesh_path is not None and mesh_path.is_file() and mesh_path.stat().st_size > 0
     status = "PASSED" if accepted and mesh_ok and quality_score is not None else "FAILED"
+    if status == "PASSED" and _is_near_fail_quality(quality):
+        status = "NEAR_FAIL"
     if blocked_reason is not None:
         status = "BLOCKED"
     return {
@@ -354,6 +373,7 @@ def run_quality_exploration(
         "baseline_count": len(sample_dirs),
         "evaluated_count": max(0, len(records) - len(sample_dirs)),
         "passed_count": status_counts.get("PASSED", 0),
+        "near_fail_count": status_counts.get("NEAR_FAIL", 0),
         "failed_count": status_counts.get("FAILED", 0),
         "blocked_count": status_counts.get("BLOCKED", 0),
         "quality_score_variance": variance,
@@ -369,6 +389,7 @@ def run_quality_exploration(
         baseline_count=len(sample_dirs),
         evaluated_count=int(summary["evaluated_count"]),
         passed_count=int(summary["passed_count"]),
+        near_fail_count=int(summary["near_fail_count"]),
         failed_count=int(summary["failed_count"]),
         blocked_count=int(summary["blocked_count"]),
         quality_score_variance=variance,

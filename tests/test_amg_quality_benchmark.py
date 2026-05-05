@@ -165,6 +165,22 @@ def test_quality_benchmark_rejects_geometry_only_variance() -> None:
     assert report["success_criteria"]["same_geometry_quality_delta_meaningful"] is False
 
 
+def test_quality_benchmark_accepts_near_fail_quality_evidence() -> None:
+    dataset, quality, training = _write_fixture("near_fail")
+    summary_path = quality / "quality_exploration_summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary["records"][2]["status"] = "NEAR_FAIL"
+    summary["records"][2]["accepted"] = True
+    summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    report = build_quality_benchmark_report(dataset=dataset, quality_exploration=quality, training=training)
+
+    assert report["status"] == "SUCCESS"
+    assert report["quality_evidence"]["failed_count"] == 0
+    assert report["quality_evidence"]["near_fail_count"] == 1
+    assert report["success_criteria"]["has_pass_and_fail_or_near_fail_examples"] is True
+
+
 def test_quality_benchmark_cli_writer_and_source_boundaries() -> None:
     dataset, quality, training = _write_fixture("cli")
     out = RUNS / "cli" / "quality_benchmark.json"

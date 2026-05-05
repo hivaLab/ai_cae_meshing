@@ -138,6 +138,9 @@ def _record_coverage(records: Sequence[Mapping[str, Any]], roots: Sequence[Path]
     }
 
 
+MEANINGFUL_SAME_GEOMETRY_DELTA_MIN = 0.01
+
+
 def _quality_evidence(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     status_counts = Counter(str(record.get("status", "UNKNOWN")) for record in records)
     scores = [float(record["quality_score"]) for record in records if isinstance(record.get("quality_score"), (int, float))]
@@ -156,6 +159,7 @@ def _quality_evidence(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         if isinstance(sample_id, str):
             by_sample[sample_id].append(record)
     improvements: list[float] = []
+    same_geometry_deltas: list[float] = []
     positive_improvement_count = 0
     for sample_records in by_sample.values():
         baseline_scores = [
@@ -169,6 +173,8 @@ def _quality_evidence(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
             improvements.append(improvement)
             if improvement > 0:
                 positive_improvement_count += 1
+        if len(scored) >= 2:
+            same_geometry_deltas.append(max(scored) - min(scored))
     return {
         "status_counts": dict(sorted(status_counts.items())),
         "record_count": len(records),
@@ -183,6 +189,9 @@ def _quality_evidence(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         "quality_score_max": max(scores) if scores else None,
         "baseline_best_improvement_mean": statistics.mean(improvements) if improvements else 0.0,
         "baseline_best_positive_improvement_count": positive_improvement_count,
+        "same_geometry_quality_delta_mean": statistics.mean(same_geometry_deltas) if same_geometry_deltas else 0.0,
+        "same_geometry_quality_delta_max": max(same_geometry_deltas) if same_geometry_deltas else 0.0,
+        "same_geometry_meaningful_delta_count": sum(1 for value in same_geometry_deltas if value >= MEANINGFUL_SAME_GEOMETRY_DELTA_MIN),
     }
 
 
@@ -214,6 +223,7 @@ def build_quality_benchmark_report(
     criteria = {
         "no_blocked_quality_records": int(evidence["blocked_count"]) == 0,
         "quality_score_variance_nonzero": float(evidence["quality_score_variance"]) > 0.0,
+        "same_geometry_quality_delta_meaningful": float(evidence["same_geometry_quality_delta_mean"]) >= MEANINGFUL_SAME_GEOMETRY_DELTA_MIN,
         "action_entropy_nonzero": float(coverage["action_entropy_bits"]) > 0.0,
         "control_value_variance_nonzero": float(coverage["control_value_variance"]) > 0.0,
         "has_pass_and_fail_or_near_fail_examples": int(evidence["passed_count"]) > 0 and (int(evidence["failed_count"]) > 0 or int(evidence["near_fail_count"]) > 0),

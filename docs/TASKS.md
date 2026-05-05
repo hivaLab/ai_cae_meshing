@@ -953,6 +953,60 @@ Implemented so far:
 ```text
 Code and unit/regression tests for the user-counted diversity profile, quality exploration runner,
 continuous metric extraction from ANSA statistics HTML, quality-aware AMG ranker, and quality benchmark
-report are implemented. Full regression command python -m pytest passes with 223 passed and 1 skipped.
-The real T-708 smoke gate has not yet been run in this session, so T-708 remains IN_PROGRESS.
+report are implemented. The real T-708 smoke gate was executed and is intentionally not accepted as DONE.
+Dataset generation and validation succeeded, but the quality benchmark failed because manifest control
+perturbations do not materially change same-geometry ANSA quality.
+Latest regression after benchmark hardening: python -m pytest -> 224 passed, 1 skipped in 10.43s.
+```
+
+Real smoke gate evidence:
+
+```text
+Command:
+python -m cad_dataset_factory.cdf.cli generate --config configs\cdf_sm_ansa_v1.default.json --out runs\t708_quality_exploration_smoke\dataset --count 40 --seed 708 --require-ansa --ansa-executable C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat --profile sm_quality_exploration_v1
+Result: SUCCESS, accepted_count=40, rejected_count=2.
+
+Command:
+python -m cad_dataset_factory.cdf.cli validate --dataset runs\t708_quality_exploration_smoke\dataset --require-ansa
+Result: SUCCESS, accepted_count=40, error_count=0.
+
+Command:
+python -m cad_dataset_factory.cdf.cli quality-explore --dataset runs\t708_quality_exploration_smoke\dataset --out runs\t708_quality_exploration_smoke\quality_exploration --perturbations-per-sample 3 --ansa-executable C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat
+Result: SUCCESS, baseline_count=40, evaluated_count=120, blocked_count=0, passed_count=160,
+failed_count=0, quality_score_variance=9231610.37480431.
+
+Command:
+python -m ai_mesh_generator.amg.training.quality --dataset runs\t708_quality_exploration_smoke\dataset --quality-exploration runs\t708_quality_exploration_smoke\quality_exploration --out runs\t708_quality_exploration_smoke\training_quality --epochs 5 --batch-size 32 --seed 708
+Result: SUCCESS, validation_pairwise_accuracy=0.6785714285714286.
+
+Command:
+python -m ai_mesh_generator.amg.benchmark.quality --dataset runs\t708_quality_exploration_smoke\dataset --quality-exploration runs\t708_quality_exploration_smoke\quality_exploration --training runs\t708_quality_exploration_smoke\training_quality --out runs\t708_quality_exploration_smoke\quality_benchmark.json
+Result: FAILED.
+Failed criteria:
+  has_pass_and_fail_or_near_fail_examples=false
+  same_geometry_quality_delta_meaningful=false
+```
+
+Current blocker:
+
+```text
+quality_score_variance is dominated by geometry-to-geometry differences, not by control perturbation response.
+same_geometry_quality_delta_mean=4.2975000086498125e-05
+same_geometry_quality_delta_max=0.0001560000000608852
+same_geometry_meaningful_delta_count=0
+baseline_best_improvement_mean=4.102500008701382e-05
+
+The root cause is in cad_dataset_factory/cdf/oracle/ansa_scripts/cdf_ansa_api_layer.py:
+ansa_apply_hole_control, ansa_apply_slot_control, ansa_apply_cutout_control,
+ansa_apply_bend_control, and ansa_apply_flange_control currently record controls in reports
+but do not bind those controls to actual ANSA mesh sizing, washer/suppression, bend row,
+or flange sizing operations.
+```
+
+Next acceptance work:
+
+```text
+Implement real ANSA control application for at least edge length refinement, washer/fill or suppression,
+bend rows, and flange sizing. Then rerun the T-708 real gate and require meaningful same-geometry
+quality response plus pass/fail or near-fail examples before marking T-708 DONE.
 ```

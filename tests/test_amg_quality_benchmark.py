@@ -132,6 +132,8 @@ def test_quality_benchmark_requires_information_not_sample_count() -> None:
     assert report["coverage"]["action_entropy_bits"] > 0.0
     assert report["coverage"]["control_value_variance"] > 0.0
     assert report["quality_evidence"]["quality_score_variance"] > 0.0
+    assert report["quality_evidence"]["same_geometry_quality_delta_mean"] > 0.01
+    assert report["success_criteria"]["same_geometry_quality_delta_meaningful"] is True
     assert report["success_criteria"]["held_out_pairwise_accuracy_above_random"] is True
 
 
@@ -143,6 +145,24 @@ def test_quality_benchmark_fails_when_metrics_are_blocked() -> None:
     assert report["status"] == "FAILED"
     assert report["quality_evidence"]["blocked_count"] == 1
     assert report["success_criteria"]["no_blocked_quality_records"] is False
+
+
+def test_quality_benchmark_rejects_geometry_only_variance() -> None:
+    dataset, quality, training = _write_fixture("geometry_only")
+    summary_path = quality / "quality_exploration_summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    for record in summary["records"]:
+        if record["evaluation_id"] != "baseline":
+            record["quality_score"] = 10.000001
+        else:
+            record["quality_score"] = 10.0
+    summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    report = build_quality_benchmark_report(dataset=dataset, quality_exploration=quality, training=training)
+
+    assert report["status"] == "FAILED"
+    assert report["quality_evidence"]["same_geometry_quality_delta_mean"] < 0.01
+    assert report["success_criteria"]["same_geometry_quality_delta_meaningful"] is False
 
 
 def test_quality_benchmark_cli_writer_and_source_boundaries() -> None:

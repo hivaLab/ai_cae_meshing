@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from pathlib import Path
 from typing import Any
 
+import pytest
 from jsonschema import Draft202012Validator
 
 from cad_dataset_factory.cdf.entity_pipeline import validate_entity_dataset
@@ -16,7 +17,18 @@ from cad_dataset_factory.cdf.oracle.ansa_size_field import (
     build_size_field_payload,
     run_ansa_size_field_evaluation,
 )
-from cad_dataset_factory.cdf.oracle.ansa_scripts.cdf_ansa_size_field import run_size_field_workflow
+from cad_dataset_factory.cdf.oracle.ansa_entity_probe import (
+    AnsaEntityProbeRequest,
+    build_ansa_entity_probe_command,
+    build_ansa_entity_probe_payload,
+)
+from cad_dataset_factory.cdf.oracle.ansa_scripts.cdf_ansa_size_field import (
+    EntityDescriptor,
+    SizeFieldScriptError,
+    match_descriptors,
+    measure_bdf_entity_length_stats,
+    run_size_field_workflow,
+)
 from test_brep_entity_ai_meshing_pipeline import _write_sample
 from cad_dataset_factory.cdf.labels.entity_labels import PartClass
 
@@ -128,6 +140,69 @@ def test_size_field_command_payload_contains_entity_contract_paths() -> None:
     command = build_ansa_size_field_command(request)
     assert any("cdf_ansa_size_field.py" in item for item in command)
     assert any(item.startswith("-process_string:") for item in command)
+
+
+def test_entity_probe_command_payload_contains_cad_and_signature_paths() -> None:
+    sample_dir = _sample(_tmp("probe_dataset"))
+    fake_executable = ROOT / "runs" / "pytest_tmp_local" / "cdf_ansa_size_field" / "fake_probe_ansa64.bat"
+    fake_executable.parent.mkdir(parents=True, exist_ok=True)
+    fake_executable.write_text("@echo off\n", encoding="utf-8")
+    request = AnsaEntityProbeRequest(
+        sample_dir=sample_dir,
+        ansa_executable=str(fake_executable),
+        out=_tmp("probe_out") / "ansa_entity_probe.json",
+    )
+    payload = build_ansa_entity_probe_payload(request)
+    assert payload["cad_path"].endswith("cad/input.step")
+    assert payload["entity_signatures"].endswith("graph/entity_signatures.json")
+    command = build_ansa_entity_probe_command(request)
+    assert any("cdf_ansa_entity_probe.py" in item for item in command)
+    assert any(item.startswith("-process_string:") for item in command)
+
+
+def test_descriptor_matching_requires_real_geometry_descriptor() -> None:
+    cdf = [EntityDescriptor(signature_id="EDGE_A", index=0, entity_type="EDGE", entity=None, length=2.0)]
+    ansa = [EntityDescriptor(signature_id="EDGE_A", index=0, entity_type="EDGE", entity=object())]
+    with pytest.raises(SizeFieldScriptError) as excinfo:
+        match_descriptors(cdf, ansa)
+    assert excinfo.value.code == "entity_matching_failed"
+
+
+def test_bdf_entity_length_stats_measure_real_mesh_segments() -> None:
+    root = _tmp("bdf_metric")
+    bdf = root / "mesh.bdf"
+    bdf.write_text(
+        "\n".join(
+            [
+                "BEGIN BULK",
+                "GRID           1              0.      0.      0.",
+                "GRID           2              1.      0.      0.",
+                "GRID           3              2.      0.      0.",
+                "GRID           4              0.      1.      0.",
+                "GRID           5              1.      1.      0.",
+                "GRID           6              2.      1.      0.",
+                "CQUAD4         1       1       1       2       5       4",
+                "CQUAD4         2       1       2       3       6       5",
+                "ENDDATA",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    descriptor = EntityDescriptor(
+        signature_id="EDGE_LINE",
+        index=0,
+        entity_type="EDGE",
+        entity=None,
+        curve_type_id=1,
+        length=2.0,
+        center=(1.0, 0.0, 0.0),
+        anchor=(0.0, 0.0, 0.0),
+    )
+    stats = measure_bdf_entity_length_stats(bdf, descriptor, 1.0)
+    assert stats is not None
+    assert stats["count"] == 2.0
+    assert stats["average"] == pytest.approx(1.0)
 
 
 def test_size_field_workflow_with_fake_adapter_writes_real_shaped_outputs() -> None:

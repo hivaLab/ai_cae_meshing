@@ -11,15 +11,14 @@ STEP clean CAD
   -> exact B-rep graph
   -> part classification model
   -> face/edge segmentation model
-  -> entity-local quality surrogate
-  -> constrained edge/surface size-field optimizer
+  -> direct segmentation-aware edge/surface size-field GNN
   -> size-field projection with user global growth rate
   -> ANSA local mesh controls
   -> real mesh and quality report
 ```
 
-The current repository contains older feature-manifest and quality-ranker code. Treat
-that code as transitional evidence, not as the final architecture.
+The old feature-manifest, quality-ranker, baseline recommendation, and surrogate
+optimizer paths are not primary architecture.
 
 ## Non-Negotiable Rules
 

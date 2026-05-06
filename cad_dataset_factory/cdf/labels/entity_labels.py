@@ -163,6 +163,10 @@ class EntityQualityRecord(JsonModel):
     candidate_neighbor_size_ratio_max: float | None = Field(default=None, ge=1)
     candidate_growth_rate: float = Field(ge=1)
     measured_quality_margin: float
+    measured_edge_length_mean_mm: float | None = Field(default=None, gt=0)
+    measured_edge_length_min_mm: float | None = Field(default=None, gt=0)
+    measured_edge_length_max_mm: float | None = Field(default=None, gt=0)
+    measured_edge_segment_count: int | None = Field(default=None, ge=1)
     measured_boundary_size_error: float | None = Field(default=None, ge=0)
     hard_fail: bool
     near_fail: bool

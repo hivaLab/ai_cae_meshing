@@ -187,7 +187,7 @@ Each `entity_quality_labels.json` records, per edge/face:
 - threshold pass/fail
 - uncertainty or repeated-run statistics when available
 
-This evidence trains the local quality surrogate used by AMG.
+This evidence is used to validate and improve AMG's direct entity size-field model.
 
 ## Local Quality Metrics
 

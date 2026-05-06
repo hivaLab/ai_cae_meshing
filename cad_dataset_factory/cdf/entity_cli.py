@@ -14,8 +14,11 @@ from cad_dataset_factory.cdf.entity_pipeline import (
     validate_entity_dataset,
 )
 from cad_dataset_factory.cdf.oracle import (
+    AnsaEntityProbeError,
+    AnsaEntityProbeRequest,
     AnsaSizeFieldEvaluationError,
     AnsaSizeFieldEvaluationRequest,
+    run_ansa_entity_probe,
     run_ansa_probe,
     run_ansa_size_field_evaluation,
 )
@@ -39,6 +42,12 @@ def build_parser() -> argparse.ArgumentParser:
     probe.add_argument("--ansa-executable", required=True)
     probe.add_argument("--out", default="runs/ansa_probe/ansa_runtime_probe.json")
     probe.add_argument("--timeout-sec", type=int, default=90)
+
+    entity_probe = subparsers.add_parser("ansa-probe-entities", help="Probe ANSA entity descriptors for CDF matching")
+    entity_probe.add_argument("--sample-dir", required=True)
+    entity_probe.add_argument("--ansa-executable", required=True)
+    entity_probe.add_argument("--out", required=True)
+    entity_probe.add_argument("--timeout-sec", type=int, default=180)
 
     evaluate = subparsers.add_parser("ansa-evaluate-size-field", help="Run real ANSA v2 size-field evaluation")
     evaluate.add_argument("--sample-dir", required=True)
@@ -93,6 +102,24 @@ def main(argv: Sequence[str] | None = None) -> int:
                 }
             )
             return 0 if result.status == "OK" else 2
+        if args.command == "ansa-probe-entities":
+            result = run_ansa_entity_probe(
+                AnsaEntityProbeRequest(
+                    sample_dir=Path(args.sample_dir),
+                    ansa_executable=args.ansa_executable,
+                    out=Path(args.out),
+                    timeout_sec=args.timeout_sec,
+                )
+            )
+            _print(
+                {
+                    "status": result.status,
+                    "output_path": result.output_path.as_posix(),
+                    "returncode": result.returncode,
+                    "error_code": result.error_code,
+                }
+            )
+            return 0 if result.status == "OK" else 2
         if args.command == "ansa-evaluate-size-field":
             result = run_ansa_size_field_evaluation(
                 AnsaSizeFieldEvaluationRequest(
@@ -122,6 +149,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return 0
             return 2 if result.status in {"BLOCKED", "TIMEOUT"} or result.returncode == 2 else 1
     except AnsaSizeFieldEvaluationError as exc:
+        _print({"status": "BLOCKED", "code": exc.code, "message": str(exc)})
+        return 2
+    except AnsaEntityProbeError as exc:
         _print({"status": "BLOCKED", "code": exc.code, "message": str(exc)})
         return 2
     except CdfEntityPipelineError as exc:

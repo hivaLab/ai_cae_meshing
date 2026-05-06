@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import json
 import math
+import re
 import time
 import traceback
 from dataclasses import dataclass
@@ -67,6 +68,8 @@ class EntityDescriptor:
     curve_type_id: int | None = None
     bbox: tuple[float, float, float] | None = None
     center: tuple[float, float, float] | None = None
+    anchor: tuple[float, float, float] | None = None
+    raw: dict[str, Any] | None = None
 
 
 def decode_payload(encoded: str) -> dict[str, Any]:
@@ -110,6 +113,19 @@ def _tuple3(values: Any) -> tuple[float, float, float] | None:
         return None
 
 
+def _parse_point(value: Any) -> tuple[float, float, float] | None:
+    if value is not None and not isinstance(value, (str, list, tuple)):
+        value = str(value)
+    if isinstance(value, str):
+        numbers = re.findall(r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?", value)
+        if len(numbers) >= 3:
+            try:
+                return (float(numbers[0]), float(numbers[1]), float(numbers[2]))
+            except ValueError:
+                return None
+    return _tuple3(value)
+
+
 def cdf_edge_descriptors(graph_npz: str | Path, entity_signatures: dict[str, Any]) -> list[EntityDescriptor]:
     import numpy as np
 
@@ -119,16 +135,19 @@ def cdf_edge_descriptors(graph_npz: str | Path, entity_signatures: dict[str, Any
     for record in entity_signatures.get("edges", []):
         index = int(record["index"])
         row = rows[index]
+        fingerprint = record.get("fingerprint") if isinstance(record.get("fingerprint"), dict) else {}
+        vertex_points = fingerprint.get("vertex_points_mm") if isinstance(fingerprint.get("vertex_points_mm"), list) else []
         descriptors.append(
             EntityDescriptor(
                 signature_id=str(record["signature_id"]),
                 index=index,
                 entity_type="EDGE",
                 entity=None,
-                curve_type_id=int(round(float(row[0]))),
-                length=float(row[1]),
-                bbox=(float(row[2]), float(row[3]), float(row[4])),
-                center=(float(row[5]), float(row[6]), float(row[7])),
+                curve_type_id=int(fingerprint.get("curve_type_id", round(float(row[0])))),
+                length=_positive_float(fingerprint.get("length_mm")) or float(row[1]),
+                bbox=_tuple3(fingerprint.get("bbox_mm")) or (float(row[2]), float(row[3]), float(row[4])),
+                center=_tuple3(fingerprint.get("center_mm")) or (float(row[5]), float(row[6]), float(row[7])),
+                anchor=_tuple3(vertex_points[0]) if vertex_points else None,
             )
         )
     return descriptors
@@ -143,31 +162,43 @@ def cdf_face_descriptors(graph_npz: str | Path, entity_signatures: dict[str, Any
     for record in entity_signatures.get("faces", []):
         index = int(record["index"])
         row = rows[index]
+        fingerprint = record.get("fingerprint") if isinstance(record.get("fingerprint"), dict) else {}
         descriptors.append(
             EntityDescriptor(
                 signature_id=str(record["signature_id"]),
                 index=index,
                 entity_type="FACE",
                 entity=None,
-                area=float(row[0]),
-                bbox=(float(row[1]), float(row[2]), float(row[3])),
-                center=(float(row[4]), float(row[5]), float(row[6])),
+                area=_positive_float(fingerprint.get("area_mm2")) or float(row[0]),
+                bbox=_tuple3(fingerprint.get("bbox_mm")) or (float(row[1]), float(row[2]), float(row[3])),
+                center=_tuple3(fingerprint.get("center_mm")) or (float(row[4]), float(row[5]), float(row[6])),
             )
         )
     return descriptors
 
 
 def _adapter_descriptor(raw: dict[str, Any], entity_type: str, index: int) -> EntityDescriptor:
+    raw_cards = raw.get("raw_card_values") if isinstance(raw.get("raw_card_values"), dict) else {}
+    anchor = _tuple3(raw.get("anchor")) or _parse_point(raw_cards.get("Start Point"))
+    endpoint = _parse_point(raw_cards.get("End Point"))
+    center = _tuple3(raw.get("center"))
+    bbox = _tuple3(raw.get("bbox"))
+    if center is None and anchor is not None and endpoint is not None:
+        center = tuple((left + right) * 0.5 for left, right in zip(anchor, endpoint, strict=True))  # type: ignore[assignment]
+    if bbox is None and anchor is not None and endpoint is not None:
+        bbox = tuple(abs(left - right) for left, right in zip(anchor, endpoint, strict=True))  # type: ignore[assignment]
     return EntityDescriptor(
         signature_id=raw.get("signature_id") if isinstance(raw.get("signature_id"), str) else None,
         index=int(raw.get("index", index)),
         entity_type=entity_type,
         entity=raw.get("entity"),
-        length=_optional_float(raw.get("length")),
-        area=_optional_float(raw.get("area")),
+        length=_positive_float(raw.get("length")),
+        area=_positive_float(raw.get("area")),
         curve_type_id=int(raw["curve_type_id"]) if raw.get("curve_type_id") is not None else None,
-        bbox=_tuple3(raw.get("bbox")),
-        center=_tuple3(raw.get("center")),
+        bbox=bbox,
+        center=center,
+        anchor=anchor,
+        raw=raw_cards or None,
     )
 
 
@@ -179,6 +210,13 @@ def _optional_float(value: Any) -> float | None:
     except (TypeError, ValueError):
         return None
     return numeric if math.isfinite(numeric) else None
+
+
+def _positive_float(value: Any) -> float | None:
+    numeric = _optional_float(value)
+    if numeric is None or numeric <= 0:
+        return None
+    return numeric
 
 
 def _distance(left: tuple[float, float, float] | None, right: tuple[float, float, float] | None) -> float | None:
@@ -204,14 +242,8 @@ def match_descriptors(
     matches: dict[str, EntityDescriptor] = {}
     used: set[int] = set()
     diagnostics: dict[str, Any] = {"unmatched": [], "ambiguous": []}
-    exact_by_signature = {item.signature_id: item for item in ansa_descriptors if item.signature_id}
     for cdf in cdf_descriptors:
         if not cdf.signature_id:
-            continue
-        exact = exact_by_signature.get(cdf.signature_id)
-        if exact is not None:
-            matches[cdf.signature_id] = exact
-            used.add(exact.index)
             continue
         candidates: list[tuple[float, EntityDescriptor]] = []
         for ansa in ansa_descriptors:
@@ -223,15 +255,24 @@ def match_descriptors(
             area_error = _relative_error(cdf.area, ansa.area)
             center_distance = _distance(cdf.center, ansa.center)
             bbox_distance = _distance(cdf.bbox, ansa.bbox)
+            anchor_distance = _distance(cdf.anchor, ansa.anchor)
+            if all(value is None for value in (length_error, area_error, center_distance, bbox_distance, anchor_distance)):
+                continue
             if length_error is not None and length_error > relative_tolerance:
                 continue
             if area_error is not None and area_error > relative_tolerance:
                 continue
-            if center_distance is not None and center_distance > tolerance_mm:
+            if cdf.entity_type == "EDGE" and cdf.curve_type_id == 2:
+                spatial = anchor_distance if anchor_distance is not None else center_distance
+            else:
+                spatial = center_distance
+            if spatial is None:
+                spatial = bbox_distance
+            if spatial is not None and spatial > tolerance_mm:
                 continue
-            if bbox_distance is not None and bbox_distance > tolerance_mm:
-                continue
-            score = sum(value for value in (length_error, area_error, center_distance, bbox_distance) if value is not None)
+            score = sum(value for value in (length_error, area_error) if value is not None)
+            if spatial is not None:
+                score += spatial / max(tolerance_mm, 1.0e-9)
             candidates.append((score, ansa))
         if len(candidates) == 1:
             match = candidates[0][1]
@@ -246,12 +287,192 @@ def match_descriptors(
     return matches
 
 
+def measure_bdf_entity_length_stats(mesh_path: str | Path, descriptor: EntityDescriptor, target_size_mm: float) -> dict[str, float] | None:
+    """Measure mesh segment lengths that lie on a CDF edge descriptor.
+
+    This is deliberately based on the exported solver deck, not on target values
+    or ANSA success messages.  If the exported mesh cannot be associated with
+    the CAD edge geometry, the metric is unavailable and the workflow remains
+    fail-closed.
+    """
+
+    if descriptor.entity_type != "EDGE":
+        return None
+    points, element_edges = _read_bdf_shell_edges(mesh_path)
+    if not points or not element_edges:
+        return None
+    tolerance = max(0.05, min(1.5, target_size_mm * 0.45))
+    lengths: list[float] = []
+    for start_id, end_id in element_edges:
+        start = points.get(start_id)
+        end = points.get(end_id)
+        if start is None or end is None:
+            continue
+        if _mesh_edge_matches_descriptor(start, end, descriptor, tolerance):
+            length = _point_distance(start, end)
+            if length > 1.0e-9:
+                lengths.append(length)
+    if not lengths:
+        return None
+    return {
+        "average": sum(lengths) / len(lengths),
+        "min": min(lengths),
+        "max": max(lengths),
+        "count": float(len(lengths)),
+    }
+
+
+def _read_bdf_shell_edges(mesh_path: str | Path) -> tuple[dict[int, tuple[float, float, float]], set[tuple[int, int]]]:
+    points: dict[int, tuple[float, float, float]] = {}
+    edges: set[tuple[int, int]] = set()
+    for raw_line in Path(mesh_path).read_text(encoding="utf-8", errors="ignore").splitlines():
+        line = raw_line.rstrip()
+        if not line or line.startswith("$"):
+            continue
+        card = line[:8].strip().upper()
+        fields = _nastran_fields(line)
+        if card == "GRID":
+            node_id = _int_field(fields, 1)
+            xyz = (_float_field(fields, 3), _float_field(fields, 4), _float_field(fields, 5))
+            if node_id is not None and all(value is not None for value in xyz):
+                points[node_id] = (float(xyz[0]), float(xyz[1]), float(xyz[2]))  # type: ignore[arg-type]
+        elif card in {"CTRIA3", "CQUAD4"}:
+            node_ids = [_int_field(fields, index) for index in (3, 4, 5, 6)]
+            clean_ids = [int(node_id) for node_id in node_ids if node_id is not None and node_id > 0]
+            if card == "CTRIA3":
+                clean_ids = clean_ids[:3]
+            elif card == "CQUAD4":
+                clean_ids = clean_ids[:4]
+            if len(clean_ids) >= 3:
+                for left, right in zip(clean_ids, clean_ids[1:] + clean_ids[:1]):
+                    edges.add(tuple(sorted((left, right))))
+    return points, edges
+
+
+def _nastran_fields(line: str) -> list[str]:
+    if "," in line:
+        return [field.strip() for field in line.split(",")]
+    return [line[index : index + 8].strip() for index in range(0, len(line), 8)]
+
+
+def _int_field(fields: list[str], index: int) -> int | None:
+    if index >= len(fields) or not fields[index]:
+        return None
+    try:
+        return int(float(fields[index].replace("D", "E")))
+    except ValueError:
+        return None
+
+
+def _float_field(fields: list[str], index: int) -> float | None:
+    if index >= len(fields) or not fields[index]:
+        return None
+    value = fields[index].replace("D", "E")
+    try:
+        parsed = float(value)
+    except ValueError:
+        return None
+    return parsed if math.isfinite(parsed) else None
+
+
+def _mesh_edge_matches_descriptor(
+    start: tuple[float, float, float],
+    end: tuple[float, float, float],
+    descriptor: EntityDescriptor,
+    tolerance: float,
+) -> bool:
+    if descriptor.curve_type_id == 2:
+        return _mesh_edge_matches_circle(start, end, descriptor, tolerance)
+    return _mesh_edge_matches_line(start, end, descriptor, tolerance)
+
+
+def _mesh_edge_matches_line(
+    start: tuple[float, float, float],
+    end: tuple[float, float, float],
+    descriptor: EntityDescriptor,
+    tolerance: float,
+) -> bool:
+    endpoints = _descriptor_line_endpoints(descriptor)
+    if endpoints is None:
+        return False
+    line_start, line_end = endpoints
+    if _point_segment_distance(start, line_start, line_end) > tolerance:
+        return False
+    if _point_segment_distance(end, line_start, line_end) > tolerance:
+        return False
+    return True
+
+
+def _mesh_edge_matches_circle(
+    start: tuple[float, float, float],
+    end: tuple[float, float, float],
+    descriptor: EntityDescriptor,
+    tolerance: float,
+) -> bool:
+    center = descriptor.center
+    radius = _descriptor_radius(descriptor)
+    if center is None or radius is None:
+        return False
+    plane_axis = _circle_plane_axis(descriptor)
+    for point in (start, end):
+        if abs(point[plane_axis] - center[plane_axis]) > tolerance:
+            return False
+        radial = math.sqrt(sum((point[index] - center[index]) ** 2 for index in range(3) if index != plane_axis))
+        if abs(radial - radius) > tolerance:
+            return False
+    return True
+
+
+def _descriptor_line_endpoints(descriptor: EntityDescriptor) -> tuple[tuple[float, float, float], tuple[float, float, float]] | None:
+    if descriptor.anchor is None or descriptor.center is None:
+        return None
+    other = tuple(2.0 * center - anchor for center, anchor in zip(descriptor.center, descriptor.anchor, strict=True))
+    return descriptor.anchor, other  # type: ignore[return-value]
+
+
+def _descriptor_radius(descriptor: EntityDescriptor) -> float | None:
+    if descriptor.bbox is not None:
+        radius = max(descriptor.bbox) * 0.5
+        if radius > 0:
+            return radius
+    if descriptor.length is not None and descriptor.length > 0:
+        return descriptor.length / (2.0 * math.pi)
+    return None
+
+
+def _circle_plane_axis(descriptor: EntityDescriptor) -> int:
+    if descriptor.bbox is None:
+        return 2
+    return min(range(3), key=lambda index: abs(descriptor.bbox[index]))
+
+
+def _point_distance(left: tuple[float, float, float], right: tuple[float, float, float]) -> float:
+    return math.sqrt(sum((a - b) ** 2 for a, b in zip(left, right, strict=True)))
+
+
+def _point_segment_distance(
+    point: tuple[float, float, float],
+    start: tuple[float, float, float],
+    end: tuple[float, float, float],
+) -> float:
+    segment = tuple(right - left for left, right in zip(start, end, strict=True))
+    length_sq = sum(value * value for value in segment)
+    if length_sq <= 1.0e-12:
+        return _point_distance(point, start)
+    offset = tuple(value - left for value, left in zip(point, start, strict=True))
+    t = max(0.0, min(1.0, sum(a * b for a, b in zip(offset, segment, strict=True)) / length_sq))
+    projection = tuple(left + t * delta for left, delta in zip(start, segment, strict=True))
+    return _point_distance(point, projection)  # type: ignore[arg-type]
+
+
 def build_entity_quality_rows(
     *,
     edge_sizes: list[dict[str, Any]],
     face_sizes: list[dict[str, Any]],
     edge_matches: dict[str, EntityDescriptor],
     face_matches: dict[str, EntityDescriptor],
+    cdf_edges: dict[str, EntityDescriptor],
+    mesh_path: str | Path,
     adapter: SizeFieldAnsaAdapter,
     growth_rate: float,
 ) -> tuple[list[dict[str, Any]], bool]:
@@ -262,6 +483,8 @@ def build_entity_quality_rows(
         target = float(record["target_size_mm"])
         match = edge_matches[signature_id]
         stats = adapter.measure_entity_length_stats(match.entity)
+        if stats is None:
+            stats = measure_bdf_entity_length_stats(mesh_path, cdf_edges[signature_id], target)
         row = _quality_row(signature_id, "EDGE", target, growth_rate, stats)
         rows.append(row)
         all_available = all_available and row["metric_available"]
@@ -297,6 +520,10 @@ def _quality_row(signature_id: str, entity_type: str, target: float, growth_rate
         "candidate_target_size_mm": target,
         "candidate_neighbor_size_ratio_max": growth_rate,
         "candidate_growth_rate": growth_rate,
+        "measured_edge_length_mean_mm": measured,
+        "measured_edge_length_min_mm": float(stats.get("min", measured)),
+        "measured_edge_length_max_mm": float(stats.get("max", measured)),
+        "measured_edge_segment_count": int(stats.get("count", 1)),
         "measured_quality_margin": boundary_error - 0.5,
         "measured_boundary_size_error": boundary_error,
         "hard_fail": boundary_error > 0.5,
@@ -366,6 +593,8 @@ def run_size_field_workflow(payload: dict[str, Any], adapter: SizeFieldAnsaAdapt
             face_sizes=face_records,
             edge_matches=edge_matches,
             face_matches=face_matches,
+            cdf_edges={item.signature_id: item for item in cdf_edges if item.signature_id},
+            mesh_path=payload["mesh_path"],
             adapter=adapter,
             growth_rate=float(global_mesh["growth_rate"]),
         )
@@ -390,7 +619,7 @@ def run_size_field_workflow(payload: dict[str, Any], adapter: SizeFieldAnsaAdapt
                         "feature_id": row["entity_signature_id"],
                         "type": row["entity_type"],
                         "target_edge_length_mm": row["candidate_target_size_mm"],
-                        "measured_boundary_length_mm": row.get("measured_boundary_size_error"),
+                        "measured_boundary_length_mm": row.get("measured_edge_length_mean_mm"),
                         "boundary_size_error": row.get("measured_boundary_size_error"),
                     }
                     for row in rows
@@ -472,6 +701,8 @@ def _descriptor_diagnostic(descriptor: EntityDescriptor) -> dict[str, Any]:
         "curve_type_id": descriptor.curve_type_id,
         "bbox": descriptor.bbox,
         "center": descriptor.center,
+        "anchor": descriptor.anchor,
+        "raw": descriptor.raw,
         "has_entity": descriptor.entity is not None,
     }
 
@@ -556,7 +787,20 @@ class RealAnsaSizeFieldAdapter:
                 continue
         descriptors: list[dict[str, Any]] = []
         for index, entity in enumerate(entities):
-            descriptors.append({"index": index, "entity": entity, "length": self._length(entity), "center": self._center(entity), "bbox": self._bbox(entity)})
+            raw_card_values = self._all_card_values(entity)
+            endpoints = self._endpoints_from_values(raw_card_values) or self._endpoints(entity)
+            descriptors.append(
+                {
+                    "index": index,
+                    "entity": entity,
+                    "length": self._length(entity) or _positive_float(raw_card_values.get("Length")),
+                    "curve_type_id": self._curve_type_id(entity) or self._curve_type_id_from_values(raw_card_values),
+                    "center": self._center(entity, endpoints),
+                    "bbox": self._bbox(entity, endpoints),
+                    "anchor": endpoints[0] if endpoints else None,
+                    "raw_card_values": raw_card_values,
+                }
+            )
         return descriptors
 
     def collect_face_descriptors(self) -> list[dict[str, Any]]:
@@ -616,16 +860,31 @@ class RealAnsaSizeFieldAdapter:
             result = None
         if not isinstance(result, dict):
             return None
-        average = _optional_float(result.get("average"))
+        average = _positive_float(result.get("average"))
         if average is None:
             return None
-        return {"average": average, "min": _optional_float(result.get("min")) or average, "max": _optional_float(result.get("max")) or average}
+        return {"average": average, "min": _positive_float(result.get("min")) or average, "max": _positive_float(result.get("max")) or average}
 
     def _length(self, entity: Any) -> float | None:
         try:
-            return _optional_float(self.base.GetCurveLength(entity))
+            value = _positive_float(self.base.GetCurveLength(entity))
+            if value is not None:
+                return value
         except Exception:
-            return self._card_float(entity, ("Length", "LENGTH", "length"))
+            pass
+        return self._card_float(entity, ("Length", "LENGTH", "length"))
+
+    def _curve_type_id(self, entity: Any) -> int | None:
+        radius = self._card_float(entity, ("Min Radius", "MIN RADIUS", "min radius"))
+        return self._curve_type_id_from_radius(radius)
+
+    def _curve_type_id_from_values(self, values: dict[str, Any]) -> int | None:
+        return self._curve_type_id_from_radius(_positive_float(values.get("Min Radius")))
+
+    def _curve_type_id_from_radius(self, radius: float | None) -> int | None:
+        if radius is None:
+            return None
+        return 2 if radius < 1.0e9 else 1
 
     def _card_float(self, entity: Any, fields: tuple[str, ...]) -> float | None:
         try:
@@ -635,20 +894,55 @@ class RealAnsaSizeFieldAdapter:
         if not isinstance(values, dict):
             return None
         for field in fields:
-            value = _optional_float(values.get(field))
+            value = _positive_float(values.get(field))
             if value is not None:
                 return value
         return None
 
-    def _center(self, entity: Any) -> tuple[float, float, float] | None:
+    def _center(self, entity: Any, endpoints: tuple[tuple[float, float, float], tuple[float, float, float]] | None = None) -> tuple[float, float, float] | None:
         try:
             values = entity.get_entity_values(self.deck, ["X", "Y", "Z"])
             return (float(values["X"]), float(values["Y"]), float(values["Z"]))
         except Exception:
-            return None
-
-    def _bbox(self, entity: Any) -> tuple[float, float, float] | None:
+            pass
+        if endpoints:
+            start, end = endpoints
+            return tuple((left + right) * 0.5 for left, right in zip(start, end, strict=True))  # type: ignore[return-value]
         return None
+
+    def _bbox(self, entity: Any, endpoints: tuple[tuple[float, float, float], tuple[float, float, float]] | None = None) -> tuple[float, float, float] | None:
+        if endpoints:
+            start, end = endpoints
+            return tuple(abs(left - right) for left, right in zip(start, end, strict=True))  # type: ignore[return-value]
+        return None
+
+    def _all_card_values(self, entity: Any) -> dict[str, Any]:
+        try:
+            fields = entity.card_fields(self.deck)
+            values = entity.get_entity_values(self.deck, list(fields or []))
+        except Exception:
+            return {}
+        return values if isinstance(values, dict) else {}
+
+    def _endpoints_from_values(self, values: dict[str, Any]) -> tuple[tuple[float, float, float], tuple[float, float, float]] | None:
+        start = _parse_point(values.get("Start Point"))
+        end = _parse_point(values.get("End Point"))
+        if start is None or end is None:
+            return None
+        return start, end
+
+    def _endpoints(self, entity: Any) -> tuple[tuple[float, float, float], tuple[float, float, float]] | None:
+        try:
+            values = entity.get_entity_values(self.deck, ["Start Point", "End Point"])
+        except Exception:
+            values = None
+        if not isinstance(values, dict) or "Start Point" not in values or "End Point" not in values:
+            try:
+                fields = entity.card_fields(self.deck)
+                values = entity.get_entity_values(self.deck, list(fields or []))
+            except Exception:
+                return None
+        return self._endpoints_from_values(values) if isinstance(values, dict) else None
 
 
 def main() -> int:

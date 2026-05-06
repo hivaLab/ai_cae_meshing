@@ -7,10 +7,10 @@ from pathlib import Path
 import pytest
 from jsonschema import Draft202012Validator
 
-from ai_mesh_generator.amg.optimization.size_field import optimize_size_field_for_sample
+from ai_mesh_generator.amg.inference.size_field import infer_size_field_document
 from ai_mesh_generator.amg.training.part_classifier import train_part_classifier_from_dataset
-from ai_mesh_generator.amg.training.quality_surrogate import train_quality_surrogate_from_dataset
 from ai_mesh_generator.amg.training.segmentation import train_entity_segmentation_from_dataset
+from ai_mesh_generator.amg.training.size_field import train_size_field_model
 from cad_dataset_factory.cdf.entity_pipeline import generate_entity_dataset, validate_entity_dataset
 from cad_dataset_factory.cdf.labels.entity_labels import PartClass
 from test_brep_entity_ai_meshing_pipeline import _write_sample
@@ -49,7 +49,7 @@ def _fixture_dataset(name: str) -> Path:
     return root
 
 
-def test_primary_training_and_optimization_commands_write_artifacts() -> None:
+def test_primary_training_and_direct_size_field_commands_write_artifacts() -> None:
     dataset = _fixture_dataset("training")
     out = _tmp("outputs")
     classifier_metrics = train_part_classifier_from_dataset(dataset, out / "part_classifier", seed=11, n_estimators=20, uncertainty_threshold=0.0)
@@ -61,19 +61,20 @@ def test_primary_training_and_optimization_commands_write_artifacts() -> None:
     assert segmentation_metrics["sample_count"] == 4
     assert (out / "segmentation" / "model.pt").is_file()
 
-    surrogate_metrics = train_quality_surrogate_from_dataset(dataset, out / "quality_surrogate", seed=11)
-    assert surrogate_metrics["row_count"] >= 4
+    size_metrics = train_size_field_model(dataset, out / "size_field_model", epochs=1, hidden_dim=16, seed=11)
+    assert size_metrics["target_row_count"] >= 4
+    assert (out / "size_field_model" / "model.pt").is_file()
     size_field_path = out / "size_field.json"
-    report = optimize_size_field_for_sample(
-        dataset / "samples" / "sample_000001",
-        out / "quality_surrogate" / "model.pkl",
-        size_field_path,
+    document = infer_size_field_document(
+        sample_dir=dataset / "samples" / "sample_000001",
+        checkpoint_path=out / "size_field_model" / "model.pt",
         h0_mm=2.0,
         h_min_mm=0.5,
         h_max_mm=4.0,
         growth_rate=1.25,
     )
-    assert report["selected_entity_count"] > 0
+    size_field_path.write_text(json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    assert len(document["edge_sizes"]) > 0
     schema = json.loads((ROOT / "contracts" / "AMG_SIZE_FIELD_SM_V2.schema.json").read_text(encoding="utf-8"))
     Draft202012Validator(schema).validate(json.loads(size_field_path.read_text(encoding="utf-8")))
 

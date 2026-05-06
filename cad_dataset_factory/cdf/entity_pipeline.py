@@ -199,11 +199,24 @@ def _label_for_face(graph: EntityBrepGraph, face_index: int, part_class: str) ->
     return FaceSemanticLabel.BASE_PANEL
 
 
-def _label_for_edge(graph: EntityBrepGraph, edge_index: int, part_class: str, case: str) -> EdgeSemanticLabel:
+def _label_for_edge(
+    graph: EntityBrepGraph,
+    edge_index: int,
+    part_class: str,
+    case: str,
+    adjacent_face_labels: tuple[FaceSemanticLabel, ...] = (),
+) -> EdgeSemanticLabel:
     edge = graph.arrays["edge_features"][edge_index]
     curve_type = int(round(float(edge[0])))
     length = float(edge[1])
+    bbox_x = abs(float(edge[2])) if edge.shape[0] > 2 else 0.0
+    bbox_y = abs(float(edge[3])) if edge.shape[0] > 3 else 0.0
+    bbox_z = abs(float(edge[4])) if edge.shape[0] > 4 else 0.0
+    if bbox_x < 1.0e-6 and bbox_y < 1.0e-6 and bbox_z > 1.0e-6:
+        return EdgeSemanticLabel.INTERNAL
     if curve_type in {2, 3}:
+        if adjacent_face_labels and all(label in {FaceSemanticLabel.SIDE_WALL, FaceSemanticLabel.HOLE_WALL, FaceSemanticLabel.SLOT_WALL, FaceSemanticLabel.CUTOUT_WALL} for label in adjacent_face_labels):
+            return EdgeSemanticLabel.INTERNAL
         if "slot" in case:
             return EdgeSemanticLabel.SLOT_BOUNDARY
         return EdgeSemanticLabel.HOLE_BOUNDARY
@@ -222,31 +235,50 @@ def _target_size_for_edge(label: EdgeSemanticLabel, mesh: GlobalMeshPolicy) -> f
     return mesh.h0_mm
 
 
+def _is_size_control_edge(label: EdgeSemanticLabel) -> bool:
+    return label in {
+        EdgeSemanticLabel.OUTER_BOUNDARY,
+        EdgeSemanticLabel.HOLE_BOUNDARY,
+        EdgeSemanticLabel.SLOT_BOUNDARY,
+        EdgeSemanticLabel.CUTOUT_BOUNDARY,
+        EdgeSemanticLabel.BEND_EDGE,
+        EdgeSemanticLabel.FREE_EDGE,
+    }
+
+
 def _write_entity_labels(sample_dir: Path, sample_id: str, graph: EntityBrepGraph, part_class: str, case: str) -> None:
     mesh = GlobalMeshPolicy(h0_mm=3.0, h_min_mm=0.5, h_max_mm=8.0, growth_rate=1.25, quality_profile="AMG_QA_SHELL_V2")
     write_entity_label_json(
         sample_dir / "metadata" / "part_class_label.json",
         PartClassLabelDocument(sample_id=sample_id, part_class=part_class, source="cdf_entity_generator_v2"),
     )
+    face_label_by_index = {int(record["index"]): _label_for_face(graph, int(record["index"]), part_class) for record in graph.entity_signatures["faces"]}
     face_labels = tuple(
         FaceSegmentationLabel(
             face_signature_id=record["signature_id"],
-            semantic_label=_label_for_face(graph, int(record["index"]), part_class),
+            semantic_label=face_label_by_index[int(record["index"])],
         )
         for record in graph.entity_signatures["faces"]
     )
     edge_items: list[EdgeSegmentationLabel] = []
     size_items: list[EdgeSizeRecord] = []
     for record in graph.entity_signatures["edges"]:
-        semantic = _label_for_edge(graph, int(record["index"]), part_class, case)
-        edge_items.append(EdgeSegmentationLabel(edge_signature_id=record["signature_id"], semantic_label=semantic))
-        size_items.append(
-            EdgeSizeRecord(
-                edge_signature_id=record["signature_id"],
-                target_size_mm=_target_size_for_edge(semantic, mesh),
-                source="cdf_entity_generator_v2",
-            )
+        fingerprint = record.get("fingerprint") if isinstance(record.get("fingerprint"), dict) else {}
+        adjacent_face_labels = tuple(
+            face_label_by_index[index]
+            for index in fingerprint.get("adjacent_face_indices", [])
+            if isinstance(index, int) and index in face_label_by_index
         )
+        semantic = _label_for_edge(graph, int(record["index"]), part_class, case, adjacent_face_labels)
+        edge_items.append(EdgeSegmentationLabel(edge_signature_id=record["signature_id"], semantic_label=semantic))
+        if _is_size_control_edge(semantic):
+            size_items.append(
+                EdgeSizeRecord(
+                    edge_signature_id=record["signature_id"],
+                    target_size_mm=_target_size_for_edge(semantic, mesh),
+                    source="cdf_entity_generator_v2",
+                )
+            )
     write_entity_label_json(sample_dir / "labels" / "face_segmentation.json", FaceSegmentationDocument(sample_id=sample_id, labels=face_labels))
     write_entity_label_json(sample_dir / "labels" / "edge_segmentation.json", EdgeSegmentationDocument(sample_id=sample_id, labels=tuple(edge_items)))
     write_entity_label_json(

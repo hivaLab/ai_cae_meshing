@@ -47,7 +47,7 @@ def test_size_field_example_validates() -> None:
                 {
                     "edge_signature_id": "EDGE_SIG_000001",
                     "target_size_mm": 0.75,
-                    "source": "entity_quality_surrogate_optimizer",
+                    "source": "direct_brep_size_field_gnn",
                 }
             ],
             "face_sizes": [],

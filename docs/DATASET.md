@@ -119,9 +119,11 @@ size-field smoothness penalty
 
 The score is label-side only. It must not enter model input graphs.
 
-## Quality Surrogate Training Rows
+## Direct Size-Field Training And Evaluation Rows
 
-The local quality surrogate is trained from entity rows:
+The direct size-field model is supervised by `mesh_size_field.json`. Real ANSA
+quality evaluations then verify whether the predicted edge and face sizes actually
+produce usable local mesh statistics:
 
 ```text
 sample_id
@@ -139,8 +141,8 @@ metric_available
 ```
 
 Rows from the same CAD but different size fields are intentionally preserved. This is
-what lets the model learn why one edge size is better than another for the same
-geometry.
+what lets later training rounds improve the direct size predictor without putting
+quality or target columns into the graph arrays.
 
 ## Scaling Policy
 

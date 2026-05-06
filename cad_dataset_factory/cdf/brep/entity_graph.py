@@ -63,14 +63,147 @@ def _hash_row(row: np.ndarray) -> str:
     return digest[:10].upper()
 
 
-def _signature_records(prefix: str, rows: np.ndarray) -> list[dict[str, Any]]:
-    return [
-        {
-            "index": int(index),
-            "signature_id": f"{prefix}_SIG_{index + 1:06d}_{_hash_row(row)}",
-        }
-        for index, row in enumerate(rows)
+def _stable_hash(document: dict[str, Any]) -> str:
+    encoded = json.dumps(document, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+    return hashlib.sha1(encoded).hexdigest()[:12].upper()
+
+
+def _round_float(value: Any, digits: int = 6) -> float:
+    try:
+        return round(float(value), digits)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _round_tuple(values: np.ndarray | list[Any] | tuple[Any, ...], digits: int = 6) -> list[float]:
+    return [_round_float(value, digits) for value in list(values)]
+
+
+def _node_offsets(arrays: dict[str, np.ndarray]) -> dict[str, int]:
+    face_offset = 1
+    edge_offset = face_offset + int(arrays["face_features"].shape[0])
+    coedge_offset = edge_offset + int(arrays["edge_features"].shape[0])
+    vertex_offset = coedge_offset + int(arrays["coedge_features"].shape[0])
+    return {"face": face_offset, "edge": edge_offset, "coedge": coedge_offset, "vertex": vertex_offset}
+
+
+def _edge_vertex_indices(edge_index: int, arrays: dict[str, np.ndarray], adjacency: dict[str, np.ndarray]) -> list[int]:
+    offsets = _node_offsets(arrays)
+    edge_node = offsets["edge"] + edge_index
+    vertices = [
+        int(target - offsets["vertex"])
+        for source, target in adjacency["EDGE_HAS_VERTEX"].tolist()
+        if int(source) == edge_node and 0 <= int(target - offsets["vertex"]) < arrays["vertex_features"].shape[0]
     ]
+    return sorted(set(vertices))
+
+
+def _edge_coedge_indices(edge_index: int, arrays: dict[str, np.ndarray], adjacency: dict[str, np.ndarray]) -> list[int]:
+    offsets = _node_offsets(arrays)
+    edge_node = offsets["edge"] + edge_index
+    coedges = [
+        int(source - offsets["coedge"])
+        for source, target in adjacency["COEDGE_HAS_EDGE"].tolist()
+        if int(target) == edge_node and 0 <= int(source - offsets["coedge"]) < arrays["coedge_features"].shape[0]
+    ]
+    return sorted(set(coedges))
+
+
+def _edge_adjacent_faces(edge_index: int, arrays: dict[str, np.ndarray], adjacency: dict[str, np.ndarray]) -> list[int]:
+    coedges = _edge_coedge_indices(edge_index, arrays, adjacency)
+    faces = [int(round(float(arrays["coedge_features"][coedge, 0]))) for coedge in coedges]
+    return sorted(set(face for face in faces if 0 <= face < arrays["face_features"].shape[0]))
+
+
+def _face_edge_indices(face_index: int, arrays: dict[str, np.ndarray]) -> list[int]:
+    rows = arrays["coedge_features"]
+    return sorted(
+        set(
+            int(round(float(row[1])))
+            for row in rows
+            if int(round(float(row[0]))) == face_index and 0 <= int(round(float(row[1]))) < arrays["edge_features"].shape[0]
+        )
+    )
+
+
+def _face_adjacent_faces(face_index: int, arrays: dict[str, np.ndarray], adjacency: dict[str, np.ndarray]) -> list[int]:
+    offsets = _node_offsets(arrays)
+    face_node = offsets["face"] + face_index
+    adjacent = [
+        int(target - offsets["face"])
+        for source, target in adjacency["FACE_ADJACENT_FACE"].tolist()
+        if int(source) == face_node and 0 <= int(target - offsets["face"]) < arrays["face_features"].shape[0]
+    ]
+    return sorted(set(adjacent))
+
+
+def _loop_role(edge_index: int, arrays: dict[str, np.ndarray], adjacency: dict[str, np.ndarray]) -> str:
+    coedges = _edge_coedge_indices(edge_index, arrays, adjacency)
+    faces = _edge_adjacent_faces(edge_index, arrays, adjacency)
+    if len(coedges) <= 1 or len(faces) <= 1:
+        return "FREE_OR_OUTER_BOUNDARY"
+    return "SHARED_FACE_BOUNDARY"
+
+
+def _edge_fingerprint(index: int, arrays: dict[str, np.ndarray], adjacency: dict[str, np.ndarray]) -> dict[str, Any]:
+    row = arrays["edge_features"][index]
+    vertices = _edge_vertex_indices(index, arrays, adjacency)
+    vertex_points = [_round_tuple(arrays["vertex_features"][vertex]) for vertex in vertices]
+    return {
+        "entity_type": "EDGE",
+        "curve_type_id": int(round(float(row[0]))),
+        "length_mm": _round_float(row[1]),
+        "bbox_mm": _round_tuple(row[2:5]),
+        "center_mm": _round_tuple(row[5:8]),
+        "vertex_points_mm": vertex_points,
+        "adjacent_face_indices": _edge_adjacent_faces(index, arrays, adjacency),
+        "coedge_count": len(_edge_coedge_indices(index, arrays, adjacency)),
+        "loop_role": _loop_role(index, arrays, adjacency),
+    }
+
+
+def _face_fingerprint(index: int, arrays: dict[str, np.ndarray], adjacency: dict[str, np.ndarray]) -> dict[str, Any]:
+    row = arrays["face_features"][index]
+    edge_indices = _face_edge_indices(index, arrays)
+    edge_rows = arrays["edge_features"]
+    adjacent_edge_descriptors = [
+        {
+            "edge_index": int(edge_index),
+            "curve_type_id": int(round(float(edge_rows[edge_index, 0]))),
+            "length_mm": _round_float(edge_rows[edge_index, 1]),
+            "center_mm": _round_tuple(edge_rows[edge_index, 5:8]),
+        }
+        for edge_index in edge_indices
+    ]
+    return {
+        "entity_type": "FACE",
+        "area_mm2": _round_float(row[0]),
+        "bbox_mm": _round_tuple(row[1:4]),
+        "center_mm": _round_tuple(row[4:7]),
+        "normal": _round_tuple(row[7:10]),
+        "edge_indices": edge_indices,
+        "loop_count": int(round(float(row[11]))) if row.shape[0] > 11 else 0,
+        "adjacent_face_indices": _face_adjacent_faces(index, arrays, adjacency),
+        "adjacent_edge_descriptors": adjacent_edge_descriptors,
+    }
+
+
+def _signature_records(prefix: str, arrays: dict[str, np.ndarray], adjacency: dict[str, np.ndarray]) -> list[dict[str, Any]]:
+    rows = arrays["edge_features"] if prefix == "EDGE" else arrays["face_features"]
+    records: list[dict[str, Any]] = []
+    for index, row in enumerate(rows):
+        fingerprint = _edge_fingerprint(index, arrays, adjacency) if prefix == "EDGE" else _face_fingerprint(index, arrays, adjacency)
+        fingerprint_hash = _stable_hash(fingerprint)
+        records.append(
+            {
+                "index": int(index),
+                "signature_id": f"{prefix}_SIG_{index + 1:06d}_{fingerprint_hash}",
+                "entity_type": prefix,
+                "fingerprint": fingerprint,
+                "debug_row_hash": _hash_row(row),
+            }
+        )
+    return records
 
 
 def from_legacy_brep_graph(graph: BrepGraph) -> EntityBrepGraph:
@@ -87,8 +220,8 @@ def from_legacy_brep_graph(graph: BrepGraph) -> EntityBrepGraph:
         arrays=arrays,
         adjacency=adjacency,
         entity_signatures={
-            "faces": _signature_records("FACE", arrays["face_features"]),
-            "edges": _signature_records("EDGE", arrays["edge_features"]),
+            "faces": _signature_records("FACE", arrays, adjacency),
+            "edges": _signature_records("EDGE", arrays, adjacency),
         },
     )
     validate_entity_brep_graph_structure(entity)
@@ -120,6 +253,12 @@ def validate_entity_brep_graph_structure(graph: EntityBrepGraph) -> None:
         raise BrepGraphBuildError("invalid_face_signatures", "face signature count must match face rows")
     if len(graph.entity_signatures.get("edges", [])) != graph.arrays["edge_features"].shape[0]:
         raise BrepGraphBuildError("invalid_edge_signatures", "edge signature count must match edge rows")
+    for collection, required_type in (("faces", "FACE"), ("edges", "EDGE")):
+        for record in graph.entity_signatures.get(collection, []):
+            if "signature_id" not in record or "fingerprint" not in record or "debug_row_hash" not in record:
+                raise BrepGraphBuildError("invalid_entity_signature", f"{collection} records require signature_id, fingerprint, and debug_row_hash")
+            if record.get("entity_type") != required_type:
+                raise BrepGraphBuildError("invalid_entity_signature", f"{collection} record entity_type must be {required_type}")
 
 
 def write_entity_graph_schema(path: str | Path, graph: EntityBrepGraph | None = None) -> None:

@@ -2,123 +2,113 @@
 
 ## Current Direction
 
-Primary pipeline:
+The primary path is fixed:
 
 ```text
 clean STEP CAD
-  -> B-rep entity graph
-  -> part classifier
-  -> face/edge segmentation
-  -> entity-local quality surrogate
-  -> constrained edge/face size field
-  -> real ANSA mesh validation
+  -> CDF B-rep entity graph
+  -> AMG part classifier
+  -> AMG face/edge segmentation
+  -> AMG direct size-field GNN
+  -> AMG_SIZE_FIELD_SM_V2
+  -> real ANSA edge/face controls
+  -> BDF + real entity-local quality metrics
 ```
 
-The old feature-action manifest and recommendation/ranker path has been removed from
-the active code surface.
+Do not revive feature-action manifests, recommendation/ranker selection, baseline mesh
+selection, quality-surrogate optimizer success, mock reports, or fabricated metrics.
 
-## Current Task
+## Current State
+
+Completed:
+
+- `T-806B_ENTITY_IDENTITY_REBASE`
+- `T-809_DIRECT_BREP_SIZE_FIELD_MODEL`
+- `T-810_ENTITY_LOCAL_BDF_METRIC_EXTRACTION`
+- `T-806_ANSA_SIZE_FIELD_CONTROL_GATE` for one clean flat-panel smoke sample
+
+Important implementation facts:
+
+- `entity_signatures.json` contains geometry fingerprints and `debug_row_hash`.
+- `cdf-entity ansa-probe-entities` probes real ANSA entity descriptor availability.
+- `BrepSizeFieldModel` is the primary AMG mesh-control model.
+- `amg-train-size-field` and `amg-infer-size-field` are active scripts.
+- Local edge metrics are measured from exported NASTRAN BDF GRID/CQUAD4/CTRIA3 data.
+- CDF excludes solid-only seam/thickness edges from active shell size-field labels.
+
+Regression command:
+
+```powershell
+python -m pytest
+```
+
+Latest targeted result:
+
+```text
+14 passed for primary entity pipeline + ANSA size-field control tests
+```
+
+Latest full regression:
+
+```text
+64 passed
+```
+
+Real ANSA gate evidence:
+
+```text
+dataset: runs\t806b_identity_probe_v3\dataset
+sample: runs\t806b_identity_probe_v3\dataset\samples\sample_000001
+evaluation: runs\t806b_identity_probe_v3\ansa_eval
+status: COMPLETED
+edge_match_count: 10
+BDF: runs\t806b_identity_probe_v3\ansa_eval\meshes\ansa_size_field_mesh.bdf
+BDF size: 469274 bytes
+entity quality rows: 10
+metric_available rows: 10
+hard_fail rows: 0
+max boundary size error: 0.012345679012345881
+```
+
+## Next Task
 
 Implement:
 
 ```text
-T-806_ANSA_SIZE_FIELD_CONTROL_GATE
+T-811_REAL_AI_SIZE_FIELD_GATE
 ```
 
-## Current T-806 State
+## Required Work
 
-The first implementation pass is in place:
-
-- `cdf-entity ansa-evaluate-size-field` launches the v2 ANSA script.
-- The script reads `AMG_SIZE_FIELD_SM_V2`, graph arrays, and entity signatures.
-- The runner refuses to count success unless execution report, quality report,
-  entity-local metrics, zero hard failures, and non-empty BDF all exist.
-- Unit tests use a fake ANSA adapter for successful edge-size application and blocked
-  entity matching.
-
-Verification already run:
+1. Generate a compact v2 dataset with at least train/held-out samples.
+2. Train or load:
+   - part classifier
+   - face/edge segmentation model
+   - direct `BrepSizeFieldModel`
+3. Infer `AMG_SIZE_FIELD_SM_V2` on a held-out clean CAD sample using AMG only.
+4. Run:
 
 ```powershell
-python -m pytest
+python -m cad_dataset_factory.cdf.entity_cli ansa-evaluate-size-field --sample-dir <held-out-sample> --size-field <ai-output-size-field.json> --out <real-eval-out> --ansa-executable "C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat" --timeout-sec 300
 ```
 
-Result:
+5. Mark success only if:
+   - execution report accepted
+   - quality report accepted
+   - BDF exists and is non-empty
+   - `num_hard_failed_elements == 0`
+   - every controlled entity has `metric_available=true`
+   - no mock, placeholder, baseline, fallback, or fabricated metric participates
 
-```text
-60 passed
-```
+## If Blocked
 
-Real ANSA smoke gate:
+If the direct model predicts a size field that fails ANSA quality, keep `T-811` as
+`IN_PROGRESS` and record:
 
-```text
-runs/t806_size_field_gate/dataset/samples/sample_000001
-```
-
-Result:
-
-```text
-BLOCKED: entity_matching_failed
-```
-
-Diagnostic:
-
-```text
-runs/t806_size_field_gate/ansa_eval/reports/ansa_size_field_diagnostics.json
-```
-
-The diagnostic shows 17 CDF edges and 17 ANSA edge entities, but the current ANSA
-descriptor extraction returns `length=-1.0` and no center/bbox for ANSA edges. Do not
-mark T-806 done until this is fixed with real ANSA API evidence.
-
-## Goal
-
-Connect `AMG_SIZE_FIELD_SM_V2` to real ANSA controls.
-
-Minimum payload:
-
-- clean STEP path
-- global mesh policy
-- user `growth_rate`
-- per-edge `target_size_mm`
-- optional per-face `target_size_mm`
-- quality profile
-
-## Required Behavior
-
-1. Do not create or count a reference mesh as success.
-2. Do not fabricate local metrics.
-3. Do not use removed manifest/action contracts.
-4. Match CDF graph entity signatures to ANSA entities explicitly.
-5. If edge/face matching cannot be implemented against ANSA v25.1.0, return `BLOCKED`
-   with the exact API/matching failure.
-6. Count success only when real execution report, real quality report, zero hard failed
-   elements, local entity metrics, and non-empty BDF are present.
-
-## Next Code Step
-
-Implement an ANSA entity descriptor probe/fix:
-
-1. Inside `ansa_scripts`, inspect CONS, FE PERIMETER, CURVE, FACE, and MACRO entities
-   after STEP import and Skin.
-2. Record available card fields, methods, ids, lengths, related macro/perimeter links,
-   and any API calls that return stable length/center/bbox descriptors.
-3. Replace the current weak `RealAnsaSizeFieldAdapter.collect_edge_descriptors` and
-   `collect_face_descriptors` with the verified descriptor path.
-4. Re-run the same real gate. If matching succeeds, continue to edge/face size application
-   and local metric extraction. If not, keep `BLOCKED` with the exact missing API.
-
-## Verification
-
-Run:
-
-```powershell
-python -m pytest
-```
-
-Then run a small real ANSA gate with the installed executable:
-
-```text
-C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat
-```
-
-T-806 is not done until the real gate passes.
+- sample id
+- predicted size-field path
+- execution/quality report paths
+- BDF path
+- entity rows with largest boundary errors
+- whether the failure is model quality, segmentation quality, descriptor matching, or
+  ANSA control application

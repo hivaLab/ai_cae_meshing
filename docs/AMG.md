@@ -190,19 +190,16 @@ same_segment_edge_logits for adjacent faces
 
 ### Model
 
-Initial deployable model:
+Primary model:
 
 ```text
-EntityQualitySurrogate + constrained size-field optimizer
+BRepMeshSizeNet: segmentation-aware B-rep GNN size-field regressor
 ```
 
-The surrogate predicts local mesh outcome for candidate controls. This follows the
-survey's practical mesh-quality prediction pattern: B-rep entities receive local feature
-vectors, candidate meshing settings are evaluated, and the model predicts risk or
-quality before committing to a full mesh.
-
-Direct `BRepMeshSizeNet` regression is a later acceleration path. It should be trained
-after enough optimized size-field labels exist.
+The model predicts per-edge target sizes directly from B-rep entity features,
+coedge topology, part probabilities, segmentation probabilities, mesh policy, and user
+growth-rate constraints. This is the active path because ANSA ultimately needs entity
+controls, not feature-action choices or baseline selection.
 
 ### Input Layer
 
@@ -214,9 +211,11 @@ X_edge
 face_segmentation_probabilities
 edge_segmentation_probabilities
 mesh_policy
-candidate_edge_size
-candidate_face_size optional
-candidate_growth_context
+part_class_probabilities
+face_segmentation_probabilities
+edge_segmentation_probabilities
+mesh_policy
+user_global_growth_rate
 ```
 
 Mesh policy:
@@ -232,21 +231,13 @@ optional_element_budget
 
 ### Output Layer
 
-Surrogate outputs:
-
-```text
-hard_fail_probability in R^(E x 1)
-local_boundary_error_quantiles in R^(E x q)
-local_quality_margin in R^(E x 1)
-element_count_cost in R^(E x 1)
-uncertainty in R^(E x 1)
-```
-
-Optimizer outputs:
+Model outputs:
 
 ```text
 log_h_edge in R^(E x 1)
 log_h_face in R^(F x 1) optional
+uncertainty_edge in R^(E x 1)
+uncertainty_face in R^(F x 1) optional
 ```
 
 Decoded sizes:
@@ -263,20 +254,9 @@ h_min_mm <= h <= h_max_mm
 h_i / h_j <= user_global_growth_rate for adjacent entities
 ```
 
-Optimization objective:
-
-```text
-minimize:
-  predicted hard-fail risk
-  + local boundary error penalty
-  + global quality violation penalty
-  + element-count/runtime soft cost
-  + size discontinuity penalty
-
-subject to:
-  h_min_mm <= h_entity <= h_max_mm
-  adjacent size ratio <= user_global_growth_rate
-```
+Training targets are entity-local size labels derived from CDF generator labels and,
+after ANSA/BDF local metrics are available, real quality-evaluated size fields. The
+graph input never contains target size, target class, or quality columns.
 
 ## ANSA Control Strategy
 

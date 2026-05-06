@@ -16,14 +16,16 @@ from ai_mesh_generator.amg.model.part_classifier import (
     predict_part_class,
     train_part_classifier,
 )
-from ai_mesh_generator.amg.model.quality_surrogate import (
-    optimize_size_field,
-    train_quality_surrogate,
-)
 from ai_mesh_generator.amg.model.segmentation import (
     BrepSegmentationModel,
     build_entity_graph_tensors,
     build_segmentation_targets,
+)
+from ai_mesh_generator.amg.model.size_field import (
+    BrepSizeFieldModel,
+    build_size_field_document,
+    build_size_field_graph_tensors,
+    build_size_field_targets,
 )
 from cad_dataset_factory.cdf.brep.entity_graph import (
     EntityBrepGraph,
@@ -108,13 +110,43 @@ def _graph(scale: float = 1.0) -> EntityBrepGraph:
     }
     entity_signatures = {
         "faces": [
-            {"index": 0, "signature_id": "FACE_SIG_000001_BASE"},
-            {"index": 1, "signature_id": "FACE_SIG_000002_HOLE"},
+            {
+                "index": 0,
+                "signature_id": "FACE_SIG_000001_BASE",
+                "entity_type": "FACE",
+                "fingerprint": {"entity_type": "FACE", "area_mm2": 100.0 * scale, "center_mm": [5.0, 5.0, 0.0], "bbox_mm": [10.0, 10.0, 0.0]},
+                "debug_row_hash": "DEBUG_FACE_0001",
+            },
+            {
+                "index": 1,
+                "signature_id": "FACE_SIG_000002_HOLE",
+                "entity_type": "FACE",
+                "fingerprint": {"entity_type": "FACE", "area_mm2": 20.0 * scale, "center_mm": [2.0, 5.0, 0.0], "bbox_mm": [4.0, 5.0, 0.0]},
+                "debug_row_hash": "DEBUG_FACE_0002",
+            },
         ],
         "edges": [
-            {"index": 0, "signature_id": "EDGE_SIG_000001_OUTER"},
-            {"index": 1, "signature_id": "EDGE_SIG_000002_HOLE"},
-            {"index": 2, "signature_id": "EDGE_SIG_000003_FREE"},
+            {
+                "index": 0,
+                "signature_id": "EDGE_SIG_000001_OUTER",
+                "entity_type": "EDGE",
+                "fingerprint": {"entity_type": "EDGE", "curve_type_id": 1, "length_mm": 10.0 * scale, "center_mm": [5.0, 0.0, 0.0], "bbox_mm": [10.0, 0.0, 0.0]},
+                "debug_row_hash": "DEBUG_EDGE_0001",
+            },
+            {
+                "index": 1,
+                "signature_id": "EDGE_SIG_000002_HOLE",
+                "entity_type": "EDGE",
+                "fingerprint": {"entity_type": "EDGE", "curve_type_id": 2, "length_mm": 2.0 * scale, "center_mm": [5.0, 5.0, 0.0], "bbox_mm": [2.0, 2.0, 0.0]},
+                "debug_row_hash": "DEBUG_EDGE_0002",
+            },
+            {
+                "index": 2,
+                "signature_id": "EDGE_SIG_000003_FREE",
+                "entity_type": "EDGE",
+                "fingerprint": {"entity_type": "EDGE", "curve_type_id": 1, "length_mm": 5.0 * scale, "center_mm": [9.0, 5.0, 0.0], "bbox_mm": [5.0, 0.0, 0.0]},
+                "debug_row_hash": "DEBUG_EDGE_0003",
+            },
         ],
     }
     graph = EntityBrepGraph(entity_graph_schema_document(), arrays, adjacency, entity_signatures)
@@ -213,6 +245,8 @@ def test_new_entity_contract_schemas_validate_examples() -> None:
     ):
         Draft202012Validator.check_schema(_load_schema(schema_name))
     sample = load_entity_dataset_sample(_write_sample(_workspace_tmp("contracts"), "sample_000001", PartClass.SM_FLAT_PANEL), require_quality=True)
+    assert sample.graph.entity_signatures["edges"][0]["fingerprint"]["entity_type"] == "EDGE"
+    assert "debug_row_hash" in sample.graph.entity_signatures["edges"][0]
     Draft202012Validator(_load_schema("CDF_MESH_SIZE_FIELD_SM_V2")).validate(sample.labels.mesh_size_field)
     Draft202012Validator(_load_schema("CDF_ENTITY_QUALITY_EVALUATION_SM_V2")).validate(sample.labels.quality_evaluations[0])
 
@@ -250,7 +284,7 @@ def test_entity_dataset_loader_rejects_graph_target_leakage() -> None:
     assert excinfo.value.code == "graph_target_leakage"
 
 
-def test_part_classifier_segmentation_and_quality_optimizer() -> None:
+def test_part_classifier_segmentation_and_direct_size_field_model() -> None:
     root = _workspace_tmp("models")
     samples = [
         load_entity_dataset_sample(_write_sample(root, "sample_000001", PartClass.SM_FLAT_PANEL, scale=1.0), require_quality=True),
@@ -273,9 +307,13 @@ def test_part_classifier_segmentation_and_quality_optimizer() -> None:
     assert targets.face_labels.shape == (2,)
     assert targets.edge_labels.shape == (3,)
 
-    surrogate, surrogate_result = train_quality_surrogate(samples, seed=42)
-    assert surrogate_result.row_count >= 4
-    optimized = optimize_size_field(surrogate, samples[0], h0_mm=2.0, h_min_mm=0.5, h_max_mm=4.0, growth_rate=1.25)
-    assert optimized.document["schema_version"] == "AMG_SIZE_FIELD_SM_V2"
-    assert optimized.selected_entity_count == 3
-    Draft202012Validator(_load_schema("AMG_SIZE_FIELD_SM_V2")).validate(optimized.document)
+    size_tensors = build_size_field_graph_tensors(samples[0])
+    size_targets = build_size_field_targets(samples[0])
+    size_model = BrepSizeFieldModel(size_tensors.face_inputs.shape[1], size_tensors.edge_inputs.shape[1], hidden_dim=16)
+    size_output = size_model(size_tensors)
+    assert size_output.edge_log_h.shape == (3,)
+    assert size_targets.edge_mask.tolist() == [False, True, False]
+    document = build_size_field_document(samples[0], size_output, h0_mm=2.0, h_min_mm=0.5, h_max_mm=4.0, growth_rate=1.25)
+    assert document["schema_version"] == "AMG_SIZE_FIELD_SM_V2"
+    assert len(document["edge_sizes"]) == 3
+    Draft202012Validator(_load_schema("AMG_SIZE_FIELD_SM_V2")).validate(document)

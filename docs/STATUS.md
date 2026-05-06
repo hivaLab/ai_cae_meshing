@@ -2,39 +2,54 @@
 
 ## Current State
 
-The repository has been cut over to the B-rep entity AI meshing direction.
+The repository is now on the B-rep entity AI meshing path. The legacy feature-action
+manifest, ranker recommendation, baseline selection, and surrogate optimizer primary
+paths have been removed from active scripts and exports.
 
-Removed from the active path:
-
-- feature-action manifest generation
-- deterministic action-head models
-- quality ranker recommendation and fresh proposal CLIs
-- old manifest/ranker tests
-- old primary console scripts
-
-Primary path now uses:
+Primary path:
 
 ```text
 clean STEP CAD
-  -> B-rep entity graph
-  -> part classifier
-  -> face/edge segmentation
-  -> entity-local quality surrogate
-  -> constrained edge/face size field
-  -> ANSA real size-field mesh gate
+  -> CDF B-rep entity graph and entity labels
+  -> AMG part classifier
+  -> AMG face/edge segmentation
+  -> AMG direct segmentation-aware size-field GNN
+  -> AMG_SIZE_FIELD_SM_V2
+  -> ANSA real edge/face size controls
+  -> BDF + real quality/entity-local evidence
 ```
 
 ## Recently Completed
 
-`T-802_TO_T804_PRIMARY_ENTITY_PIPELINE_SCAFFOLD`
+`T-806B_ENTITY_IDENTITY_REBASE`
 
-- Added `cdf-entity generate` and `cdf-entity validate`.
-- Added `amg-train-part-classifier`.
-- Added `amg-train-entity-segmentation`.
-- Added `amg-train-quality-surrogate`.
-- Added `amg-optimize-size-field`.
-- Removed active legacy manifest/recommendation modules and tests.
-- Rebased configs and schemas around v2 size-field control.
+- `entity_signatures.json` now stores geometry fingerprints, not only row hashes.
+- Edge fingerprints include curve type, length, bbox, center, vertex anchor points,
+  adjacent faces, coedge count, and loop role.
+- Face fingerprints include area, bbox, center, normal, loop count, edge descriptors,
+  and adjacent faces.
+- Weak row hashes remain only as `debug_row_hash`.
+- Added `cdf-entity ansa-probe-entities`.
+- Real ANSA probe succeeded at:
+
+```text
+runs/t806b_identity_probe/ansa_entity_probe_v2.json
+```
+
+Probe evidence:
+
+- `CONS` count: 17
+- `FACE` count: 8
+- usable `CONS` card fields include `Length`, `Start Point`, `End Point`, and
+  `Min Radius`
+
+`T-809_DIRECT_SIZE_FIELD_MODEL`
+
+- Added `BrepSizeFieldModel`, a coedge-aware direct edge/face size-field regressor.
+- Added `amg-train-size-field`.
+- Added `amg-infer-size-field`.
+- Removed the old quality-surrogate optimizer from the active AMG model/training/script
+  surface.
 
 Verification:
 
@@ -45,44 +60,58 @@ python -m pytest
 Result:
 
 ```text
-56 passed
+64 passed
+```
+
+`T-810_ENTITY_LOCAL_BDF_METRIC_EXTRACTION`
+
+- Added BDF-based local edge metric extraction from exported NASTRAN GRID/CQUAD4/CTRIA3 data.
+- The metric path measures real mesh segment mean/min/max/count per controlled edge.
+- `CDF_ENTITY_QUALITY_EVALUATION_SM_V2` now carries measured edge length statistics.
+- CDF size-field labels now exclude solid-only seam/thickness edges that are not shell
+  mesh-control entities.
+
+Real gate evidence:
+
+```text
+sample: runs/t806b_identity_probe_v3/dataset/samples/sample_000001
+result: COMPLETED
+edge_match_count: 10
+BDF: runs/t806b_identity_probe_v3/ansa_eval/meshes/ansa_size_field_mesh.bdf
+BDF size: 469274 bytes
+entity quality rows: 10
+metric_available rows: 10
+hard_fail rows: 0
+max boundary size error: 0.012345679012345881
 ```
 
 ## Active Task
 
-`T-806_ANSA_SIZE_FIELD_CONTROL_GATE`
+`T-811_REAL_AI_SIZE_FIELD_GATE`
 
-Implemented in this session:
+Why this is the active task:
 
-- `cdf-entity ansa-evaluate-size-field` now launches a v2 ANSA size-field script.
-- The payload carries `AMG_SIZE_FIELD_SM_V2`, graph arrays, entity signatures, report paths, and BDF path.
-- The normal Python runner post-validates reports, entity-local metrics, hard-fail count, and BDF existence.
-- A zero ANSA process return code is no longer counted as success unless reports and mesh evidence pass.
-
-Current real gate result:
+- The real ANSA size-field control path is now proven on a generated label size field.
+- The next missing proof is that AMG's direct size-field model can train/infer an
+  `AMG_SIZE_FIELD_SM_V2` and pass the same real ANSA gate on held-out clean CAD.
 
 ```text
-python -m pytest -> 60 passed
-cdf-entity ansa-evaluate-size-field sample_000001 -> BLOCKED
-blocked reason: entity_matching_failed
-diagnostic path: runs/t806_size_field_gate/ansa_eval/reports/ansa_size_field_diagnostics.json
+minimum next gate:
+1. generate compact v2 dataset
+2. train part classifier, segmentation model, and direct size-field model
+3. infer size field on held-out sample
+4. run cdf-entity ansa-evaluate-size-field on the AI output
+5. require real accepted reports, non-empty BDF, and entity-local metrics
 ```
-
-ANSA imported the STEP and created midsurface entities, but CDF edge descriptors could
-not yet be matched to ANSA entities. The diagnostic shows 17 CDF edges and 17 ANSA edge
-entities, but ANSA edge descriptors currently expose `length=-1.0` and no usable
-center/bbox values through the attempted API path.
 
 ## Known Gaps
 
-1. Part classifier, segmentation, and quality surrogate train on v2 entity files, but
-   only compact/local fixtures have been verified in tests.
-2. Entity quality labels still need real ANSA/BDF measured rows for production learning.
-3. ANSA edge/face size application for `AMG_SIZE_FIELD_SM_V2` is wired but blocked by
-   stable ANSA entity descriptor extraction/matching.
-4. No held-out real ANSA end-to-end valid mesh has been counted for the new v2 path yet.
-5. Next code work must probe ANSA entity card fields/API methods for CONS, FE PERIMETER,
-   FACE, and MACRO descriptors, then replace the current weak descriptor extractor.
+1. Direct size-field GNN is implemented and trainable, but it has not yet been evaluated
+   through real ANSA with accepted local metrics.
+2. Current compact CDF labels are generator-derived. Real learning quality still needs
+   pass, near-fail, and fail evidence from size-field sweeps.
+3. Face controls remain secondary until edge-local metric extraction is reliable across
+   non-flat families.
 
 ## Verified ANSA Path
 

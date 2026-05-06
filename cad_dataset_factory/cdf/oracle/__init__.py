@@ -28,9 +28,20 @@ from cad_dataset_factory.cdf.oracle.ansa_size_field import (
     build_size_field_payload,
     run_ansa_size_field_evaluation,
 )
+from cad_dataset_factory.cdf.oracle.ansa_entity_probe import (
+    AnsaEntityProbeError,
+    AnsaEntityProbeRequest,
+    AnsaEntityProbeResult,
+    build_ansa_entity_probe_command,
+    build_ansa_entity_probe_payload,
+    run_ansa_entity_probe,
+)
 from cad_dataset_factory.cdf.oracle.ansa_probe import AnsaProbeError, AnsaProbeResult, run_ansa_probe
 
 __all__ = [
+    "AnsaEntityProbeError",
+    "AnsaEntityProbeRequest",
+    "AnsaEntityProbeResult",
     "AnsaOracleSummary",
     "AnsaProbeError",
     "AnsaProbeResult",
@@ -46,6 +57,8 @@ __all__ = [
     "ParsedAnsaExecutionReport",
     "ParsedAnsaQualityReport",
     "build_ansa_batch_command",
+    "build_ansa_entity_probe_command",
+    "build_ansa_entity_probe_payload",
     "build_ansa_size_field_command",
     "build_size_field_payload",
     "parse_ansa_execution_report",
@@ -53,6 +66,7 @@ __all__ = [
     "preflight_ansa_run",
     "resolve_ansa_executable",
     "run_ansa_oracle",
+    "run_ansa_entity_probe",
     "run_ansa_probe",
     "run_ansa_size_field_evaluation",
     "summarize_ansa_reports",

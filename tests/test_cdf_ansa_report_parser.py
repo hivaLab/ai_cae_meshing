@@ -20,7 +20,7 @@ def _execution_report(sample_id: str = "sample_000403", *, accepted: bool = True
         "schema": "CDF_ANSA_EXECUTION_REPORT_SM_V1",
         "sample_id": sample_id,
         "accepted": accepted,
-        "ansa_version": "mock-ansa",
+        "ansa_version": "ansa-v25.1-unit-fixture",
         "step_import_success": accepted,
         "geometry_cleanup_success": accepted,
         "midsurface_extraction_success": accepted,
@@ -155,4 +155,3 @@ def test_quality_report_requires_hard_fail_metric() -> None:
     with pytest.raises(AnsaReportParseError) as exc_info:
         parse_ansa_quality_report(report)
     assert exc_info.value.code == "missing_quality_metric"
-

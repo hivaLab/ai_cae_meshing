@@ -59,8 +59,7 @@ Segmentation model:
 
 Size-field model:
 
-- surrogate predicts local quality response for candidate edge sizes
-- optimizer chooses one size per edge without baseline selection
+- direct B-rep model predicts one size per controlled edge
 - optional one size per face
 - applies `h_min`, `h_max`, and user growth-rate projection
 - does not read target size from graph inputs
@@ -80,8 +79,8 @@ Minimum real gate for the new architecture:
 1. generate a compact diverse clean CAD set
 2. train or load part classifier
 3. train or load segmentation model
-4. train or load entity-local quality surrogate
-5. optimize or infer held-out size fields
+4. train or load direct entity size-field model
+5. infer held-out size fields
 6. apply predicted size field in ANSA
 7. validate global and local mesh quality
 ```

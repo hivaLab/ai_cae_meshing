@@ -26,12 +26,10 @@ established geometry kernels and meshers, not a replacement for them. The projec
 therefore uses AI to choose entity-level meshing controls while ANSA remains the real
 meshing engine.
 
-The paper also changes one important design choice: direct neural size-field regression
-is not the safest MVP. A more deployable first mesh-control model is a local
-mesh-quality surrogate trained on B-rep entity features and real ANSA outcomes. That
-surrogate can score candidate edge/face sizes, and a constrained optimizer can choose a
-smooth size field. A direct B-rep GNN size predictor is still useful, but as a later
-distillation or acceleration step after the quality-surrogate loop is proven.
+The paper supports using AI as a controller around established meshers. For this project,
+the controller should predict entity-local mesh sizes directly, then ANSA remains the
+real meshing engine. Local quality evidence is still required, but it is used to train
+and validate the size predictor rather than to hide failures behind a baseline selector.
 
 The resulting model stack is:
 
@@ -43,9 +41,8 @@ face/edge segmentation:
   B-rep coedge topology -> BRepNet-style segmentation network
 
 mesh control:
-  entity features + candidate sizes -> local quality surrogate
-  surrogate + constraints -> optimized edge/face size field
-  optional later model -> direct B-rep size-field predictor
+  B-rep entity graph + segmentation probabilities -> direct edge/face size-field GNN
+  projection -> bounded AMG_SIZE_FIELD_SM_V2
 ```
 
 ## System Diagram
@@ -63,8 +60,8 @@ AMG
   build B-rep entity tensors
   train part classifier
   train face/edge segmentation model
-  train entity-local quality surrogate
-  optimize or infer size field for new CAD
+  train direct size-field model
+  infer size field for new CAD
   send size field to ANSA
   validate mesh quality
 ```
@@ -131,29 +128,12 @@ Reason:
 MVP model:
 
 ```text
-entity-local mesh-quality surrogate + constrained size-field optimizer
+segmentation-aware heterogeneous B-rep GNN size regressor
 ```
 
-The surrogate predicts the expected result of meshing a local CAD entity with a
-candidate size and growth context:
-
-- hard-fail probability
-- local boundary-size error
-- local quality violation margin
-- element-count or runtime cost proxy
-
-The optimizer then chooses:
-
-- per-edge target size
-- optional per-face target size
-
-Later model:
-
-```text
-segmentation-aware heterogeneous B-rep GNN distilled from optimized size fields
-```
-
-The postprocessor enforces bounds and growth rate.
+The model predicts per-edge target size and optional per-face target size. The
+postprocessor enforces bounds and user growth rate. Real ANSA/BDF local quality metrics
+are used to validate and improve these predictions.
 
 ## Entity Tensors
 

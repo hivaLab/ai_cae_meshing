@@ -13,7 +13,12 @@ from cad_dataset_factory.cdf.entity_pipeline import (
     generate_entity_dataset,
     validate_entity_dataset,
 )
-from cad_dataset_factory.cdf.oracle import run_ansa_probe
+from cad_dataset_factory.cdf.oracle import (
+    AnsaSizeFieldEvaluationError,
+    AnsaSizeFieldEvaluationRequest,
+    run_ansa_probe,
+    run_ansa_size_field_evaluation,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -35,11 +40,13 @@ def build_parser() -> argparse.ArgumentParser:
     probe.add_argument("--out", default="runs/ansa_probe/ansa_runtime_probe.json")
     probe.add_argument("--timeout-sec", type=int, default=90)
 
-    evaluate = subparsers.add_parser("ansa-evaluate-size-field", help="Fail-closed real ANSA size-field evaluation gate")
+    evaluate = subparsers.add_parser("ansa-evaluate-size-field", help="Run real ANSA v2 size-field evaluation")
     evaluate.add_argument("--sample-dir", required=True)
     evaluate.add_argument("--size-field", default="labels/mesh_size_field.json")
     evaluate.add_argument("--ansa-executable", required=True)
     evaluate.add_argument("--out", required=True)
+    evaluate.add_argument("--timeout-sec", type=int, default=240)
+    evaluate.add_argument("--dry-run", action="store_true")
     return parser
 
 
@@ -87,19 +94,36 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             return 0 if result.status == "OK" else 2
         if args.command == "ansa-evaluate-size-field":
-            out_path = Path(args.out)
-            out_path.parent.mkdir(parents=True, exist_ok=True)
-            report = {
-                "status": "BLOCKED",
-                "code": "ansa_size_field_binding_not_implemented",
-                "sample_dir": Path(args.sample_dir).as_posix(),
-                "size_field": args.size_field,
-                "ansa_executable": args.ansa_executable,
-                "message": "The v2 ANSA edge/face size-field binding is not complete; no mesh success is counted.",
-            }
-            out_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-            _print(report)
-            return 2
+            result = run_ansa_size_field_evaluation(
+                AnsaSizeFieldEvaluationRequest(
+                    sample_dir=Path(args.sample_dir),
+                    size_field_path=Path(args.size_field),
+                    ansa_executable=args.ansa_executable,
+                    out_dir=Path(args.out),
+                    timeout_sec=args.timeout_sec,
+                ),
+                execute=not args.dry_run,
+            )
+            _print(
+                {
+                    "status": result.status,
+                    "returncode": result.returncode,
+                    "output_dir": result.output_dir.as_posix(),
+                    "execution_report": result.execution_report_path.as_posix(),
+                    "quality_report": result.quality_report_path.as_posix(),
+                    "entity_quality": result.entity_quality_path.as_posix(),
+                    "mesh": result.mesh_path.as_posix(),
+                    "diagnostics": result.diagnostics_path.as_posix(),
+                    "error_code": result.error_code,
+                    "message": result.message,
+                }
+            )
+            if result.status in {"DRY_RUN", "COMPLETED"} and result.returncode in {None, 0}:
+                return 0
+            return 2 if result.status in {"BLOCKED", "TIMEOUT"} or result.returncode == 2 else 1
+    except AnsaSizeFieldEvaluationError as exc:
+        _print({"status": "BLOCKED", "code": exc.code, "message": str(exc)})
+        return 2
     except CdfEntityPipelineError as exc:
         _print({"status": "FAILED", "code": exc.code, "message": str(exc), "sample_id": exc.sample_id})
         return 1

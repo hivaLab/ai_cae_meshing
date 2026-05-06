@@ -45,6 +45,24 @@ constraint. Face size is useful as a secondary control when ANSA supports it rel
 12. export quality report
 ```
 
+## Current Integration Blocker
+
+The v2 size-field runner and ANSA script now exist, but the first real smoke run is
+blocked at entity matching.
+
+Observed on ANSA v25.1.0:
+
+```text
+CDF edge descriptors: 17
+ANSA edge entities: 17
+ANSA reported edge length: -1.0 for every attempted edge descriptor
+ANSA reported edge center/bbox: unavailable through the attempted path
+```
+
+This means edge/face target sizes must not yet be counted as applied successfully.
+The next integration step is a focused ANSA entity descriptor probe for CONS,
+FE PERIMETER, CURVE, FACE, and MACRO entities after STEP import and Skin.
+
 ## API Boundary
 
 ANSA Python API imports must remain inside ANSA scripts:

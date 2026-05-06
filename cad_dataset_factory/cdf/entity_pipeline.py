@@ -334,6 +334,19 @@ def validate_entity_dataset(dataset_root: str | Path, *, require_quality: bool =
                 raise CdfEntityPipelineError("missing_entity_quality", "quality evaluation is required")
             for quality_path in quality_paths:
                 _validate_document(quality_path, "CDF_ENTITY_QUALITY_EVALUATION_SM_V2")
+                if require_quality:
+                    quality_doc = _read_json(quality_path)
+                    rows = quality_doc.get("entity_quality", [])
+                    if not rows:
+                        raise CdfEntityPipelineError("empty_entity_quality", "entity quality rows are required")
+                    for row in rows:
+                        if not row.get("metric_available"):
+                            raise CdfEntityPipelineError("entity_quality_metric_unavailable", f"{quality_path} contains unavailable local metrics")
+                        if row.get("hard_fail"):
+                            raise CdfEntityPipelineError("entity_quality_hard_fail", f"{quality_path} contains hard-fail entity quality rows")
+                    summary = quality_doc.get("global_quality_summary", {})
+                    if isinstance(summary, dict) and summary.get("num_hard_failed_elements", 0) != 0:
+                        raise CdfEntityPipelineError("global_quality_hard_fail", f"{quality_path} reports hard failed elements")
         except Exception as exc:  # noqa: BLE001 - validation should collect every failing sample.
             errors.append(f"{sample_dir.name}: {exc}")
     status = "SUCCESS" if not errors else "VALIDATION_FAILED"

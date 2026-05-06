@@ -77,6 +77,24 @@ AMG_SIZE_FIELD_SM_V2 -> ANSA edge/face target size controls -> BDF + quality rep
 Done only when real reports, local metrics, zero hard failed elements, and non-empty BDF
 exist for held-out samples.
 
+Current implementation state:
+
+- normal Python runner and ANSA internal script exist
+- process return code is post-validated against reports, BDF, and entity metrics
+- fake-adapter tests cover successful size application and blocked matching
+- real ANSA gate ran once and correctly returned `BLOCKED`
+
+Current blocker:
+
+```text
+entity_matching_failed
+```
+
+The ANSA v25.1.0 path exposes the expected number of edge entities for the smoke STEP,
+but the attempted descriptor API returns unusable per-edge data (`length=-1.0`, no
+center/bbox). T-806 remains open until stable ANSA descriptor extraction enables explicit
+CDF edge/face signature matching and measured local quality rows.
+
 ### T-807_FAST_DIVERSE_ENTITY_DATASET_LOOP
 
 Status: `TODO`

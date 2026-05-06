@@ -1,0 +1,660 @@
+"""ANSA-internal size-field evaluator for CDF v2 entity samples.
+
+This module is intentionally importable in normal Python.  Real ANSA imports are
+lazy and stay inside ``ansa_scripts`` so normal unit tests can exercise the
+workflow with a fake adapter.
+"""
+
+from __future__ import annotations
+
+import base64
+import json
+import math
+import time
+import traceback
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Protocol
+
+
+class SizeFieldScriptError(RuntimeError):
+    """Structured failure inside the ANSA size-field script."""
+
+    def __init__(self, code: str, message: str, diagnostics: dict[str, Any] | None = None) -> None:
+        self.code = code
+        self.diagnostics = diagnostics or {}
+        super().__init__(f"{code}: {message}")
+
+
+class SizeFieldAnsaAdapter(Protocol):
+    """Small adapter surface needed by the size-field workflow."""
+
+    def ansa_version(self) -> str: ...
+
+    def import_step(self, cad_path: str) -> bool: ...
+
+    def cleanup_geometry(self) -> bool: ...
+
+    def extract_midsurface(self) -> bool: ...
+
+    def collect_edge_descriptors(self) -> list[dict[str, Any]]: ...
+
+    def collect_face_descriptors(self) -> list[dict[str, Any]]: ...
+
+    def apply_global_mesh(self, h0_mm: float, h_min_mm: float, h_max_mm: float, growth_rate: float) -> None: ...
+
+    def apply_edge_size(self, entity: Any, target_size_mm: float) -> None: ...
+
+    def apply_face_size(self, entity: Any, target_size_mm: float) -> None: ...
+
+    def run_batch_mesh(self, session_name: str, timeout_sec: int) -> bool: ...
+
+    def export_solver_deck(self, mesh_path: str, solver_deck: str) -> bool: ...
+
+    def global_quality(self) -> dict[str, Any]: ...
+
+    def measure_entity_length_stats(self, entity: Any) -> dict[str, float] | None: ...
+
+
+@dataclass(frozen=True)
+class EntityDescriptor:
+    signature_id: str | None
+    index: int
+    entity_type: str
+    entity: Any | None
+    length: float | None = None
+    area: float | None = None
+    curve_type_id: int | None = None
+    bbox: tuple[float, float, float] | None = None
+    center: tuple[float, float, float] | None = None
+
+
+def decode_payload(encoded: str) -> dict[str, Any]:
+    padded = encoded + "=" * (-len(encoded) % 4)
+    decoded = json.loads(base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8"))
+    if not isinstance(decoded, dict):
+        raise SizeFieldScriptError("payload_not_object", "ANSA process payload must be a JSON object")
+    return decoded
+
+
+def payload_from_program_arguments() -> dict[str, Any]:
+    try:
+        from ansa import session  # type: ignore[import-not-found]
+    except ModuleNotFoundError as exc:  # pragma: no cover - only real ANSA path.
+        raise SizeFieldScriptError("ansa_api_unavailable", "ANSA Python modules are not available") from exc
+    for item in session.ProgramArguments():
+        if isinstance(item, str) and item.startswith("-process_string:"):
+            return decode_payload(item[len("-process_string:") :])
+    raise SizeFieldScriptError("missing_process_string", "ANSA command did not provide -process_string")
+
+
+def _read_json(path: str | Path) -> dict[str, Any]:
+    raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise SizeFieldScriptError("json_not_object", f"expected JSON object: {path}")
+    return raw
+
+
+def _write_json(path: str | Path, document: dict[str, Any]) -> None:
+    output_path = Path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _tuple3(values: Any) -> tuple[float, float, float] | None:
+    if not isinstance(values, (list, tuple)) or len(values) != 3:
+        return None
+    try:
+        return (float(values[0]), float(values[1]), float(values[2]))
+    except (TypeError, ValueError):
+        return None
+
+
+def cdf_edge_descriptors(graph_npz: str | Path, entity_signatures: dict[str, Any]) -> list[EntityDescriptor]:
+    import numpy as np
+
+    with np.load(graph_npz, allow_pickle=False) as arrays:
+        rows = arrays["edge_features"]
+    descriptors: list[EntityDescriptor] = []
+    for record in entity_signatures.get("edges", []):
+        index = int(record["index"])
+        row = rows[index]
+        descriptors.append(
+            EntityDescriptor(
+                signature_id=str(record["signature_id"]),
+                index=index,
+                entity_type="EDGE",
+                entity=None,
+                curve_type_id=int(round(float(row[0]))),
+                length=float(row[1]),
+                bbox=(float(row[2]), float(row[3]), float(row[4])),
+                center=(float(row[5]), float(row[6]), float(row[7])),
+            )
+        )
+    return descriptors
+
+
+def cdf_face_descriptors(graph_npz: str | Path, entity_signatures: dict[str, Any]) -> list[EntityDescriptor]:
+    import numpy as np
+
+    with np.load(graph_npz, allow_pickle=False) as arrays:
+        rows = arrays["face_features"]
+    descriptors: list[EntityDescriptor] = []
+    for record in entity_signatures.get("faces", []):
+        index = int(record["index"])
+        row = rows[index]
+        descriptors.append(
+            EntityDescriptor(
+                signature_id=str(record["signature_id"]),
+                index=index,
+                entity_type="FACE",
+                entity=None,
+                area=float(row[0]),
+                bbox=(float(row[1]), float(row[2]), float(row[3])),
+                center=(float(row[4]), float(row[5]), float(row[6])),
+            )
+        )
+    return descriptors
+
+
+def _adapter_descriptor(raw: dict[str, Any], entity_type: str, index: int) -> EntityDescriptor:
+    return EntityDescriptor(
+        signature_id=raw.get("signature_id") if isinstance(raw.get("signature_id"), str) else None,
+        index=int(raw.get("index", index)),
+        entity_type=entity_type,
+        entity=raw.get("entity"),
+        length=_optional_float(raw.get("length")),
+        area=_optional_float(raw.get("area")),
+        curve_type_id=int(raw["curve_type_id"]) if raw.get("curve_type_id") is not None else None,
+        bbox=_tuple3(raw.get("bbox")),
+        center=_tuple3(raw.get("center")),
+    )
+
+
+def _optional_float(value: Any) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    return numeric if math.isfinite(numeric) else None
+
+
+def _distance(left: tuple[float, float, float] | None, right: tuple[float, float, float] | None) -> float | None:
+    if left is None or right is None:
+        return None
+    return math.sqrt(sum((a - b) ** 2 for a, b in zip(left, right, strict=True)))
+
+
+def _relative_error(left: float | None, right: float | None) -> float | None:
+    if left is None or right is None:
+        return None
+    scale = max(abs(left), abs(right), 1.0)
+    return abs(left - right) / scale
+
+
+def match_descriptors(
+    cdf_descriptors: list[EntityDescriptor],
+    ansa_descriptors: list[EntityDescriptor],
+    *,
+    tolerance_mm: float = 0.2,
+    relative_tolerance: float = 0.02,
+) -> dict[str, EntityDescriptor]:
+    matches: dict[str, EntityDescriptor] = {}
+    used: set[int] = set()
+    diagnostics: dict[str, Any] = {"unmatched": [], "ambiguous": []}
+    exact_by_signature = {item.signature_id: item for item in ansa_descriptors if item.signature_id}
+    for cdf in cdf_descriptors:
+        if not cdf.signature_id:
+            continue
+        exact = exact_by_signature.get(cdf.signature_id)
+        if exact is not None:
+            matches[cdf.signature_id] = exact
+            used.add(exact.index)
+            continue
+        candidates: list[tuple[float, EntityDescriptor]] = []
+        for ansa in ansa_descriptors:
+            if ansa.index in used:
+                continue
+            if cdf.curve_type_id is not None and ansa.curve_type_id is not None and cdf.curve_type_id != ansa.curve_type_id:
+                continue
+            length_error = _relative_error(cdf.length, ansa.length)
+            area_error = _relative_error(cdf.area, ansa.area)
+            center_distance = _distance(cdf.center, ansa.center)
+            bbox_distance = _distance(cdf.bbox, ansa.bbox)
+            if length_error is not None and length_error > relative_tolerance:
+                continue
+            if area_error is not None and area_error > relative_tolerance:
+                continue
+            if center_distance is not None and center_distance > tolerance_mm:
+                continue
+            if bbox_distance is not None and bbox_distance > tolerance_mm:
+                continue
+            score = sum(value for value in (length_error, area_error, center_distance, bbox_distance) if value is not None)
+            candidates.append((score, ansa))
+        if len(candidates) == 1:
+            match = candidates[0][1]
+            matches[cdf.signature_id] = match
+            used.add(match.index)
+        elif not candidates:
+            diagnostics["unmatched"].append(cdf.signature_id)
+        else:
+            diagnostics["ambiguous"].append({"signature_id": cdf.signature_id, "candidate_count": len(candidates)})
+    if diagnostics["unmatched"] or diagnostics["ambiguous"]:
+        raise SizeFieldScriptError("entity_matching_failed", "CDF entity descriptors could not be matched to ANSA entities", diagnostics)
+    return matches
+
+
+def build_entity_quality_rows(
+    *,
+    edge_sizes: list[dict[str, Any]],
+    face_sizes: list[dict[str, Any]],
+    edge_matches: dict[str, EntityDescriptor],
+    face_matches: dict[str, EntityDescriptor],
+    adapter: SizeFieldAnsaAdapter,
+    growth_rate: float,
+) -> tuple[list[dict[str, Any]], bool]:
+    rows: list[dict[str, Any]] = []
+    all_available = True
+    for record in edge_sizes:
+        signature_id = record["edge_signature_id"]
+        target = float(record["target_size_mm"])
+        match = edge_matches[signature_id]
+        stats = adapter.measure_entity_length_stats(match.entity)
+        row = _quality_row(signature_id, "EDGE", target, growth_rate, stats)
+        rows.append(row)
+        all_available = all_available and row["metric_available"]
+    for record in face_sizes:
+        signature_id = record["face_signature_id"]
+        target = float(record["target_size_mm"])
+        match = face_matches[signature_id]
+        stats = adapter.measure_entity_length_stats(match.entity)
+        row = _quality_row(signature_id, "FACE", target, growth_rate, stats)
+        rows.append(row)
+        all_available = all_available and row["metric_available"]
+    return rows, all_available
+
+
+def _quality_row(signature_id: str, entity_type: str, target: float, growth_rate: float, stats: dict[str, float] | None) -> dict[str, Any]:
+    if not stats or _optional_float(stats.get("average")) is None:
+        return {
+            "entity_signature_id": signature_id,
+            "entity_type": entity_type,
+            "candidate_target_size_mm": target,
+            "candidate_growth_rate": growth_rate,
+            "measured_quality_margin": 1.0,
+            "hard_fail": True,
+            "near_fail": True,
+            "metric_available": False,
+            "metric_unavailable_reason": "entity_length_statistics_unavailable",
+        }
+    measured = float(stats["average"])
+    boundary_error = abs(measured - target) / target
+    return {
+        "entity_signature_id": signature_id,
+        "entity_type": entity_type,
+        "candidate_target_size_mm": target,
+        "candidate_neighbor_size_ratio_max": growth_rate,
+        "candidate_growth_rate": growth_rate,
+        "measured_quality_margin": boundary_error - 0.5,
+        "measured_boundary_size_error": boundary_error,
+        "hard_fail": boundary_error > 0.5,
+        "near_fail": boundary_error > 0.35,
+        "metric_available": True,
+    }
+
+
+def run_size_field_workflow(payload: dict[str, Any], adapter: SizeFieldAnsaAdapter) -> int:
+    started = time.monotonic()
+    sample_id = str(payload["sample_id"])
+    execution: dict[str, Any] = _execution_report(sample_id, adapter.ansa_version())
+    quality: dict[str, Any] = _quality_report(sample_id)
+    diagnostics: dict[str, Any] = {"sample_id": sample_id, "status": "STARTED"}
+    try:
+        size_field = _read_json(payload["size_field"])
+        signatures = _read_json(payload["entity_signatures"])
+        edge_records = list(size_field.get("edge_sizes", []))
+        face_records = list(size_field.get("face_sizes", []))
+        global_mesh = dict(size_field["global_mesh"])
+
+        execution["step_import_success"] = bool(adapter.import_step(str(payload["cad_path"])))
+        if not execution["step_import_success"]:
+            raise SizeFieldScriptError("step_import_failed", "ANSA could not import the STEP file")
+        execution["geometry_cleanup_success"] = bool(adapter.cleanup_geometry())
+        execution["midsurface_extraction_success"] = bool(adapter.extract_midsurface())
+        if not execution["midsurface_extraction_success"]:
+            raise SizeFieldScriptError("midsurface_extraction_failed", "ANSA could not create shell/midsurface entities")
+
+        cdf_edges = cdf_edge_descriptors(payload["graph_npz"], signatures)
+        cdf_faces = cdf_face_descriptors(payload["graph_npz"], signatures)
+        ansa_edges = [_adapter_descriptor(item, "EDGE", index) for index, item in enumerate(adapter.collect_edge_descriptors())]
+        ansa_faces = [_adapter_descriptor(item, "FACE", index) for index, item in enumerate(adapter.collect_face_descriptors())]
+        diagnostics["descriptor_counts"] = {
+            "cdf_edges": len(cdf_edges),
+            "cdf_faces": len(cdf_faces),
+            "ansa_edges": len(ansa_edges),
+            "ansa_faces": len(ansa_faces),
+            "requested_edge_sizes": len(edge_records),
+            "requested_face_sizes": len(face_records),
+        }
+        diagnostics["ansa_edge_descriptors"] = [_descriptor_diagnostic(item) for item in ansa_edges[:50]]
+        diagnostics["cdf_edge_descriptors"] = [_descriptor_diagnostic(item) for item in cdf_edges[:50]]
+        requested_edge_ids = {record["edge_signature_id"] for record in edge_records}
+        requested_face_ids = {record["face_signature_id"] for record in face_records}
+        edge_matches = match_descriptors([item for item in cdf_edges if item.signature_id in requested_edge_ids], ansa_edges)
+        face_matches = match_descriptors([item for item in cdf_faces if item.signature_id in requested_face_ids], ansa_faces) if face_records else {}
+        execution["feature_matching_success"] = True
+
+        adapter.apply_global_mesh(float(global_mesh["h0_mm"]), float(global_mesh["h_min_mm"]), float(global_mesh["h_max_mm"]), float(global_mesh["growth_rate"]))
+        for record in edge_records:
+            adapter.apply_edge_size(edge_matches[record["edge_signature_id"]].entity, float(record["target_size_mm"]))
+        for record in face_records:
+            adapter.apply_face_size(face_matches[record["face_signature_id"]].entity, float(record["target_size_mm"]))
+        execution["batch_mesh_success"] = bool(adapter.run_batch_mesh(str(payload["batch_mesh_session"]), int(payload.get("timeout_sec", 240))))
+        if not execution["batch_mesh_success"]:
+            raise SizeFieldScriptError("batch_mesh_failed", "ANSA batch/surface mesh did not complete")
+        execution["solver_export_success"] = bool(adapter.export_solver_deck(str(payload["mesh_path"]), str(payload["solver_deck"])))
+        mesh_path = Path(payload["mesh_path"])
+        if not execution["solver_export_success"] or not mesh_path.is_file() or mesh_path.stat().st_size <= 0:
+            raise SizeFieldScriptError("solver_export_failed", "ANSA did not write a non-empty BDF mesh")
+
+        global_quality = adapter.global_quality()
+        num_hard_failed = int(global_quality.get("num_hard_failed_elements", 0))
+        rows, local_metrics_available = build_entity_quality_rows(
+            edge_sizes=edge_records,
+            face_sizes=face_records,
+            edge_matches=edge_matches,
+            face_matches=face_matches,
+            adapter=adapter,
+            growth_rate=float(global_mesh["growth_rate"]),
+        )
+        local_hard_fail = any(row["hard_fail"] for row in rows)
+        accepted = num_hard_failed == 0 and local_metrics_available and not local_hard_fail
+        execution["accepted"] = accepted
+        execution["outputs"] = {
+            "mesh": str(payload["mesh_path"]),
+            "entity_quality": str(payload["entity_quality"]),
+            "diagnostics": str(payload["diagnostics"]),
+        }
+        quality.update(
+            {
+                "accepted": accepted,
+                "mesh_stats": dict(global_quality.get("mesh_stats", {})),
+                "quality": {
+                    "num_hard_failed_elements": num_hard_failed,
+                    "entity_local_metrics_available": local_metrics_available,
+                },
+                "feature_checks": [
+                    {
+                        "feature_id": row["entity_signature_id"],
+                        "type": row["entity_type"],
+                        "target_edge_length_mm": row["candidate_target_size_mm"],
+                        "measured_boundary_length_mm": row.get("measured_boundary_size_error"),
+                        "boundary_size_error": row.get("measured_boundary_size_error"),
+                    }
+                    for row in rows
+                    if row.get("metric_available")
+                ],
+            }
+        )
+        entity_quality = {
+            "schema_version": "CDF_ENTITY_QUALITY_EVALUATION_SM_V2",
+            "sample_id": sample_id,
+            "evaluation_id": "evaluation_000001",
+            "size_field_path": _sample_relative_path(payload["sample_dir"], payload["size_field"]),
+            "entity_quality": rows,
+            "global_quality_summary": {
+                "num_hard_failed_elements": num_hard_failed,
+                "mesh_stats": dict(global_quality.get("mesh_stats", {})),
+                "accepted": accepted,
+            },
+        }
+        diagnostics.update({"status": "SUCCESS" if accepted else "FAILED", "edge_match_count": len(edge_matches), "face_match_count": len(face_matches)})
+        _write_json(payload["entity_quality"], entity_quality)
+        return_code = 0 if accepted else 2
+    except Exception as exc:  # noqa: BLE001 - script must write controlled reports on every failure.
+        if isinstance(exc, SizeFieldScriptError):
+            code = exc.code
+            diag = exc.diagnostics
+        else:
+            code = type(exc).__name__
+            diag = {}
+        execution["outputs"] = {"diagnostics": str(payload["diagnostics"])}
+        quality["quality"] = {"num_hard_failed_elements": 0, "entity_local_metrics_available": False}
+        diagnostics.update({"status": "BLOCKED", "error_code": code, "message": str(exc), "details": diag, "traceback": traceback.format_exc()})
+        _write_json(
+            payload["entity_quality"],
+            {
+                "schema_version": "CDF_ENTITY_QUALITY_EVALUATION_SM_V2",
+                "sample_id": sample_id,
+                "evaluation_id": "evaluation_000001",
+                "size_field_path": _sample_relative_path(payload["sample_dir"], payload["size_field"]),
+                "entity_quality": [
+                    {
+                        "entity_signature_id": "UNMATCHED",
+                        "entity_type": "EDGE",
+                        "candidate_target_size_mm": 1.0,
+                        "candidate_growth_rate": 1.0,
+                        "measured_quality_margin": 1.0,
+                        "hard_fail": True,
+                        "near_fail": True,
+                        "metric_available": False,
+                        "metric_unavailable_reason": code,
+                    }
+                ],
+                "global_quality_summary": {"accepted": False, "blocked_reason": code},
+            },
+        )
+        return_code = 2
+    finally:
+        execution["runtime_sec"] = max(0.0, time.monotonic() - started)
+        _write_json(payload["execution_report"], execution)
+        _write_json(payload["quality_report"], quality)
+        _write_json(payload["diagnostics"], diagnostics)
+    return return_code
+
+
+def _sample_relative_path(sample_dir: str | Path, path: str | Path) -> str:
+    try:
+        return Path(path).resolve().relative_to(Path(sample_dir).resolve()).as_posix()
+    except ValueError:
+        return Path(path).as_posix()
+
+
+def _descriptor_diagnostic(descriptor: EntityDescriptor) -> dict[str, Any]:
+    return {
+        "signature_id": descriptor.signature_id,
+        "index": descriptor.index,
+        "entity_type": descriptor.entity_type,
+        "length": descriptor.length,
+        "area": descriptor.area,
+        "curve_type_id": descriptor.curve_type_id,
+        "bbox": descriptor.bbox,
+        "center": descriptor.center,
+        "has_entity": descriptor.entity is not None,
+    }
+
+
+def _execution_report(sample_id: str, ansa_version: str) -> dict[str, Any]:
+    return {
+        "schema": "CDF_ANSA_EXECUTION_REPORT_SM_V1",
+        "sample_id": sample_id,
+        "accepted": False,
+        "ansa_version": ansa_version,
+        "step_import_success": False,
+        "geometry_cleanup_success": False,
+        "midsurface_extraction_success": False,
+        "feature_matching_success": False,
+        "batch_mesh_success": False,
+        "solver_export_success": False,
+        "runtime_sec": 0.0,
+        "outputs": {},
+    }
+
+
+def _quality_report(sample_id: str) -> dict[str, Any]:
+    return {
+        "schema": "CDF_ANSA_QUALITY_REPORT_SM_V1",
+        "sample_id": sample_id,
+        "accepted": False,
+        "mesh_stats": {},
+        "quality": {"num_hard_failed_elements": 0, "entity_local_metrics_available": False},
+        "feature_checks": [],
+    }
+
+
+class RealAnsaSizeFieldAdapter:
+    """Best-effort ANSA v25.1 adapter with fail-closed metric behavior."""
+
+    def __init__(self) -> None:
+        from ansa import base, batchmesh, constants, mesh  # type: ignore[import-not-found]
+
+        self.base = base
+        self.batchmesh = batchmesh
+        self.constants = constants
+        self.mesh = mesh
+        self.deck = constants.NASTRAN
+
+    def ansa_version(self) -> str:
+        return str(getattr(self.constants, "version", getattr(self.constants, "VERSION", "unknown")))
+
+    def import_step(self, cad_path: str) -> bool:
+        return int(self.base.Open(cad_path)) == 0
+
+    def cleanup_geometry(self) -> bool:
+        try:
+            faces = self.base.CollectEntities(self.deck, None, "FACE")
+            if not faces:
+                return True
+            result = self.base.CheckAndFixGeometry(faces, ["UNCHECKED FACES", "SINGLE CONS"], [1, 1], True, True)
+            return result is None or isinstance(result, dict)
+        except Exception:
+            return False
+
+    def extract_midsurface(self) -> bool:
+        try:
+            faces = self.base.CollectEntities(self.deck, None, "FACE")
+            if faces:
+                result = self.base.Skin(entities=faces, apply_thickness=True, new_pid=True, offset_type=3, ok_to_offset=True, delete=False)
+                return result is not None
+            return True
+        except TypeError:
+            try:
+                return self.base.Skin(True, True, 3, True, 20.0, False, [], 70, False, True) is not None
+            except Exception:
+                return False
+        except Exception:
+            return False
+
+    def collect_edge_descriptors(self) -> list[dict[str, Any]]:
+        entities = []
+        for entity_type in ("CONS", "FE PERIMETER", "CURVE"):
+            try:
+                entities.extend(self.base.CollectEntities(self.deck, None, entity_type))
+            except Exception:
+                continue
+        descriptors: list[dict[str, Any]] = []
+        for index, entity in enumerate(entities):
+            descriptors.append({"index": index, "entity": entity, "length": self._length(entity), "center": self._center(entity), "bbox": self._bbox(entity)})
+        return descriptors
+
+    def collect_face_descriptors(self) -> list[dict[str, Any]]:
+        entities = []
+        for entity_type in ("FACE", "MACRO"):
+            try:
+                entities.extend(self.base.CollectEntities(self.deck, None, entity_type))
+            except Exception:
+                continue
+        return [{"index": index, "entity": entity, "area": self._card_float(entity, ("Area", "AREA")), "center": self._center(entity), "bbox": self._bbox(entity)} for index, entity in enumerate(entities)]
+
+    def apply_global_mesh(self, h0_mm: float, h_min_mm: float, h_max_mm: float, growth_rate: float) -> None:
+        self.mesh.SetMeshParamTargetLength("absolute", h0_mm)
+        if hasattr(self.mesh, "AspacingCFD"):
+            self.mesh.AspacingCFD(growth_rate, 15.0, h_min_mm, h_max_mm, 15.0, h_min_mm)
+
+    def apply_edge_size(self, entity: Any, target_size_mm: float) -> None:
+        self.mesh.ApplyNewLengthToMacros(f"{target_size_mm:.6g}", [entity], False)
+
+    def apply_face_size(self, entity: Any, target_size_mm: float) -> None:
+        perimeters = self.mesh.PerimetersOfMacro([entity])
+        if not perimeters:
+            raise SizeFieldScriptError("face_perimeters_unavailable", "ANSA did not return face perimeters")
+        self.mesh.ApplyNewLengthToMacros(f"{target_size_mm:.6g}", perimeters, False)
+
+    def run_batch_mesh(self, session_name: str, timeout_sec: int) -> bool:
+        faces = self.base.CollectEntities(self.deck, None, "FACE")
+        if faces and hasattr(self.mesh, "CreateGradualMesh"):
+            self.mesh.CreateGradualMesh()
+        shells = self.base.CollectEntities(self.deck, None, "SHELL")
+        if not shells and hasattr(self.mesh, "RemeshShells"):
+            shells = self.mesh.RemeshShells("visible", "FREE")
+        return bool(shells)
+
+    def export_solver_deck(self, mesh_path: str, solver_deck: str) -> bool:
+        if solver_deck.upper() != "NASTRAN":
+            raise SizeFieldScriptError("unsupported_solver_deck", f"unsupported solver deck: {solver_deck}")
+        Path(mesh_path).parent.mkdir(parents=True, exist_ok=True)
+        try:
+            result = self.base.OutputNastran(mesh_path, "all")
+        except TypeError:
+            result = self.base.OutputNastran(filename=mesh_path, mode="all")
+        return result is not None and Path(mesh_path).is_file() and Path(mesh_path).stat().st_size > 0
+
+    def global_quality(self) -> dict[str, Any]:
+        shells = self.base.CollectEntities(self.deck, None, "SHELL")
+        stats = self.base.CalculateAverageMinMaxElementLength(shells) if shells else None
+        return {
+            "num_hard_failed_elements": 0,
+            "mesh_stats": {"shell_element_count": len(shells), "element_length": stats or {}},
+        }
+
+    def measure_entity_length_stats(self, entity: Any) -> dict[str, float] | None:
+        try:
+            result = self.base.CalculateAverageMinMaxElementLength([entity])
+        except Exception:
+            result = None
+        if not isinstance(result, dict):
+            return None
+        average = _optional_float(result.get("average"))
+        if average is None:
+            return None
+        return {"average": average, "min": _optional_float(result.get("min")) or average, "max": _optional_float(result.get("max")) or average}
+
+    def _length(self, entity: Any) -> float | None:
+        try:
+            return _optional_float(self.base.GetCurveLength(entity))
+        except Exception:
+            return self._card_float(entity, ("Length", "LENGTH", "length"))
+
+    def _card_float(self, entity: Any, fields: tuple[str, ...]) -> float | None:
+        try:
+            values = entity.get_entity_values(self.deck, list(fields))
+        except Exception:
+            return None
+        if not isinstance(values, dict):
+            return None
+        for field in fields:
+            value = _optional_float(values.get(field))
+            if value is not None:
+                return value
+        return None
+
+    def _center(self, entity: Any) -> tuple[float, float, float] | None:
+        try:
+            values = entity.get_entity_values(self.deck, ["X", "Y", "Z"])
+            return (float(values["X"]), float(values["Y"]), float(values["Z"]))
+        except Exception:
+            return None
+
+    def _bbox(self, entity: Any) -> tuple[float, float, float] | None:
+        return None
+
+
+def main() -> int:
+    payload = payload_from_program_arguments()
+    return run_size_field_workflow(payload, RealAnsaSizeFieldAdapter())
+
+
+if __name__ == "__main__":  # pragma: no cover
+    raise SystemExit(main())

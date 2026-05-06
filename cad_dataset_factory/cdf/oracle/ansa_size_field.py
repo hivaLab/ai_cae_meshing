@@ -40,6 +40,7 @@ class AnsaSizeFieldEvaluationRequest:
     mesh_path: Path | None = None
     diagnostics_path: Path | None = None
     script_path: Path | None = None
+    evaluation_id: str = "evaluation_000001"
     timeout_sec: int = 240
     batch_mesh_session: str = "AMG_SHELL_SIZE_FIELD_V2"
     quality_profile: str = "AMG_QA_SHELL_V2"
@@ -154,6 +155,7 @@ def build_size_field_payload(request: AnsaSizeFieldEvaluationRequest) -> dict[st
         paths[key].parent.mkdir(parents=True, exist_ok=True)
     return {
         "sample_id": sample_id,
+        "evaluation_id": request.evaluation_id,
         "sample_dir": _as_posix(paths["sample_dir"]),
         "cad_path": _as_posix(paths["cad_path"]),
         "graph_npz": _as_posix(paths["graph_npz"]),

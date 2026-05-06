@@ -6,7 +6,7 @@ import argparse
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from statistics import mean
+from statistics import mean, pstdev
 from typing import Any, Sequence
 
 
@@ -38,11 +38,19 @@ def _optional_json(path: Path) -> dict[str, Any] | None:
     return _read_json(path) if path.is_file() else None
 
 
-def _size_stats(edge_sizes: list[dict[str, Any]]) -> dict[str, Any]:
+def _size_stats(edge_sizes: list[dict[str, Any]], *, h_min_mm: float | None = None) -> dict[str, Any]:
     values = [float(item["target_size_mm"]) for item in edge_sizes]
     if not values:
         raise AiSizeFieldGateError("empty_size_field", "predicted size field has no edge sizes")
-    return {"min": min(values), "mean": mean(values), "max": max(values), "count": len(values)}
+    h_min = min(values) if h_min_mm is None else float(h_min_mm)
+    return {
+        "min": min(values),
+        "mean": mean(values),
+        "max": max(values),
+        "std": pstdev(values) if len(values) > 1 else 0.0,
+        "count": len(values),
+        "h_min_edge_fraction": sum(1 for value in values if abs(value - h_min) <= max(1.0e-9, h_min * 1.0e-6)) / len(values),
+    }
 
 
 def _quality_stats(entity_quality: dict[str, Any]) -> dict[str, Any]:
@@ -70,6 +78,15 @@ def _split_count(dataset_root: Path, split: str) -> int:
     return len([line for line in split_path.read_text(encoding="utf-8").splitlines() if line.strip()])
 
 
+def _sample_part_class(sample_dir: Path) -> str | None:
+    path = sample_dir / "metadata" / "part_class_label.json"
+    if not path.is_file():
+        return None
+    document = _read_json(path)
+    part_class = document.get("part_class")
+    return str(part_class) if isinstance(part_class, str) else None
+
+
 def build_ai_size_field_gate_report(
     *,
     dataset_root: str | Path,
@@ -91,9 +108,11 @@ def build_ai_size_field_gate_report(
     entity_quality = _read_json(eval_dir / "quality_evaluations" / "evaluation_000001" / "entity_quality_labels.json")
     mesh_path = eval_dir / "meshes" / "ansa_size_field_mesh.bdf"
     local = _quality_stats(entity_quality)
+    global_mesh = size_field.get("global_mesh", {}) if isinstance(size_field.get("global_mesh"), dict) else {}
+    edge_stats = _size_stats(list(size_field.get("edge_sizes", [])), h_min_mm=global_mesh.get("h_min_mm"))
     mesh_ok = mesh_path.is_file() and mesh_path.stat().st_size > 0
     hard_failed_elements = quality.get("quality", {}).get("num_hard_failed_elements") if isinstance(quality.get("quality"), dict) else None
-    success = (
+    mesh_success = (
         execution.get("accepted") is True
         and quality.get("accepted") is True
         and hard_failed_elements == 0
@@ -101,13 +120,30 @@ def build_ai_size_field_gate_report(
         and local["metric_unavailable_count"] == 0
         and local["hard_fail_count"] == 0
     )
+    all_h_min = edge_stats["h_min_edge_fraction"] >= 1.0
+    success = mesh_success and not all_h_min
+    if success:
+        status = "SUCCESS"
+        failure_reason = None
+    elif mesh_success and all_h_min:
+        status = "FAILED_LEARNING_SIGNAL"
+        failure_reason = "all_controlled_edges_at_h_min"
+    else:
+        status = "FAILED"
+        failure_reason = "real_ai_size_field_gate_failed"
+    quality_metrics = quality.get("quality", {}) if isinstance(quality.get("quality"), dict) else {}
+    mesh_stats = quality.get("mesh_stats", {}) if isinstance(quality.get("mesh_stats"), dict) else {}
     return {
         "schema": "AMG_AI_SIZE_FIELD_GATE_REPORT_V1",
-        "status": "SUCCESS" if success else "FAILED",
+        "status": status,
+        "attempted_count": 1,
+        "valid_mesh_count": 1 if mesh_success else 0,
         "dataset_root": dataset.as_posix(),
         "train_split": train_split,
         "train_split_sample_count": _split_count(dataset, train_split),
         "held_out_sample_id": sample.name,
+        "held_out_part_class": _sample_part_class(sample),
+        "held_out_family_group": "flat" if _sample_part_class(sample) == "SM_FLAT_PANEL" else "bent",
         "model_paths": {
             "part_classifier": Path(part_classifier_path).as_posix(),
             "segmentation": Path(segmentation_checkpoint_path).as_posix(),
@@ -119,7 +155,11 @@ def build_ai_size_field_gate_report(
             "face": context.get("face_segmentation_histogram"),
             "edge": context.get("edge_segmentation_histogram"),
         },
-        "edge_target_size_stats": _size_stats(list(size_field.get("edge_sizes", []))),
+        "edge_target_size_stats": edge_stats,
+        "over_refinement": {
+            "all_controlled_edges_at_h_min": all_h_min,
+            "h_min_edge_fraction": edge_stats["h_min_edge_fraction"],
+        },
         "ansa_reports": {
             "execution_report": (eval_dir / "reports" / "ansa_execution_report.json").as_posix(),
             "quality_report": (eval_dir / "reports" / "ansa_quality_report.json").as_posix(),
@@ -127,8 +167,10 @@ def build_ai_size_field_gate_report(
             "mesh": mesh_path.as_posix(),
         },
         "entity_local_quality": local,
+        "shell_element_count": mesh_stats.get("shell_element_count"),
+        "num_hard_failed_elements": quality_metrics.get("num_hard_failed_elements"),
         "mesh_bytes": mesh_path.stat().st_size if mesh_ok else 0,
-        "failure_reason": None if success else "real_ai_size_field_gate_failed",
+        "failure_reason": failure_reason,
     }
 
 

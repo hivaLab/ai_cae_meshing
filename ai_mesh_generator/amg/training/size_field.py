@@ -45,22 +45,30 @@ def train_size_field_model(
     epochs: int = 10,
     seed: int = 1,
     hidden_dim: int = 64,
+    prefer_quality_evidence: bool = False,
 ) -> dict:
     if epochs <= 0:
         raise SizeFieldTrainingError("invalid_epochs", "epochs must be positive")
     torch.manual_seed(seed)
-    samples = load_entity_samples(dataset_root, split=split)
+    samples = load_entity_samples(dataset_root, split=split, require_quality=False)
     first_tensors = build_size_field_graph_tensors(samples[0])
     model = BrepSizeFieldModel(first_tensors.face_inputs.shape[1], first_tensors.edge_inputs.shape[1], hidden_dim=hidden_dim)
     optimizer = torch.optim.Adam(model.parameters(), lr=1.0e-3)
     last_loss = None
     target_rows = 0
+    skipped_samples: set[str] = set()
     for _epoch in range(epochs):
         total = torch.tensor(0.0)
         count = 0
         for sample in samples:
             tensors = build_size_field_graph_tensors(sample)
-            targets = build_size_field_targets(sample)
+            try:
+                targets = build_size_field_targets(sample, prefer_quality_evidence=prefer_quality_evidence)
+            except SizeFieldModelError as exc:
+                if prefer_quality_evidence and exc.code in {"missing_quality_evidence", "missing_quality_edge_targets", "missing_edge_size_targets"}:
+                    skipped_samples.add(sample.sample_id)
+                    continue
+                raise
             output = model(tensors)
             loss = _loss(output, targets)
             optimizer.zero_grad()
@@ -69,6 +77,8 @@ def train_size_field_model(
             total = total + loss.detach()
             count += 1
             target_rows += int(torch.sum(targets.edge_mask).item() + torch.sum(targets.face_mask).item())
+        if count == 0:
+            raise SizeFieldTrainingError("missing_usable_quality_targets", "no samples with usable quality size targets were available")
         last_loss = float((total / max(count, 1)).item())
         if not torch.isfinite(torch.tensor(last_loss)):
             raise SizeFieldTrainingError("non_finite_loss", "training produced a non-finite loss")
@@ -86,11 +96,15 @@ def train_size_field_model(
         "status": "SUCCESS",
         "split": split,
         "sample_count": len(samples),
+        "trained_sample_count": len(samples) - len(skipped_samples),
+        "skipped_sample_count": len(skipped_samples),
+        "skipped_samples": sorted(skipped_samples),
         "target_row_count": target_rows,
         "epochs": epochs,
         "final_loss": last_loss,
         "checkpoint": (out / "model.pt").as_posix(),
         "model": "BrepSizeFieldModel",
+        "prefer_quality_evidence": prefer_quality_evidence,
     }
     write_json(out / "metrics.json", metrics)
     return metrics
@@ -104,9 +118,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--hidden-dim", type=int, default=64)
+    parser.add_argument("--prefer-quality-evidence", action="store_true")
     args = parser.parse_args(argv)
     try:
-        metrics = train_size_field_model(args.dataset, args.out, split=args.split, epochs=args.epochs, seed=args.seed, hidden_dim=args.hidden_dim)
+        metrics = train_size_field_model(
+            args.dataset,
+            args.out,
+            split=args.split,
+            epochs=args.epochs,
+            seed=args.seed,
+            hidden_dim=args.hidden_dim,
+            prefer_quality_evidence=args.prefer_quality_evidence,
+        )
     except (SizeFieldTrainingError, SizeFieldModelError, ValueError) as exc:
         print({"status": "FAILED", "message": str(exc)})
         return 1

@@ -535,6 +535,7 @@ def _quality_row(signature_id: str, entity_type: str, target: float, growth_rate
 def run_size_field_workflow(payload: dict[str, Any], adapter: SizeFieldAnsaAdapter) -> int:
     started = time.monotonic()
     sample_id = str(payload["sample_id"])
+    evaluation_id = str(payload.get("evaluation_id") or "evaluation_000001")
     execution: dict[str, Any] = _execution_report(sample_id, adapter.ansa_version())
     quality: dict[str, Any] = _quality_report(sample_id)
     diagnostics: dict[str, Any] = {"sample_id": sample_id, "status": "STARTED"}
@@ -630,7 +631,7 @@ def run_size_field_workflow(payload: dict[str, Any], adapter: SizeFieldAnsaAdapt
         entity_quality = {
             "schema_version": "CDF_ENTITY_QUALITY_EVALUATION_SM_V2",
             "sample_id": sample_id,
-            "evaluation_id": "evaluation_000001",
+            "evaluation_id": evaluation_id,
             "size_field_path": _sample_relative_path(payload["sample_dir"], payload["size_field"]),
             "entity_quality": rows,
             "global_quality_summary": {
@@ -657,7 +658,7 @@ def run_size_field_workflow(payload: dict[str, Any], adapter: SizeFieldAnsaAdapt
             {
                 "schema_version": "CDF_ENTITY_QUALITY_EVALUATION_SM_V2",
                 "sample_id": sample_id,
-                "evaluation_id": "evaluation_000001",
+                "evaluation_id": evaluation_id,
                 "size_field_path": _sample_relative_path(payload["sample_dir"], payload["size_field"]),
                 "entity_quality": [
                     {

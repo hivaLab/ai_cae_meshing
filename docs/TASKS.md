@@ -126,8 +126,57 @@ general meshing quality.
 
 ### T-812_DIVERSE_ENTITY_DATASET_AND_MODEL_VALIDATION
 
-Status: `TODO`
+Status: `DONE`
 
 After T-811 works on a smoke sample, expand to a compact diverse dataset with part
 families, holes, slots, cutouts, bends, flanges, pass cases, near-fail cases, and fail
 cases.
+
+Real result:
+
+```text
+dataset: runs/t812_diverse_entity_validation/dataset
+profile: sm_entity_v2_diverse_quality
+sample count: 32
+train/test split: 24/8, case-stratified
+size sweep: 32 attempted, 17 completed, 3 mesh-quality failed, 12 blocked
+blocked reason: entity_matching_failed on flat_slot cases
+quality rows: 260 total, 248 metric_available
+hard_fail rows: 18
+near_fail rows: 18
+pytest: 69 passed
+```
+
+Held-out AI gate evidence:
+
+```text
+flat sample: sample_000025
+status: SUCCESS
+edge sizes: count=10, min/mean/max/std=0.5/0.5899280985082083/0.625/0.04901566409509156
+h_min fraction: 0.2
+entity metrics: 10/10 available, hard_fail=0
+max boundary size error: 0.004648606178533798
+BDF bytes: 9528865
+
+bent sample: sample_000032
+status: SUCCESS
+part class: SM_HAT_CHANNEL
+edge sizes: count=24, min/mean/max/std=0.5/0.5449059218846366/0.625/0.05722437956992055
+h_min fraction: 0.5
+entity metrics: 24/24 available, hard_fail=0
+max boundary size error: 0.008064516129032473
+BDF bytes: 20326149
+```
+
+Important caveat:
+
+T-812 proves non-h_min AI size fields can pass real ANSA on one flat and one bent held-out
+sample. It does not yet prove broad generalization because only 5 train samples had usable
+quality evidence and flat slot entity matching still blocks sweep coverage.
+
+### T-813_ENTITY_MATCHING_AND_QUALITY_EVIDENCE_COVERAGE
+
+Status: `TODO`
+
+Harden entity matching and sweep coverage so quality-aware size-field training uses all
+profile cases, especially flat slot and duplicate-like boundary entities.

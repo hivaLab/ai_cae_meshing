@@ -2,7 +2,7 @@
 
 ## Current Direction
 
-The primary path is fixed:
+Primary path:
 
 ```text
 clean STEP CAD
@@ -27,6 +27,7 @@ Completed:
 - `T-810_ENTITY_LOCAL_BDF_METRIC_EXTRACTION`
 - `T-806_ANSA_SIZE_FIELD_CONTROL_GATE`
 - `T-811_REAL_AI_SIZE_FIELD_GATE`
+- `T-812_DIVERSE_ENTITY_DATASET_AND_MODEL_VALIDATION`
 
 Latest regression:
 
@@ -35,72 +36,78 @@ python -m pytest
 ```
 
 ```text
-66 passed
+69 passed
 ```
 
-T-811 real AI gate evidence:
+T-812 real evidence:
 
 ```text
-dataset: runs\t811_ai_size_field_gate\dataset
-held-out sample: sample_000016
-train split samples: 15
-part prediction: SM_HAT_CHANNEL, confidence 0.48
-AI size field: runs\t811_ai_size_field_gate\inference\sample_000016\amg_size_field_ai.json
-AI context: runs\t811_ai_size_field_gate\inference\sample_000016\ai_size_field_context.json
-ANSA eval: runs\t811_ai_size_field_gate\ansa_eval\sample_000016
-gate report: runs\t811_ai_size_field_gate\ai_size_field_gate_report.json
+dataset: runs\t812_diverse_entity_validation\dataset
+profile: sm_entity_v2_diverse_quality
+sample count: 32
+train/test split: 24/8
+size sweep: 32 attempted, 17 completed, 3 failed, 12 blocked
+hard_fail rows: 18
+near_fail rows: 18
+quality rows: 260 total, 248 metric_available
+```
+
+Held-out AI gates:
+
+```text
+flat sample: sample_000025, SM_FLAT_PANEL
 status: SUCCESS
-BDF bytes: 34354036
-edge match count: 24
-entity rows: 24
-metric_available rows: 24
-hard_fail rows: 0
-max boundary size error: 0.0005120789403909587
+edge size stats: count=10, min/mean/max/std=0.5/0.5899280985082083/0.625/0.04901566409509156
+h_min edge fraction: 0.2
+max boundary size error: 0.004648606178533798
+BDF bytes: 9528865
+
+bent sample: sample_000032, SM_HAT_CHANNEL
+status: SUCCESS
+edge size stats: count=24, min/mean/max/std=0.5/0.5449059218846366/0.625/0.05722437956992055
+h_min edge fraction: 0.5
+max boundary size error: 0.008064516129032473
+BDF bytes: 20326149
 ```
 
 Important caveat:
 
-The first AI gate succeeded by predicting the lower bound `0.5 mm` for every controlled
-edge. That proves the AI-to-ANSA path is real, but it is over-refined and not yet an
-efficient high-quality meshing strategy.
+T-812 proves non-h_min AI size fields can pass real ANSA on one flat and one bent
+held-out sample. It does not prove broad generalization. Quality-aware size-field
+training used only 5 samples with usable evidence because flat slot cases blocked during
+entity matching.
 
 ## Next Task
 
 Implement:
 
 ```text
-T-812_DIVERSE_ENTITY_DATASET_AND_MODEL_VALIDATION
+T-813_ENTITY_MATCHING_AND_QUALITY_EVIDENCE_COVERAGE
 ```
 
 ## Required Work
 
-1. Generate a compact but more informative dataset with varied part families and feature
-   cases.
-2. Add size-field label variation and real ANSA evaluations that include:
-   - pass
-   - near-fail
-   - fail
-   - over-refined but valid cases
-3. Train the direct size-field model on this evidence.
-4. Run AI inference on held-out samples.
-5. Require real ANSA validation for every counted success.
-6. Report not only `VALID_MESH`, but also efficiency:
-   - BDF size
-   - shell element count
-   - mean/max boundary size error
-   - target size distribution
-   - over-refinement rate
+1. Diagnose `entity_matching_failed` for flat slot sweep samples:
+   - `sample_000002`
+   - `sample_000010`
+   - `sample_000018`
+2. Compare CDF and ANSA descriptors for failed slot cases and identify whether ambiguity
+   comes from duplicate arcs, line endpoints, loop role, or descriptor tolerance.
+3. Harden descriptor matching without weakening fail-closed behavior.
+4. Re-run `local_quality_v1` sweep on the previously blocked flat slot samples.
+5. Re-train size-field with `--prefer-quality-evidence`.
+6. Confirm trained sample count increases and held-out AI gates still pass with nonzero
+   target-size variance.
 
 ## Acceptance Direction
 
-T-812 should not be marked done merely because meshes pass. It must show that the model
-learns nontrivial size distributions instead of always choosing `h_min`.
+T-813 should be `DONE` only if:
 
-Minimum success evidence:
+- flat slot sweep no longer blocks with `entity_matching_failed`;
+- quality-aware training uses substantially more than 5 samples;
+- no ambiguous entity match is silently accepted;
+- real ANSA reports, BDFs, and entity-local metrics remain required for counted success;
+- graph arrays still contain no target, quality, label, or action leakage.
 
-- at least one held-out flat sample and one bent-family sample
-- all counted samples use AI-predicted size fields
-- real execution/quality/entity-local reports are accepted
-- no mock, placeholder, baseline, label substitution, or fabricated metric
-- predicted edge target sizes have nonzero variance
-- accepted meshes are not all generated at `h_min`
+If matching remains ambiguous, keep T-813 `IN_PROGRESS` or `BLOCKED` and record the exact
+CDF/ANSA descriptor mismatch rather than widening tolerance until it passes.

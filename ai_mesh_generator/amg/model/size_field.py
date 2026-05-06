@@ -127,7 +127,67 @@ def build_size_field_graph_tensors(
     )
 
 
-def build_size_field_targets(sample: Any) -> SizeFieldTargets:
+def _global_mesh_policy(sample: Any) -> dict[str, Any]:
+    mesh = sample.labels.mesh_size_field.get("global_mesh", {}) if hasattr(sample, "labels") else {}
+    if not isinstance(mesh, dict):
+        raise SizeFieldModelError("missing_global_mesh_policy", "mesh size labels require a global mesh policy")
+    return mesh
+
+
+def _quality_candidate_score(row: dict[str, Any], global_mesh: dict[str, Any], global_summary: dict[str, Any]) -> float:
+    h_min = float(global_mesh.get("h_min_mm", 0.5))
+    h0 = float(global_mesh.get("h0_mm", 3.0))
+    target = float(row["candidate_target_size_mm"])
+    score = 0.0
+    if not row.get("metric_available"):
+        score += 1_000.0
+    if row.get("hard_fail"):
+        score += 100.0
+    elif row.get("near_fail"):
+        score += 10.0
+    boundary_error = row.get("measured_boundary_size_error")
+    score += 2.0 if boundary_error is None else float(boundary_error)
+    if h0 > h_min and target < h0:
+        score += 0.35 * ((h0 - target) / (h0 - h_min))
+    if target <= h_min * 1.001:
+        score += 0.50
+    mesh_stats = global_summary.get("mesh_stats", {}) if isinstance(global_summary, dict) else {}
+    shell_count = mesh_stats.get("shell_element_count") if isinstance(mesh_stats, dict) else None
+    if isinstance(shell_count, (int, float)) and shell_count > 0:
+        score += min(0.25, float(shell_count) / 1_000_000.0)
+    return score
+
+
+def _quality_preferred_targets(sample: Any) -> tuple[dict[str, float], dict[str, float]]:
+    if not hasattr(sample, "labels") or not sample.labels.quality_evaluations:
+        raise SizeFieldModelError("missing_quality_evidence", "quality-aware size-field training requires entity quality evaluations")
+    global_mesh = _global_mesh_policy(sample)
+    edge_candidates: dict[str, tuple[float, float]] = {}
+    face_candidates: dict[str, tuple[float, float]] = {}
+    for document in sample.labels.quality_evaluations:
+        summary = document.get("global_quality_summary", {})
+        for row in document.get("entity_quality", []):
+            if not isinstance(row, dict):
+                continue
+            if not row.get("metric_available"):
+                continue
+            signature_id = str(row.get("entity_signature_id", ""))
+            if not signature_id or "candidate_target_size_mm" not in row:
+                continue
+            score = _quality_candidate_score(row, global_mesh, summary if isinstance(summary, dict) else {})
+            target = float(row["candidate_target_size_mm"])
+            candidates = edge_candidates if row.get("entity_type") == "EDGE" else face_candidates if row.get("entity_type") == "FACE" else None
+            if candidates is None:
+                continue
+            if signature_id not in candidates or score < candidates[signature_id][0]:
+                candidates[signature_id] = (score, target)
+    return (
+        {signature_id: target for signature_id, (_score, target) in edge_candidates.items()},
+        {signature_id: target for signature_id, (_score, target) in face_candidates.items()},
+    )
+
+
+def build_size_field_targets(sample: Any, *, prefer_quality_evidence: bool = False) -> SizeFieldTargets:
     graph = sample.graph
     edge_count = graph.arrays["edge_features"].shape[0]
     face_count = graph.arrays["face_features"].shape[0]
@@ -137,12 +197,21 @@ def build_size_field_targets(sample: Any) -> SizeFieldTargets:
     face_mask = torch.zeros((face_count,), dtype=torch.bool)
     edge_by_sig = {record["signature_id"]: int(record["index"]) for record in graph.entity_signatures["edges"]}
     face_by_sig = {record["signature_id"]: int(record["index"]) for record in graph.entity_signatures["faces"]}
-    for item in sample.labels.mesh_size_field["edge_sizes"]:
+    if prefer_quality_evidence:
+        edge_targets, face_targets = _quality_preferred_targets(sample)
+        if not edge_targets:
+            raise SizeFieldModelError("missing_quality_edge_targets", "quality evidence contains no edge size targets")
+        edge_items = [{"edge_signature_id": signature_id, "target_size_mm": target} for signature_id, target in edge_targets.items()]
+        face_items = [{"face_signature_id": signature_id, "target_size_mm": target} for signature_id, target in face_targets.items()]
+    else:
+        edge_items = sample.labels.mesh_size_field["edge_sizes"]
+        face_items = sample.labels.mesh_size_field.get("face_sizes", [])
+    for item in edge_items:
         index = edge_by_sig.get(item["edge_signature_id"])
         if index is not None:
             edge_values[index] = math.log(float(item["target_size_mm"]))
             edge_mask[index] = True
-    for item in sample.labels.mesh_size_field.get("face_sizes", []):
+    for item in face_items:
         index = face_by_sig.get(item["face_signature_id"])
         if index is not None:
             face_values[index] = math.log(float(item["target_size_mm"]))

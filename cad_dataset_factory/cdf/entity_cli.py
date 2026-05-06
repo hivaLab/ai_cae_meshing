@@ -22,6 +22,7 @@ from cad_dataset_factory.cdf.oracle import (
     run_ansa_probe,
     run_ansa_size_field_evaluation,
 )
+from cad_dataset_factory.cdf.quality import EntitySizeSweepError, run_entity_size_sweep
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -56,6 +57,16 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate.add_argument("--out", required=True)
     evaluate.add_argument("--timeout-sec", type=int, default=240)
     evaluate.add_argument("--dry-run", action="store_true")
+
+    sweep = subparsers.add_parser("ansa-evaluate-size-sweep", help="Run real ANSA size-field sweep evaluations")
+    sweep.add_argument("--dataset", required=True)
+    sweep.add_argument("--split")
+    sweep.add_argument("--sample-id")
+    sweep.add_argument("--preset", default="local_quality_v1")
+    sweep.add_argument("--limit", type=int)
+    sweep.add_argument("--ansa-executable", required=True)
+    sweep.add_argument("--timeout-sec", type=int, default=300)
+    sweep.add_argument("--dry-run", action="store_true")
     return parser
 
 
@@ -148,6 +159,29 @@ def main(argv: Sequence[str] | None = None) -> int:
             if result.status in {"DRY_RUN", "COMPLETED"} and result.returncode in {None, 0}:
                 return 0
             return 2 if result.status in {"BLOCKED", "TIMEOUT"} or result.returncode == 2 else 1
+        if args.command == "ansa-evaluate-size-sweep":
+            result = run_entity_size_sweep(
+                args.dataset,
+                ansa_executable=args.ansa_executable,
+                split=args.split,
+                sample_id=args.sample_id,
+                preset=args.preset,
+                limit=args.limit,
+                timeout_sec=args.timeout_sec,
+                execute=not args.dry_run,
+            )
+            _print(
+                {
+                    "status": result.status,
+                    "dataset_root": result.dataset_root.as_posix(),
+                    "attempted_count": result.attempted_count,
+                    "completed_count": result.completed_count,
+                    "failed_count": result.failed_count,
+                    "blocked_count": result.blocked_count,
+                    "summary_path": result.summary_path.as_posix(),
+                }
+            )
+            return result.exit_code
     except AnsaSizeFieldEvaluationError as exc:
         _print({"status": "BLOCKED", "code": exc.code, "message": str(exc)})
         return 2
@@ -156,6 +190,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
     except CdfEntityPipelineError as exc:
         _print({"status": "FAILED", "code": exc.code, "message": str(exc), "sample_id": exc.sample_id})
+        return 1
+    except EntitySizeSweepError as exc:
+        _print({"status": "FAILED", "code": exc.code, "message": str(exc)})
         return 1
     return 1
 

@@ -51,6 +51,9 @@ PART_CASES = (
     "hat_channel",
 )
 
+DIVERSE_QUALITY_PROFILE = "sm_entity_v2_diverse_quality"
+COMPACT_PROFILE = "sm_entity_v2_compact"
+
 
 class CdfEntityPipelineError(ValueError):
     """Raised when the v2 entity dataset pipeline cannot proceed."""
@@ -101,6 +104,22 @@ def _write_default_splits(root: Path, records: list[dict[str, Any]]) -> None:
     else:
         train_ids = sample_ids
         test_ids = []
+    _write_split(root / "splits" / "train.txt", train_ids)
+    _write_split(root / "splits" / "test.txt", test_ids)
+
+
+def _write_case_stratified_splits(root: Path, records: list[dict[str, Any]]) -> None:
+    by_case: dict[str, list[str]] = {case: [] for case in PART_CASES}
+    for record in records:
+        by_case.setdefault(str(record["profile_case"]), []).append(str(record["sample_id"]))
+    train_ids: list[str] = []
+    test_ids: list[str] = []
+    for case in PART_CASES:
+        ids = by_case.get(case, [])
+        if len(ids) < 4:
+            raise CdfEntityPipelineError("insufficient_case_coverage", f"{DIVERSE_QUALITY_PROFILE} requires at least 4 samples per case")
+        train_ids.extend(ids[:-1])
+        test_ids.append(ids[-1])
     _write_split(root / "splits" / "train.txt", train_ids)
     _write_split(root / "splits" / "test.txt", test_ids)
 
@@ -329,8 +348,10 @@ def _generate_one(sample_dir: Path, sample_id: str, case: str, rng: random.Rando
 def generate_entity_dataset(out_dir: str | Path, *, count: int, seed: int = 1, profile: str = "sm_entity_v2_compact") -> EntityGenerateResult:
     if count <= 0:
         raise CdfEntityPipelineError("invalid_count", "count must be positive")
-    if profile != "sm_entity_v2_compact":
-        raise CdfEntityPipelineError("unsupported_profile", "only sm_entity_v2_compact is supported in the v2 primary path")
+    if profile not in {COMPACT_PROFILE, DIVERSE_QUALITY_PROFILE}:
+        raise CdfEntityPipelineError("unsupported_profile", f"supported profiles: {COMPACT_PROFILE}, {DIVERSE_QUALITY_PROFILE}")
+    if profile == DIVERSE_QUALITY_PROFILE and (count < 32 or count % len(PART_CASES) != 0):
+        raise CdfEntityPipelineError("invalid_profile_count", f"{DIVERSE_QUALITY_PROFILE} requires count >= 32 and a multiple of {len(PART_CASES)}")
     root = Path(out_dir)
     if root.exists():
         shutil.rmtree(root)
@@ -353,7 +374,10 @@ def generate_entity_dataset(out_dir: str | Path, *, count: int, seed: int = 1, p
         },
     }
     _write_json(root / "dataset_index.json", dataset_index)
-    _write_default_splits(root, records)
+    if profile == DIVERSE_QUALITY_PROFILE:
+        _write_case_stratified_splits(root, records)
+    else:
+        _write_default_splits(root, records)
     return EntityGenerateResult("SUCCESS", root, count, len(records), 0, 0)
 
 

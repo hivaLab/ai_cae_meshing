@@ -8,6 +8,7 @@ import pytest
 from jsonschema import Draft202012Validator
 
 from ai_mesh_generator.amg.inference.size_field_gate import build_ai_size_field_gate_report, write_ai_size_field_gate_report
+from ai_mesh_generator.amg.model.size_field import build_size_field_targets
 from ai_mesh_generator.amg.training._entity_common import load_entity_samples
 from ai_mesh_generator.amg.inference.size_field import infer_size_field_document
 from ai_mesh_generator.amg.training.part_classifier import train_part_classifier_from_dataset
@@ -15,6 +16,7 @@ from ai_mesh_generator.amg.training.segmentation import train_entity_segmentatio
 from ai_mesh_generator.amg.training.size_field import train_size_field_model
 from cad_dataset_factory.cdf.entity_pipeline import generate_entity_dataset, validate_entity_dataset
 from cad_dataset_factory.cdf.labels.entity_labels import PartClass
+from cad_dataset_factory.cdf.quality import write_size_sweep_variants
 from test_brep_entity_ai_meshing_pipeline import _write_sample
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -157,6 +159,72 @@ def test_ai_size_field_gate_report_uses_real_artifact_contracts() -> None:
     assert result.status == "SUCCESS"
     assert report["train_split_sample_count"] == 3
     assert report["edge_target_size_stats"]["count"] == 1
+    assert report["edge_target_size_stats"]["std"] == 0.0
+    assert report["edge_target_size_stats"]["h_min_edge_fraction"] == 0.0
+
+
+def test_ai_size_field_gate_report_rejects_all_h_min_learning_signal() -> None:
+    root = _tmp("gate_report_hmin")
+    dataset = _fixture_dataset("gate_report_hmin_dataset")
+    out = root / "eval"
+    size_field = {
+        "schema_version": "AMG_SIZE_FIELD_SM_V2",
+        "sample_id": "sample_000004",
+        "cad_file": "cad/input.step",
+        "unit": "mm",
+        "global_mesh": {"h0_mm": 2.0, "h_min_mm": 0.5, "h_max_mm": 4.0, "growth_rate": 1.25, "quality_profile": "AMG_QA_SHELL_V2"},
+        "edge_sizes": [{"edge_signature_id": "EDGE_SIG_000002_HOLE", "target_size_mm": 0.5}],
+        "face_sizes": [],
+    }
+    predicted = root / "amg_size_field_ai.json"
+    predicted.write_text(json.dumps(size_field), encoding="utf-8")
+    (out / "reports").mkdir(parents=True, exist_ok=True)
+    (out / "quality_evaluations" / "evaluation_000001").mkdir(parents=True, exist_ok=True)
+    (out / "meshes").mkdir(parents=True, exist_ok=True)
+    (out / "reports" / "ansa_execution_report.json").write_text(json.dumps({"accepted": True, "sample_id": "sample_000004"}), encoding="utf-8")
+    (out / "reports" / "ansa_quality_report.json").write_text(json.dumps({"accepted": True, "quality": {"num_hard_failed_elements": 0}}), encoding="utf-8")
+    (out / "quality_evaluations" / "evaluation_000001" / "entity_quality_labels.json").write_text(
+        json.dumps({"entity_quality": [{"entity_signature_id": "EDGE_SIG_000002_HOLE", "metric_available": True, "hard_fail": False, "measured_boundary_size_error": 0.0}]}),
+        encoding="utf-8",
+    )
+    (out / "meshes" / "ansa_size_field_mesh.bdf").write_text("$ mesh\n", encoding="utf-8")
+    report = build_ai_size_field_gate_report(
+        dataset_root=dataset,
+        sample_dir=dataset / "samples" / "sample_000004",
+        train_split="train",
+        part_classifier_path=root / "part_classifier.pkl",
+        segmentation_checkpoint_path=root / "segmentation.pt",
+        size_field_checkpoint_path=root / "size_field.pt",
+        predicted_size_field_path=predicted,
+        ansa_eval_dir=out,
+    )
+    assert report["status"] == "FAILED_LEARNING_SIGNAL"
+    assert report["valid_mesh_count"] == 1
+    assert report["failure_reason"] == "all_controlled_edges_at_h_min"
+
+
+def test_size_sweep_variants_and_quality_aware_targets_prefer_non_hmin() -> None:
+    dataset = _fixture_dataset("quality_targets")
+    sample_dir = dataset / "samples" / "sample_000001"
+    variants = write_size_sweep_variants(sample_dir)
+    assert [variant.variant for variant in variants] == ["h_min_overrefined", "fine", "nominal", "coarse"]
+    schema = json.loads((ROOT / "contracts" / "AMG_SIZE_FIELD_SM_V2.schema.json").read_text(encoding="utf-8"))
+    for variant in variants:
+        Draft202012Validator(schema).validate(json.loads(variant.size_field_path.read_text(encoding="utf-8")))
+
+    better = json.loads((sample_dir / "quality_evaluations" / "evaluation_000001" / "entity_quality_labels.json").read_text(encoding="utf-8"))
+    better["evaluation_id"] = "evaluation_000002"
+    better["entity_quality"][0]["candidate_target_size_mm"] = 1.5
+    better["entity_quality"][0]["measured_boundary_size_error"] = 0.05
+    better["entity_quality"][0]["measured_quality_margin"] = -0.45
+    path = sample_dir / "quality_evaluations" / "evaluation_000002" / "entity_quality_labels.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(better, indent=2) + "\n", encoding="utf-8")
+
+    sample = load_entity_samples(dataset, split="train", require_quality=True)[0]
+    targets = build_size_field_targets(sample, prefer_quality_evidence=True)
+    assert targets.edge_mask[1]
+    assert targets.edge_log_h[1].item() == pytest.approx(__import__("math").log(1.5), rel=1e-6)
 
 
 @pytest.mark.cad_kernel
@@ -172,3 +240,21 @@ def test_cdf_entity_generate_and_validate_small_real_cad_dataset() -> None:
     sample = dataset / "samples" / "sample_000001"
     assert (sample / "cad" / "input.step").is_file()
     assert not (sample / "labels" / "amg_manifest.json").exists()
+
+
+@pytest.mark.cad_kernel
+def test_diverse_quality_profile_requires_coverage_and_writes_stratified_splits() -> None:
+    pytest.importorskip("cadquery")
+    dataset = _tmp("generated_diverse")
+    with pytest.raises(Exception) as excinfo:
+        generate_entity_dataset(dataset, count=24, seed=812, profile="sm_entity_v2_diverse_quality")
+    assert "invalid_profile_count" in str(excinfo.value)
+    result = generate_entity_dataset(dataset, count=32, seed=812, profile="sm_entity_v2_diverse_quality")
+    assert result.status == "SUCCESS"
+    train_ids = [line.strip() for line in (dataset / "splits" / "train.txt").read_text(encoding="utf-8").splitlines() if line.strip()]
+    test_ids = [line.strip() for line in (dataset / "splits" / "test.txt").read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert len(train_ids) == 24
+    assert len(test_ids) == 8
+    index = json.loads((dataset / "dataset_index.json").read_text(encoding="utf-8"))
+    cases = {record["profile_case"] for record in index["samples"] if record["sample_id"] in test_ids}
+    assert cases == {"flat_hole", "flat_slot", "flat_cutout", "flat_combo", "single_flange", "l_bracket", "u_channel", "hat_channel"}

@@ -85,40 +85,95 @@ hard_fail rows: 0
 max boundary size error: 0.012345679012345881
 ```
 
+`T-812_DIVERSE_ENTITY_DATASET_AND_MODEL_VALIDATION`
+
+- Added `sm_entity_v2_diverse_quality`, a 32-sample compact profile with case-stratified
+  train/test splits.
+- Added real ANSA size-field sweeps for `h_min_overrefined`, `fine`, `nominal`, and
+  `coarse` variants.
+- Added quality-aware size-field training through `--prefer-quality-evidence`.
+- Added gate-report learning-signal checks for target-size variance and all-`h_min`
+  collapse.
+
+Verification:
+
+```powershell
+python -m pytest
+```
+
+Result:
+
+```text
+69 passed
+```
+
+Real T-812 evidence:
+
+```text
+dataset: runs/t812_diverse_entity_validation/dataset
+profile: sm_entity_v2_diverse_quality
+sample count: 32
+train/test split: 24/8
+size sweep: 32 attempted, 17 completed, 3 failed, 12 blocked
+quality rows: 260 total, 248 metric_available
+hard_fail rows: 18
+near_fail rows: 18
+```
+
+Held-out flat sample:
+
+```text
+sample: sample_000025
+part class: SM_FLAT_PANEL
+status: SUCCESS
+edge size stats: count=10, min/mean/max/std=0.5/0.5899280985082083/0.625/0.04901566409509156
+h_min edge fraction: 0.2
+entity metrics: 10/10 available
+hard_fail rows: 0
+max boundary size error: 0.004648606178533798
+BDF bytes: 9528865
+```
+
+Held-out bent sample:
+
+```text
+sample: sample_000032
+part class: SM_HAT_CHANNEL
+status: SUCCESS
+edge size stats: count=24, min/mean/max/std=0.5/0.5449059218846366/0.625/0.05722437956992055
+h_min edge fraction: 0.5
+entity metrics: 24/24 available
+hard_fail rows: 0
+max boundary size error: 0.008064516129032473
+BDF bytes: 20326149
+```
+
 ## Active Task
 
-`T-812_DIVERSE_ENTITY_DATASET_AND_MODEL_VALIDATION`
+`T-813_ENTITY_MATCHING_AND_QUALITY_EVIDENCE_COVERAGE`
 
 Why this is the active task:
 
-- The real ANSA size-field control path is proven on generated label size fields.
-- AMG's direct size-field model now trains and infers an AI-predicted
-  `AMG_SIZE_FIELD_SM_V2` for held-out clean CAD.
-- The AI-predicted size field passed the real ANSA gate on one held-out sample.
+- T-812 produced real pass and fail/near-fail size sweep evidence, but sweep coverage is
+  incomplete.
+- Flat slot cases were blocked by `entity_matching_failed`.
+- Quality-aware size-field training used only 5 samples with usable evidence.
+- The next improvement must increase real evidence coverage before claiming broader
+  model generalization.
 
 ```text
-latest T-811 gate:
-dataset: runs/t811_ai_size_field_gate/dataset
-held-out: sample_000016
-part prediction: SM_HAT_CHANNEL, confidence 0.48
-AI edge target sizes: 24 edges, min/mean/max = 0.5/0.5/0.5 mm
-ANSA result: COMPLETED
-BDF bytes: 34354036
-entity quality rows: 24
-metric_available rows: 24
-hard_fail rows: 0
-max boundary size error: 0.0005120789403909587
-gate report: runs/t811_ai_size_field_gate/ai_size_field_gate_report.json
+T-812 blocker:
+flat_slot sweep samples sample_000002, sample_000010, and sample_000018 blocked with
+entity_matching_failed for every sweep variant.
 ```
 
 ## Known Gaps
 
-1. The first AI gate succeeded by predicting the minimum allowed size on every
-   controlled edge. This is valid but over-refined and inefficient, not a production
-   meshing strategy.
-2. Current compact CDF labels are generator-derived. Real learning quality still needs
-   pass, near-fail, and fail evidence from size-field sweeps.
-3. Face controls remain secondary until edge-local metric extraction is reliable across
+1. Entity matching is not robust for flat slot cases.
+2. Quality-aware training currently skips samples without usable real sweep metrics.
+3. The direct size-field model now predicts nontrivial sizes on two held-out samples, but
+   the learned range is still narrow: `0.5..0.625 mm`.
+4. Face controls remain secondary until edge-local metric extraction is reliable across
    non-flat families.
 
 ## Verified ANSA Path

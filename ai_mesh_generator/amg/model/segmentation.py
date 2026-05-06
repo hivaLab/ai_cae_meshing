@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -136,3 +137,34 @@ class BrepSegmentationModel(nn.Module):
             face_logits=self.face_head(torch.cat([face_hidden, face_edge_context], dim=-1)),
             edge_logits=self.edge_head(torch.cat([edge_hidden, edge_face_context], dim=-1)),
         )
+
+
+def load_segmentation_model(checkpoint_path: str | Path) -> BrepSegmentationModel:
+    path = Path(checkpoint_path)
+    if not path.is_file():
+        raise SegmentationModelError("missing_segmentation_checkpoint", f"segmentation checkpoint does not exist: {path}")
+    checkpoint = torch.load(path, map_location="cpu")
+    required = ("model_state", "face_feature_dim", "edge_feature_dim", "hidden_dim")
+    if not isinstance(checkpoint, dict) or any(key not in checkpoint for key in required):
+        raise SegmentationModelError("malformed_segmentation_checkpoint", "segmentation checkpoint is missing model metadata")
+    model = BrepSegmentationModel(
+        int(checkpoint["face_feature_dim"]),
+        int(checkpoint["edge_feature_dim"]),
+        hidden_dim=int(checkpoint["hidden_dim"]),
+    )
+    model.load_state_dict(checkpoint["model_state"])
+    model.eval()
+    return model
+
+
+def predict_entity_segmentation_probabilities(sample: Any, model: BrepSegmentationModel) -> tuple[np.ndarray, np.ndarray]:
+    tensors = build_entity_graph_tensors(sample)
+    face_dim = model.face_encoder[0].in_features
+    edge_dim = model.edge_encoder[0].in_features
+    if tensors.face_features.shape[1] != face_dim or tensors.edge_features.shape[1] != edge_dim:
+        raise SegmentationModelError("segmentation_input_dimension_mismatch", "sample graph feature dimensions do not match segmentation checkpoint")
+    with torch.no_grad():
+        output = model(tensors)
+        face_probs = torch.softmax(output.face_logits, dim=-1).cpu().numpy()
+        edge_probs = torch.softmax(output.edge_logits, dim=-1).cpu().numpy()
+    return face_probs.astype(np.float32), edge_probs.astype(np.float32)

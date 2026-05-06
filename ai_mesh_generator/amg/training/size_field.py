@@ -37,11 +37,19 @@ def _loss(output, targets) -> torch.Tensor:  # noqa: ANN001
     return sum(losses)
 
 
-def train_size_field_model(dataset_root: str | Path, output_dir: str | Path, *, epochs: int = 10, seed: int = 1, hidden_dim: int = 64) -> dict:
+def train_size_field_model(
+    dataset_root: str | Path,
+    output_dir: str | Path,
+    *,
+    split: str | None = None,
+    epochs: int = 10,
+    seed: int = 1,
+    hidden_dim: int = 64,
+) -> dict:
     if epochs <= 0:
         raise SizeFieldTrainingError("invalid_epochs", "epochs must be positive")
     torch.manual_seed(seed)
-    samples = load_entity_samples(dataset_root)
+    samples = load_entity_samples(dataset_root, split=split)
     first_tensors = build_size_field_graph_tensors(samples[0])
     model = BrepSizeFieldModel(first_tensors.face_inputs.shape[1], first_tensors.edge_inputs.shape[1], hidden_dim=hidden_dim)
     optimizer = torch.optim.Adam(model.parameters(), lr=1.0e-3)
@@ -76,6 +84,7 @@ def train_size_field_model(dataset_root: str | Path, output_dir: str | Path, *, 
     torch.save(checkpoint, out / "model.pt")
     metrics = {
         "status": "SUCCESS",
+        "split": split,
         "sample_count": len(samples),
         "target_row_count": target_rows,
         "epochs": epochs,
@@ -91,12 +100,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="amg-train-size-field")
     parser.add_argument("--dataset", required=True)
     parser.add_argument("--out", required=True)
+    parser.add_argument("--split")
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--hidden-dim", type=int, default=64)
     args = parser.parse_args(argv)
     try:
-        metrics = train_size_field_model(args.dataset, args.out, epochs=args.epochs, seed=args.seed, hidden_dim=args.hidden_dim)
+        metrics = train_size_field_model(args.dataset, args.out, split=args.split, epochs=args.epochs, seed=args.seed, hidden_dim=args.hidden_dim)
     except (SizeFieldTrainingError, SizeFieldModelError, ValueError) as exc:
         print({"status": "FAILED", "message": str(exc)})
         return 1

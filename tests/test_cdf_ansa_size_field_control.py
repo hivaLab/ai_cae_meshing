@@ -142,6 +142,19 @@ def test_size_field_command_payload_contains_entity_contract_paths() -> None:
     assert any(item.startswith("-process_string:") for item in command)
 
 
+def test_size_field_payload_accepts_repo_relative_size_field_paths() -> None:
+    sample_dir = _sample(_tmp("repo_relative_dataset"))
+    root_relative = sample_dir.relative_to(ROOT) / "amg_size_field.json"
+    request = AnsaSizeFieldEvaluationRequest(
+        sample_dir=sample_dir,
+        size_field_path=root_relative,
+        ansa_executable=str(ROOT / "fake_ansa64.bat"),
+        out_dir=_tmp("repo_relative_out"),
+    )
+    payload = build_size_field_payload(request)
+    assert payload["size_field"].endswith("samples/sample_000001/amg_size_field.json")
+
+
 def test_entity_probe_command_payload_contains_cad_and_signature_paths() -> None:
     sample_dir = _sample(_tmp("probe_dataset"))
     fake_executable = ROOT / "runs" / "pytest_tmp_local" / "cdf_ansa_size_field" / "fake_probe_ansa64.bat"

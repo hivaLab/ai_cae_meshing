@@ -29,6 +29,7 @@ amg-train-part-classifier = "ai_mesh_generator.amg.training.part_classifier:main
 amg-train-entity-segmentation = "ai_mesh_generator.amg.training.segmentation:main"
 amg-train-size-field = "ai_mesh_generator.amg.training.size_field:main"
 amg-infer-size-field = "ai_mesh_generator.amg.inference.size_field:main"
+amg-size-field-gate-report = "ai_mesh_generator.amg.inference.size_field_gate:main"
 
 [tool.setuptools.packages.find]
 include = ["ai_mesh_generator*", "cad_dataset_factory*"]

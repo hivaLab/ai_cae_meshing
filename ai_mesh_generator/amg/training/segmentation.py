@@ -36,6 +36,7 @@ def train_entity_segmentation_from_dataset(
     dataset_root: str | Path,
     output_dir: str | Path,
     *,
+    split: str | None = None,
     epochs: int = 5,
     hidden_dim: int = 64,
     lr: float = 1e-3,
@@ -43,7 +44,7 @@ def train_entity_segmentation_from_dataset(
 ) -> dict:
     torch, F = _load_torch()
     torch.manual_seed(seed)
-    samples = load_entity_samples(dataset_root)
+    samples = load_entity_samples(dataset_root, split=split)
     first = build_entity_graph_tensors(samples[0])
     model = BrepSegmentationModel(first.face_features.shape[1], first.edge_features.shape[1], hidden_dim=hidden_dim)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
@@ -90,6 +91,7 @@ def train_entity_segmentation_from_dataset(
     metrics = {
         "schema": "AMG_ENTITY_SEGMENTATION_METRICS_V1",
         "dataset_root": Path(dataset_root).as_posix(),
+        "split": split,
         "sample_count": len(samples),
         "epochs": epochs,
         "loss_history": losses,
@@ -110,6 +112,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="amg-train-entity-segmentation")
     parser.add_argument("--dataset", required=True)
     parser.add_argument("--out", required=True)
+    parser.add_argument("--split")
     parser.add_argument("--epochs", type=int, default=5)
     parser.add_argument("--hidden-dim", type=int, default=64)
     parser.add_argument("--lr", type=float, default=1e-3)
@@ -120,7 +123,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        metrics = train_entity_segmentation_from_dataset(args.dataset, args.out, epochs=args.epochs, hidden_dim=args.hidden_dim, lr=args.lr, seed=args.seed)
+        metrics = train_entity_segmentation_from_dataset(args.dataset, args.out, split=args.split, epochs=args.epochs, hidden_dim=args.hidden_dim, lr=args.lr, seed=args.seed)
     except Exception as exc:  # noqa: BLE001 - CLI boundary.
         print({"status": "FAILED", "message": str(exc)})
         return 1

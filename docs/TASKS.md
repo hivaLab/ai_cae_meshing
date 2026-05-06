@@ -98,10 +98,31 @@ Required output per controlled entity:
 
 ### T-811_REAL_AI_SIZE_FIELD_GATE
 
-Status: `TODO`
+Status: `DONE`
 
 Train/infer the direct size-field model on compact v2 data, run ANSA with the predicted
 `AMG_SIZE_FIELD_SM_V2`, and count success only if T-810 metrics are available and pass.
+
+Real result:
+
+```text
+dataset: runs/t811_ai_size_field_gate/dataset
+held-out sample: sample_000016
+AI size field: runs/t811_ai_size_field_gate/inference/sample_000016/amg_size_field_ai.json
+ANSA evaluation: runs/t811_ai_size_field_gate/ansa_eval/sample_000016
+gate report: runs/t811_ai_size_field_gate/ai_size_field_gate_report.json
+status: SUCCESS
+entity quality rows: 24/24 metric_available
+hard_fail rows: 0
+max boundary size error: 0.0005120789403909587
+BDF bytes: 34354036
+```
+
+Important caveat:
+
+The first AI gate over-refined the held-out sample by predicting `0.5 mm` for every
+controlled edge. This closes the real AI-to-ANSA path but does not prove efficient or
+general meshing quality.
 
 ### T-812_DIVERSE_ENTITY_DATASET_AND_MODEL_VALIDATION
 

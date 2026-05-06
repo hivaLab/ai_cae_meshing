@@ -88,6 +88,23 @@ def _write_json(path: Path, document: dict[str, Any]) -> None:
     path.write_text(json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def _write_split(path: Path, sample_ids: list[str]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("".join(f"{sample_id}\n" for sample_id in sample_ids), encoding="utf-8")
+
+
+def _write_default_splits(root: Path, records: list[dict[str, Any]]) -> None:
+    sample_ids = [str(record["sample_id"]) for record in records]
+    if len(sample_ids) > 1:
+        train_ids = sample_ids[:-1]
+        test_ids = sample_ids[-1:]
+    else:
+        train_ids = sample_ids
+        test_ids = []
+    _write_split(root / "splits" / "train.txt", train_ids)
+    _write_split(root / "splits" / "test.txt", test_ids)
+
+
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
@@ -330,8 +347,13 @@ def generate_entity_dataset(out_dir: str | Path, *, count: int, seed: int = 1, p
         "seed": seed,
         "sample_count": len(records),
         "samples": records,
+        "splits": {
+            "train": "splits/train.txt",
+            "test": "splits/test.txt",
+        },
     }
     _write_json(root / "dataset_index.json", dataset_index)
+    _write_default_splits(root, records)
     return EntityGenerateResult("SUCCESS", root, count, len(records), 0, 0)
 
 

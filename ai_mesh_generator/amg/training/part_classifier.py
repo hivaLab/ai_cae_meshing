@@ -31,11 +31,12 @@ def train_part_classifier_from_dataset(
     dataset_root: str | Path,
     output_dir: str | Path,
     *,
+    split: str | None = None,
     seed: int = 1,
     n_estimators: int = 100,
     uncertainty_threshold: float = 0.60,
 ) -> dict:
-    samples = load_entity_samples(dataset_root)
+    samples = load_entity_samples(dataset_root, split=split)
     model, metadata = train_part_classifier(samples, seed=seed, n_estimators=n_estimators)
     labels = [sample.labels.part_class["part_class"] for sample in samples]
     predictions = [predict_part_class(model, sample, uncertainty_threshold=uncertainty_threshold) for sample in samples]
@@ -47,6 +48,7 @@ def train_part_classifier_from_dataset(
     metrics = {
         "schema": "AMG_PART_CLASSIFIER_METRICS_V1",
         "dataset_root": Path(dataset_root).as_posix(),
+        "split": split,
         "sample_count": len(samples),
         "class_order": list(PART_CLASS_ORDER),
         "label_counts": dict(Counter(labels)),
@@ -65,6 +67,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="amg-train-part-classifier")
     parser.add_argument("--dataset", required=True)
     parser.add_argument("--out", required=True)
+    parser.add_argument("--split")
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--n-estimators", type=int, default=100)
     parser.add_argument("--uncertainty-threshold", type=float, default=0.60)
@@ -77,6 +80,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         metrics = train_part_classifier_from_dataset(
             args.dataset,
             args.out,
+            split=args.split,
             seed=args.seed,
             n_estimators=args.n_estimators,
             uncertainty_threshold=args.uncertainty_threshold,

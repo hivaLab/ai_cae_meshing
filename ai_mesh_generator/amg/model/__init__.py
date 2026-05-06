@@ -21,6 +21,8 @@ from ai_mesh_generator.amg.model.segmentation import (
     SegmentationTargets,
     build_entity_graph_tensors,
     build_segmentation_targets,
+    load_segmentation_model,
+    predict_entity_segmentation_probabilities,
 )
 from ai_mesh_generator.amg.model.size_field import (
     BrepSizeFieldModel,
@@ -60,8 +62,10 @@ __all__ = [
     "build_size_field_targets",
     "extract_part_feature_matrix",
     "load_part_classifier",
+    "load_segmentation_model",
     "project_edge_sizes",
     "project_face_sizes",
+    "predict_entity_segmentation_probabilities",
     "predict_part_class",
     "save_part_classifier",
     "train_part_classifier",

@@ -100,6 +100,15 @@ def _resolve(path: Path, repo_root: Path) -> Path:
     return path if path.is_absolute() else repo_root / path
 
 
+def _resolve_size_field_path(path: Path, sample_dir: Path, repo_root: Path) -> Path:
+    if path.is_absolute():
+        return path
+    sample_relative = sample_dir / path
+    if sample_relative.is_file():
+        return sample_relative
+    return repo_root / path
+
+
 def _as_posix(path: Path) -> str:
     return path.resolve().as_posix()
 
@@ -115,7 +124,7 @@ def resolve_size_field_paths(request: AnsaSizeFieldEvaluationRequest) -> dict[st
         "graph_npz": sample_dir / "graph" / "brep_graph.npz",
         "graph_schema": sample_dir / "graph" / "graph_schema.json",
         "entity_signatures": sample_dir / "graph" / "entity_signatures.json",
-        "size_field": _resolve(request.size_field_path, sample_dir) if not request.size_field_path.is_absolute() else request.size_field_path,
+        "size_field": _resolve_size_field_path(request.size_field_path, sample_dir, repo_root),
         "out_dir": out_dir,
         "execution_report": request.execution_report_path or out_dir / "reports" / "ansa_execution_report.json",
         "quality_report": request.quality_report_path or out_dir / "reports" / "ansa_quality_report.json",

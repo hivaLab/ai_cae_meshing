@@ -249,6 +249,25 @@ def project_face_sizes(face_log_h: torch.Tensor, *, h_min_mm: float, h_max_mm: f
     return np.clip(sizes, h_min_mm, h_max_mm)
 
 
+def _is_geometry_size_control_edge(record: dict[str, Any]) -> bool:
+    fingerprint = record.get("fingerprint") if isinstance(record.get("fingerprint"), dict) else {}
+    bbox = fingerprint.get("bbox_mm") if isinstance(fingerprint.get("bbox_mm"), list) else None
+    if bbox is not None and len(bbox) == 3:
+        bbox_x, bbox_y, bbox_z = (abs(float(value)) for value in bbox)
+        if bbox_x < 1.0e-6 and bbox_y < 1.0e-6 and bbox_z > 1.0e-6:
+            return False
+    return True
+
+
+def _semantic_size_control_mask(edge_segmentation_probabilities: np.ndarray | None) -> np.ndarray | None:
+    if edge_segmentation_probabilities is None:
+        return None
+    probabilities = np.asarray(edge_segmentation_probabilities, dtype=np.float32)
+    labels = probabilities.argmax(axis=1)
+    excluded = {EDGE_SEGMENTATION_CLASSES.index("INTERNAL"), EDGE_SEGMENTATION_CLASSES.index("OTHER")}
+    return np.asarray([int(label) not in excluded for label in labels], dtype=bool)
+
+
 def build_size_field_document(
     sample: Any,
     output: SizeFieldOutput,
@@ -259,13 +278,19 @@ def build_size_field_document(
     growth_rate: float,
     quality_profile: str = "AMG_QA_SHELL_V2",
     include_face_sizes: bool = False,
+    edge_segmentation_probabilities: np.ndarray | None = None,
 ) -> dict[str, Any]:
     edge_sizes = project_edge_sizes(sample, output.edge_log_h, h_min_mm=h_min_mm, h_max_mm=h_max_mm, growth_rate=growth_rate)
     face_sizes = project_face_sizes(output.face_log_h, h_min_mm=h_min_mm, h_max_mm=h_max_mm) if include_face_sizes else np.empty((0,), dtype=np.float64)
     graph = _sample_graph(sample)
+    semantic_mask = _semantic_size_control_mask(edge_segmentation_probabilities)
     edge_records = []
     for record in graph.entity_signatures["edges"]:
         index = int(record["index"])
+        if not _is_geometry_size_control_edge(record):
+            continue
+        if semantic_mask is not None and (index >= len(semantic_mask) or not bool(semantic_mask[index])):
+            continue
         edge_records.append(
             {
                 "edge_signature_id": record["signature_id"],
@@ -274,6 +299,8 @@ def build_size_field_document(
                 "source": "direct_brep_size_field_gnn",
             }
         )
+    if not edge_records:
+        raise SizeFieldModelError("empty_predicted_edge_size_field", "predicted size field has no controllable edge sizes")
     face_records = []
     if include_face_sizes:
         for record in graph.entity_signatures["faces"]:

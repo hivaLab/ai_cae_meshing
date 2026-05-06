@@ -60,7 +60,7 @@ python -m pytest
 Result:
 
 ```text
-64 passed
+66 passed
 ```
 
 `T-810_ENTITY_LOCAL_BDF_METRIC_EXTRACTION`
@@ -87,27 +87,35 @@ max boundary size error: 0.012345679012345881
 
 ## Active Task
 
-`T-811_REAL_AI_SIZE_FIELD_GATE`
+`T-812_DIVERSE_ENTITY_DATASET_AND_MODEL_VALIDATION`
 
 Why this is the active task:
 
-- The real ANSA size-field control path is now proven on a generated label size field.
-- The next missing proof is that AMG's direct size-field model can train/infer an
-  `AMG_SIZE_FIELD_SM_V2` and pass the same real ANSA gate on held-out clean CAD.
+- The real ANSA size-field control path is proven on generated label size fields.
+- AMG's direct size-field model now trains and infers an AI-predicted
+  `AMG_SIZE_FIELD_SM_V2` for held-out clean CAD.
+- The AI-predicted size field passed the real ANSA gate on one held-out sample.
 
 ```text
-minimum next gate:
-1. generate compact v2 dataset
-2. train part classifier, segmentation model, and direct size-field model
-3. infer size field on held-out sample
-4. run cdf-entity ansa-evaluate-size-field on the AI output
-5. require real accepted reports, non-empty BDF, and entity-local metrics
+latest T-811 gate:
+dataset: runs/t811_ai_size_field_gate/dataset
+held-out: sample_000016
+part prediction: SM_HAT_CHANNEL, confidence 0.48
+AI edge target sizes: 24 edges, min/mean/max = 0.5/0.5/0.5 mm
+ANSA result: COMPLETED
+BDF bytes: 34354036
+entity quality rows: 24
+metric_available rows: 24
+hard_fail rows: 0
+max boundary size error: 0.0005120789403909587
+gate report: runs/t811_ai_size_field_gate/ai_size_field_gate_report.json
 ```
 
 ## Known Gaps
 
-1. Direct size-field GNN is implemented and trainable, but it has not yet been evaluated
-   through real ANSA with accepted local metrics.
+1. The first AI gate succeeded by predicting the minimum allowed size on every
+   controlled edge. This is valid but over-refined and inefficient, not a production
+   meshing strategy.
 2. Current compact CDF labels are generator-derived. Real learning quality still needs
    pass, near-fail, and fail evidence from size-field sweeps.
 3. Face controls remain secondary until edge-local metric extraction is reliable across

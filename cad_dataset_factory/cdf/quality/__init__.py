@@ -1,17 +1,6 @@
-"""Quality exploration tools for CDF-generated AMG manifests."""
+"""Legacy manifest perturbation quality namespace.
 
-from cad_dataset_factory.cdf.quality.exploration import (
-    CdfQualityExplorationError,
-    QualityExplorationResult,
-    compute_quality_score,
-    perturb_manifest,
-    run_quality_exploration,
-)
+Primary quality evidence now lives in CDF entity-quality labels.
+"""
 
-__all__ = [
-    "CdfQualityExplorationError",
-    "QualityExplorationResult",
-    "compute_quality_score",
-    "perturb_manifest",
-    "run_quality_exploration",
-]
+__all__: list[str] = []

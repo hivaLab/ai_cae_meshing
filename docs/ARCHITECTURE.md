@@ -1,163 +1,267 @@
-# ARCHITECTURE.md
+# Architecture
 
-## 1. Workspace layout
+## Core Principle
 
-The project may be developed as one workspace containing two independent Python packages. Runtime dependency from CDF to AMG is not allowed.
+The AI model should predict a mesh sizing field over exact CAD entities. It should not
+primarily choose from a small list of feature manifest actions.
 
-```text
-repo_root/
-  AMG.md
-  CDF.md
-  AGENT.md
-  STATUS.md
-  ROADMAP.md
-  TASKS.md
-  CONTRACTS.md
-  pyproject.toml
-  contracts/
-    AMG_MANIFEST_SM_V1.schema.json
-    AMG_BREP_GRAPH_SM_V1.schema.json
-    AMG_CONFIG_SM_V1.schema.json
-    AMG_FEATURE_OVERRIDES_SM_V1.schema.json
-    CDF_FEATURE_TRUTH_SM_V1.schema.json
-    CDF_ANSA_EXECUTION_REPORT_SM_V1.schema.json
-    CDF_ANSA_QUALITY_REPORT_SM_V1.schema.json
-  configs/
-    amg_config.default.json
-    cdf_sm_ansa_v1.default.json
-    quality/AMG_QA_SHELL_V1.json
-    ansa/AMG_SHELL_CONST_THICKNESS_V1.json
-  ai_mesh_generator/
-    amg/
-      brep/
-      labels/
-      model/
-      ansa/
-      validation/
-      cli.py
-  cad_dataset_factory/
-    cdf/
-      sampling/
-      cadgen/
-      truth/
-      brep/
-      labels/
-      oracle/
-      dataset/
-      cli.py
-  tests/
-```
-
-Separate repositories are also acceptable if the same `contracts/` files are copied into both repositories. In that case the contract version strings must remain identical.
-
-## 2. Package responsibilities
-
-### 2.1 `cad_dataset_factory`
-
-CDF owns synthetic dataset generation.
+For clean sheet-metal CAD, the practical minimum ANSA control is:
 
 ```text
-parameter sampling
-CAD solid generation
-feature truth generation
-reference midsurface generation
-B-rep graph extraction for dataset
-AMG-compatible manifest label generation
-ANSA oracle execution for sample acceptance
-sample directory writing
+global target size
+user global growth rate
+per-edge target size
+optional per-face target size
+quality profile
 ```
 
-CDF does not run AMG inference, does not import AMG, and does not call AMG's ANSA adapter.
+Hole refinement, slot refinement, cutout refinement, bend refinement, and thin-region
+refinement can be represented through the edge/face size field plus a growth-rate
+projection.
 
-### 2.2 `ai_mesh_generator`
+## Survey-Grounded Design Basis
 
-AMG owns inference and mesh-control execution.
+The 2026 survey by Owen et al. frames AI for CAD-to-mesh work as an assistant to
+established geometry kernels and meshers, not a replacement for them. The project
+therefore uses AI to choose entity-level meshing controls while ANSA remains the real
+meshing engine.
+
+The paper also changes one important design choice: direct neural size-field regression
+is not the safest MVP. A more deployable first mesh-control model is a local
+mesh-quality surrogate trained on B-rep entity features and real ANSA outcomes. That
+surrogate can score candidate edge/face sizes, and a constrained optimizer can choose a
+smooth size field. A direct B-rep GNN size predictor is still useful, but as a later
+distillation or acceleration step after the quality-surrogate loop is proven.
+
+The resulting model stack is:
 
 ```text
-input STEP validation
-B-rep graph extraction
-feature detection
-AI or rule-only manifest generation
-rule projection
-ANSA manifest execution
-quality report parsing
-solver deck export
+part classifier:
+  tabular B-rep features -> Random Forest / Gradient Boosting
+
+face/edge segmentation:
+  B-rep coedge topology -> BRepNet-style segmentation network
+
+mesh control:
+  entity features + candidate sizes -> local quality surrogate
+  surrogate + constraints -> optimized edge/face size field
+  optional later model -> direct B-rep size-field predictor
 ```
 
-AMG may read CDF-generated dataset files as external training data. AMG does not depend on CDF runtime modules.
-
-## 3. Data flow
-
-### 3.1 CDF generation flow
+## System Diagram
 
 ```text
-config + seed
-  → sampled part parameters
-  → CAD solid + feature truth
-  → STEP + reference midsurface
-  → B-rep graph extraction
-  → deterministic AMG-compatible manifest
-  → ANSA oracle validation
-  → accepted/rejected sample directory
+CDF
+  generate clean sheet-metal CAD
+  generate part, face, edge, and size labels
+  run ANSA with candidate size fields
+  record real global/local quality
+  publish dataset files
+
+AMG
+  load dataset files only
+  build B-rep entity tensors
+  train part classifier
+  train face/edge segmentation model
+  train entity-local quality surrogate
+  optimize or infer size field for new CAD
+  send size field to ANSA
+  validate mesh quality
 ```
 
-### 3.2 AMG inference flow
+CDF and AMG are separated by files, not Python imports.
+
+## Runtime AMG Pipeline
 
 ```text
-input.step + amg_config.json + optional feature_overrides.json
-  → geometry validation
-  → B-rep graph extraction
-  → feature candidate detection
-  → model or rule-only prediction
-  → rule projection
-  → mesh_control_manifest.json
-  → ANSA adapter execution
-  → quality report and solver deck
+input.step
+  -> import and validate clean sheet-metal B-rep
+  -> build B-rep graph
+  -> classify part
+  -> segment faces and edges
+  -> predict edge and face sizes
+  -> project sizes:
+       h_min <= h <= h_max
+       h_adjacent_ratio <= user_global_growth_rate
+  -> match graph entities to ANSA entities
+  -> apply ANSA edge/face size controls
+  -> run ANSA Batch Mesh
+  -> parse quality report
 ```
 
-## 4. Dependency boundaries
+## Model Stack
+
+### Part Classifier
+
+MVP model:
 
 ```text
-CDF core             : may use CadQuery/OCP, numpy, scipy, pydantic/jsonschema, networkx
-CDF ANSA runner      : subprocess only outside ANSA
-CDF ANSA scripts     : may import ANSA Python API
-AMG core             : may use CAD/B-rep extractor, ML framework, jsonschema
-AMG ANSA adapter     : subprocess or ANSA internal scripts depending on implementation
-Contracts            : JSON files, not Python imports across packages
+Random Forest or Gradient Boosted Trees
 ```
 
-## 5. External dependency strategy
+Reason:
+
+- robust on small and medium tabular CAD datasets
+- interpretable feature importance
+- easier to debug than a graph neural network
+- consistent with practical CAD classification trends
+
+Upgrade path:
 
 ```text
-ANSA unavailable:
-  Run pure tests and parser/rejection tests, but keep real-pipeline tasks BLOCKED.
-
-CadQuery/OCP unstable:
-  Keep P0/P1 pure rules independent of CAD kernel.
-
-ML framework not selected:
-  Implement dataset loader and rule-only baseline first.
+B-rep graph classifier using face/edge/coedge topology
 ```
 
-## 6. Status and failure state model
+### Face/Edge Segmentation Model
 
-AMG manifest status:
+MVP model:
 
 ```text
-VALID
-OUT_OF_SCOPE
-MESH_FAILED
+BRepNet-style coedge message passing network
 ```
 
-CDF sample acceptance:
+Reason:
+
+- segmentation needs exact adjacency and orientation
+- point clouds and voxels lose CAD boundary semantics
+- multi-view approaches are unsuitable for entity-level ANSA controls
+
+### Mesh-Control Predictor
+
+MVP model:
 
 ```text
-accepted: true/false
-accepted_by.geometry_validation
-accepted_by.feature_matching
-accepted_by.manifest_schema
-accepted_by.ansa_oracle
-rejection_reason
+entity-local mesh-quality surrogate + constrained size-field optimizer
 ```
 
-All failures must have structured reason strings. Free-form prose is allowed only in an auxiliary `message` field.
+The surrogate predicts the expected result of meshing a local CAD entity with a
+candidate size and growth context:
+
+- hard-fail probability
+- local boundary-size error
+- local quality violation margin
+- element-count or runtime cost proxy
+
+The optimizer then chooses:
+
+- per-edge target size
+- optional per-face target size
+
+Later model:
+
+```text
+segmentation-aware heterogeneous B-rep GNN distilled from optimized size fields
+```
+
+The postprocessor enforces bounds and growth rate.
+
+## Entity Tensors
+
+Part tensor:
+
+```text
+part_feature_vector:
+  face_count
+  edge_count
+  vertex_count
+  bbox_dims
+  bbox_aspect_ratios
+  area_volume_thickness_proxy
+  analytic_surface_counts
+  analytic_curve_counts
+  radius_statistics
+  curvature_statistics
+  proximity_statistics
+```
+
+Face tensor:
+
+```text
+face_features:
+  surface_type
+  area
+  perimeter
+  bbox
+  normal
+  centroid
+  loop_count
+  inner_loop_count
+  curvature_statistics
+  adjacent_face_count
+```
+
+Edge tensor:
+
+```text
+edge_features:
+  curve_type
+  length
+  radius
+  curvature
+  endpoint_distance
+  midpoint
+  tangent
+  dihedral_angle
+  adjacent_face_surface_types
+  loop_membership_flags
+  proximity_to_other_edges
+```
+
+Coedge topology:
+
+```text
+coedge_next
+coedge_prev
+coedge_mate
+coedge_parent_face
+coedge_underlying_edge
+```
+
+## ANSA Payload
+
+Minimal payload:
+
+```json
+{
+  "schema_version": "AMG_SIZE_FIELD_SM_V2",
+  "cad_file": "cad/input.step",
+  "unit": "mm",
+  "global_mesh": {
+    "h0_mm": 4.0,
+    "h_min_mm": 0.5,
+    "h_max_mm": 8.0,
+    "growth_rate": 1.25,
+    "quality_profile": "AMG_QA_SHELL_V2"
+  },
+  "edge_sizes": [
+    {
+      "edge_signature_id": "EDGE_SIG_000001",
+      "target_size_mm": 0.8
+    }
+  ],
+  "face_sizes": [
+    {
+      "face_signature_id": "FACE_SIG_000001",
+      "target_size_mm": 2.5
+    }
+  ]
+}
+```
+
+The user must be able to change `growth_rate`. The model may recommend local sizes, but
+the projection must respect the user growth-rate limit.
+
+## What Is Removed From Primary Design
+
+The following ideas are no longer primary architecture:
+
+- AI selecting a baseline/reference mesh
+- success based on baseline comparison
+- small feature suppression as the main path
+- deterministic feature action rules as the model target
+- manifest action classification as the primary model output
+- synthetic zero feature boundary errors
+- graph target columns
+- reference midsurface as model input
+
+Some legacy code may remain until replaced, but new work must not deepen those paths.

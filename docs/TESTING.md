@@ -1,171 +1,103 @@
-# TESTING.md
+# Testing
 
-## 1. Test categories
+## Test Philosophy
 
-```text
-unit_pure
-  Formula, enum, schema, config, label rule tests. No CAD, no ANSA.
+Unit tests are necessary but not sufficient. Real meshing claims require real ANSA
+evidence.
 
-cad_kernel
-  CadQuery/OCP generation and STEP export/import tests.
+Tests must prevent these failures:
 
-brep_graph
-  B-rep extraction, coedge topology, feature candidate detection tests.
+- hidden baseline success
+- mock or placeholder mesh counted as success
+- fabricated zero quality metric
+- target leakage in graph input
+- AMG importing CDF
+- ANSA API import outside ANSA scripts
 
-oracle_contract_negative
-  ANSA command builder, parser, and validation rejection tests. No ANSA license required.
-  These tests may use failed reports or mocks, but they cannot prove dataset acceptance.
+## Standard Regression
 
-requires_ansa
-  Real ANSA runtime, oracle, dataset generation, and quality tests.
-  Skipped unless ANSA_EXECUTABLE is configured.
-
-model_smoke
-  Dataset loader, batching, model forward/loss/checkpoint smoke tests.
-```
-
-## 2. Required commands
-
-Baseline command:
-
-```bash
+```powershell
 python -m pytest
 ```
 
-Pure tests only:
+## Dependency Boundary Tests
 
-```bash
-python -m pytest -m "not requires_ansa and not cad_kernel"
-```
+Required checks:
 
-Real ANSA tests:
+- CDF code does not import AMG code.
+- AMG code does not import CDF code.
+- ANSA API imports appear only under ANSA script directories.
+- graph input arrays do not contain target labels or quality scores.
+- `reference_midsurface.step` is never used as model input.
 
-```bash
-export ANSA_EXECUTABLE=/path/to/ansa64.sh
-python -m pytest -m requires_ansa
-```
+## Contract Tests
 
-## 3. Markers
+Validate:
 
-`pyproject.toml` should define:
+- part classification label schema
+- face segmentation label schema
+- edge segmentation label schema
+- mesh size field schema
+- ANSA execution report schema
+- ANSA quality report schema
 
-```toml
-[tool.pytest.ini_options]
-markers = [
-  "cad_kernel: tests that require CadQuery/OCP STEP generation",
-  "requires_ansa: tests that require a real ANSA executable/license",
-  "model: tests that require ML framework components"
-]
-```
+## Model Tests
 
-## 4. P0 required tests
+Part classifier:
 
-```text
-test_schema_files_are_valid_json
-test_manifest_example_validates
-test_make_even
-test_clamp
-test_curvature_formula
-test_h0_formula
-test_hole_label_rule
-test_slot_label_rule
-test_cutout_label_rule
-test_bend_label_rule
-test_flange_label_rule
-test_smooth_log_sizes_bounds
-test_smooth_log_sizes_growth_rate
-test_no_amg_import_in_cdf
-test_ansa_import_scope
-test_graph_schema_has_no_target_action_column
-```
+- deterministic feature extraction
+- trained model can be saved and loaded
+- confusion matrix is produced
+- uncertainty is handled explicitly
 
-## 5. CDF acceptance tests
+Segmentation model:
 
-```text
-flat panel STEP export success
-single flange constant thickness
-L bracket bend radius
-U channel two bends
-hat channel four bends
-no feature intersects boundary
-no feature intersects bend
-feature truth matching recall on smoke samples
-sample directory contains all required files
-labels/amg_manifest.json validates AMG_MANIFEST_SM_V1
-```
+- forward pass on B-rep graph
+- face and edge output shapes
+- masked loss ignores unlabeled entities
+- per-class metrics are reported
 
-## 6. AMG acceptance tests
+Size-field model:
+
+- surrogate predicts local quality response for candidate edge sizes
+- optimizer chooses one size per edge without baseline selection
+- optional one size per face
+- applies `h_min`, `h_max`, and user growth-rate projection
+- does not read target size from graph inputs
+- reports uncertainty or threshold risk when repeated meshing outcomes vary
+
+## Real ANSA Gates
+
+Use the verified executable when available:
 
 ```text
-valid flat STEP produces VALID manifest
-non-constant thickness produces OUT_OF_SCOPE
-unknown role feature cannot be suppressed
-hole washer downgrade occurs when clearance is insufficient
-retry policy modifies only allowed controls
-MESH_FAILED is produced after retry exhaustion
+C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat
 ```
 
-## 7. ANSA report parser and rejection tests
-
-Use schema-valid failed JSON reports for parser and rejection cases:
+Minimum real gate for the new architecture:
 
 ```text
-all pass
-STEP import failure
-midsurface extraction failure
-entity matching failure
-batch mesh failure
-hard failed elements > 0
-feature boundary size error too large
-bend row error too large
-controlled_failure_reason present
-mock or unavailable ansa_version
-placeholder mesh path
+1. generate a compact diverse clean CAD set
+2. train or load part classifier
+3. train or load segmentation model
+4. train or load entity-local quality surrogate
+5. optimize or infer held-out size fields
+6. apply predicted size field in ANSA
+7. validate global and local mesh quality
 ```
 
-These fixtures must never be used as accepted dataset samples.
+Success requires real execution reports, real quality reports, zero hard failed elements,
+available local metrics, and non-empty BDF files.
 
-## 8. Quality gates by phase
+## What Not To Count
 
-```text
-P0:
-  all pure unit tests pass
-  dependency boundary tests pass
+Never count these as success:
 
-P1:
-  manifest/schema writer tests pass
-  sample writer tests pass
-
-P2:
-  CAD smoke tests pass for flat panel and at least one bent family
-
-P3:
-  graph topology tests pass
-  feature truth matching tests pass
-
-P4:
-  ANSA parser and rejection tests pass
-  requires_ansa real one-sample gate passes when ANSA is configured
-
-P5:
-  AMG rule-only pipeline smoke passes
-
-P6:
-  dataset loader and model smoke tests pass
-
-P7:
-  cdf generate creates real ANSA-accepted samples
-  cdf validate --require-ansa passes
-  AMG training consumes only real accepted samples
-  AMG inference-to-ANSA produces real quality-passing meshes or explicit MESH_FAILED/OUT_OF_SCOPE reports
-```
-
-## 9. Test data policy
-
-```text
-- Keep small deterministic fixtures under tests/fixtures/.
-- Do not commit large generated datasets.
-- Large datasets go under datasets/ and should be ignored by git unless explicitly packaged.
-- Failed ANSA reports are allowed in tests/fixtures/ansa_reports/ for parser and rejection tests.
-- Mock adapters and placeholder outputs are allowed only when a test asserts that production validation rejects them, or when testing AMG method mapping without claiming acceptance.
-```
+- dry run
+- mock ANSA
+- unavailable ANSA
+- controlled failure report
+- placeholder BDF
+- baseline mesh selected instead of AI output
+- local metric placeholder
+- schema-valid but behaviorally fake report

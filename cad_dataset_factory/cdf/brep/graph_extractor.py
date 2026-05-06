@@ -10,8 +10,8 @@ from typing import Any
 
 import numpy as np
 
-SCHEMA_VERSION = "AMG_BREP_GRAPH_SM_V1"
-NODE_TYPES = ["PART", "FACE", "EDGE", "COEDGE", "VERTEX", "FEATURE_CANDIDATE"]
+SCHEMA_VERSION = "CDF_BREP_TOPOLOGY_INTERNAL_V1"
+NODE_TYPES = ["PART", "FACE", "EDGE", "COEDGE", "VERTEX"]
 EDGE_TYPES = [
     "PART_HAS_FACE",
     "FACE_HAS_COEDGE",
@@ -21,24 +21,6 @@ EDGE_TYPES = [
     "COEDGE_PREV",
     "COEDGE_MATE",
     "FACE_ADJACENT_FACE",
-    "FEATURE_CONTAINS_FACE",
-    "FEATURE_CONTAINS_EDGE",
-]
-FEATURE_CANDIDATE_COLUMNS = [
-    "feature_type_id",
-    "role_id",
-    "size_1_over_Lref",
-    "size_2_over_Lref",
-    "radius_over_Lref",
-    "width_over_Lref",
-    "length_over_Lref",
-    "center_x_over_Lref",
-    "center_y_over_Lref",
-    "center_z_over_Lref",
-    "distance_to_outer_boundary_over_Lref",
-    "distance_to_nearest_feature_over_Lref",
-    "clearance_ratio",
-    "expected_action_mask",
 ]
 
 PART_FEATURE_COLUMNS = ["num_faces", "num_edges", "num_vertices", "num_coedges", "bbox_x", "bbox_y", "bbox_z"]
@@ -82,7 +64,11 @@ def graph_schema_document() -> dict[str, Any]:
         "schema_version": SCHEMA_VERSION,
         "node_types": NODE_TYPES,
         "edge_types": EDGE_TYPES,
-        "feature_candidate_columns": FEATURE_CANDIDATE_COLUMNS,
+        "part_feature_columns": PART_FEATURE_COLUMNS,
+        "face_feature_columns": FACE_FEATURE_COLUMNS,
+        "edge_feature_columns": EDGE_FEATURE_COLUMNS,
+        "coedge_feature_columns": COEDGE_FEATURE_COLUMNS,
+        "vertex_feature_columns": VERTEX_FEATURE_COLUMNS,
     }
 
 
@@ -140,7 +126,7 @@ def _import_step(path: str | Path) -> Any:
 
 
 def extract_brep_graph(step_path: str | Path) -> BrepGraph:
-    """Extract a structural AMG_BREP_GRAPH_SM_V1 graph from a STEP file."""
+    """Extract an internal structural B-rep graph from a STEP file."""
 
     shape = _import_step(step_path)
     faces = list(shape.Faces())
@@ -257,7 +243,6 @@ def extract_brep_graph(step_path: str | Path) -> BrepGraph:
     )
     vertex_features = _array([list(_shape_center(vertex)) for vertex in vertices], len(VERTEX_FEATURE_COLUMNS))
     coedge_features = _array(coedge_rows, len(COEDGE_FEATURE_COLUMNS))
-    feature_candidate_features = np.empty((0, len(FEATURE_CANDIDATE_COLUMNS)), dtype=np.float64)
     node_type_ids = np.concatenate(
         [
             np.full(1, NODE_TYPES.index("PART"), dtype=np.int64),
@@ -277,8 +262,6 @@ def extract_brep_graph(step_path: str | Path) -> BrepGraph:
         "COEDGE_PREV": _adjacency(adj_prev),
         "COEDGE_MATE": _adjacency(adj_mate),
         "FACE_ADJACENT_FACE": _adjacency(sorted(adj_face_adjacent)),
-        "FEATURE_CONTAINS_FACE": _adjacency([]),
-        "FEATURE_CONTAINS_EDGE": _adjacency([]),
     }
     arrays = {
         "node_type_ids": node_type_ids,
@@ -287,7 +270,6 @@ def extract_brep_graph(step_path: str | Path) -> BrepGraph:
         "edge_features": edge_features,
         "coedge_features": coedge_features,
         "vertex_features": vertex_features,
-        "feature_candidate_features": feature_candidate_features,
         "coedge_next": adjacency["COEDGE_NEXT"],
         "coedge_prev": adjacency["COEDGE_PREV"],
         "coedge_mate": adjacency["COEDGE_MATE"],
@@ -300,24 +282,9 @@ def extract_brep_graph(step_path: str | Path) -> BrepGraph:
 def validate_brep_graph_structure(graph: BrepGraph) -> None:
     """Validate structural array and coedge invariants for a B-rep graph."""
 
-    for key in ("node_type_ids", "part_features", "face_features", "edge_features", "coedge_features", "vertex_features", "feature_candidate_features"):
+    for key in ("node_type_ids", "part_features", "face_features", "edge_features", "coedge_features", "vertex_features"):
         if key not in graph.arrays:
             raise BrepGraphBuildError("missing_graph_array", f"missing array {key}")
-    feature_rows = graph.arrays["feature_candidate_features"]
-    if feature_rows.ndim != 2 or feature_rows.shape[1] != len(FEATURE_CANDIDATE_COLUMNS):
-        raise BrepGraphBuildError(
-            "invalid_feature_candidate_array",
-            "feature_candidate_features must match feature_candidate_columns",
-        )
-    if "feature_candidate_ids" in graph.arrays and graph.arrays["feature_candidate_ids"].shape[0] != feature_rows.shape[0]:
-        raise BrepGraphBuildError("invalid_feature_candidate_ids", "feature_candidate_ids must match candidate row count")
-    if "feature_candidate_metadata_json" in graph.arrays and graph.arrays["feature_candidate_metadata_json"].shape[0] != feature_rows.shape[0]:
-        raise BrepGraphBuildError(
-            "invalid_feature_candidate_metadata",
-            "feature_candidate_metadata_json must match candidate row count",
-        )
-    if graph.candidate_metadata and len(graph.candidate_metadata) != feature_rows.shape[0]:
-        raise BrepGraphBuildError("invalid_feature_candidate_metadata", "candidate_metadata must match candidate row count")
     for edge_type in EDGE_TYPES:
         if edge_type not in graph.adjacency:
             raise BrepGraphBuildError("missing_adjacency_array", f"missing adjacency for {edge_type}")

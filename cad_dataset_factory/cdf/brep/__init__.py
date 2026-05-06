@@ -1,11 +1,14 @@
-"""B-rep graph extraction utilities for CDF."""
+"""B-rep graph extraction utilities for the primary v2 entity pipeline."""
 
-from cad_dataset_factory.cdf.brep.feature_detector import (
-    DetectedFeatureCandidate,
-    FeatureCandidateDetectionError,
-    attach_feature_candidates,
-    detect_feature_candidates,
-    extract_brep_graph_with_candidates,
+from cad_dataset_factory.cdf.brep.entity_graph import (
+    EntityBrepGraph,
+    entity_graph_schema_document,
+    extract_entity_brep_graph,
+    from_legacy_brep_graph,
+    validate_entity_brep_graph_structure,
+    write_entity_brep_graph,
+    write_entity_graph_schema,
+    write_entity_signatures,
 )
 from cad_dataset_factory.cdf.brep.graph_extractor import (
     BrepGraph,
@@ -19,13 +22,16 @@ from cad_dataset_factory.cdf.brep.graph_extractor import (
 __all__ = [
     "BrepGraph",
     "BrepGraphBuildError",
-    "DetectedFeatureCandidate",
-    "FeatureCandidateDetectionError",
-    "attach_feature_candidates",
-    "detect_feature_candidates",
+    "EntityBrepGraph",
+    "entity_graph_schema_document",
     "extract_brep_graph",
-    "extract_brep_graph_with_candidates",
+    "extract_entity_brep_graph",
+    "from_legacy_brep_graph",
     "validate_brep_graph_structure",
+    "validate_entity_brep_graph_structure",
     "write_brep_graph",
+    "write_entity_brep_graph",
+    "write_entity_graph_schema",
+    "write_entity_signatures",
     "write_graph_schema",
 ]

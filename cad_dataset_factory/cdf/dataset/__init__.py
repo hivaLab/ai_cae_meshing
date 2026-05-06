@@ -1,15 +1,6 @@
-"""Dataset writer utilities for CDF."""
+"""Legacy sample-writer namespace.
 
-from cad_dataset_factory.cdf.dataset.sample_writer import (
-    SampleWriteError,
-    build_sample_acceptance,
-    write_dataset_index,
-    write_sample_directory,
-)
+The primary dataset writer is now ``cad_dataset_factory.cdf.entity_pipeline``.
+"""
 
-__all__ = [
-    "SampleWriteError",
-    "build_sample_acceptance",
-    "write_dataset_index",
-    "write_sample_directory",
-]
+__all__: list[str] = []

@@ -44,11 +44,15 @@ def test_ansa_import_scope() -> None:
             assert token not in text, f"ANSA API import outside ANSA script in {path}"
 
 
-def test_graph_schema_has_no_target_action_column() -> None:
-    graph_schema = (ROOT / "contracts" / "AMG_BREP_GRAPH_SM_V1.schema.json").read_text(encoding="utf-8")
+def test_entity_graph_schema_has_no_target_or_quality_columns() -> None:
+    graph_schema = (ROOT / "contracts" / "AMG_BREP_ENTITY_GRAPH_SM_V2.schema.json").read_text(encoding="utf-8")
     forbidden = [
         "target_action_id",
         "target_edge_length_mm",
+        "target",
+        "label",
+        "quality",
+        "action",
         "circumferential_divisions",
         "washer_rings",
         "bend_rows",

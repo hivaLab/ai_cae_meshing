@@ -1,25 +1,21 @@
-"""AMG dataset loading namespace."""
+"""AMG v2 entity dataset loading namespace."""
 
-from ai_mesh_generator.amg.dataset.loader import (
-    AmgDatasetLoadError,
-    AmgDatasetSample,
-    AmgManifestLabel,
-    BrepGraphInput,
-    iter_amg_dataset_samples,
-    load_amg_dataset_sample,
-    load_brep_graph_input,
-    load_dataset_index,
-    load_manifest_label,
+from ai_mesh_generator.amg.dataset.entity_loader import (
+    EntityBrepGraphInput,
+    EntityDatasetLoadError,
+    EntityDatasetSample,
+    EntityLabelSet,
+    load_entity_brep_graph_input,
+    load_entity_dataset_sample,
+    load_entity_label_set,
 )
 
 __all__ = [
-    "AmgDatasetLoadError",
-    "AmgDatasetSample",
-    "AmgManifestLabel",
-    "BrepGraphInput",
-    "iter_amg_dataset_samples",
-    "load_amg_dataset_sample",
-    "load_brep_graph_input",
-    "load_dataset_index",
-    "load_manifest_label",
+    "EntityBrepGraphInput",
+    "EntityDatasetLoadError",
+    "EntityDatasetSample",
+    "EntityLabelSet",
+    "load_entity_brep_graph_input",
+    "load_entity_dataset_sample",
+    "load_entity_label_set",
 ]

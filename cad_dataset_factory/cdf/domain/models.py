@@ -45,20 +45,6 @@ class FeatureRole(str, Enum):
     UNKNOWN = "UNKNOWN"
 
 
-class ManifestAction(str, Enum):
-    KEEP_REFINED = "KEEP_REFINED"
-    KEEP_WITH_WASHER = "KEEP_WITH_WASHER"
-    SUPPRESS = "SUPPRESS"
-    KEEP_WITH_BEND_ROWS = "KEEP_WITH_BEND_ROWS"
-    KEEP_WITH_FLANGE_SIZE = "KEEP_WITH_FLANGE_SIZE"
-
-
-class ManifestStatus(str, Enum):
-    VALID = "VALID"
-    OUT_OF_SCOPE = "OUT_OF_SCOPE"
-    MESH_FAILED = "MESH_FAILED"
-
-
 class PartParams(CdfBaseModel):
     part_name: str
     part_class: PartClass
@@ -74,7 +60,7 @@ class MeshPolicy(CdfBaseModel):
     h_min_mm: float = Field(gt=0)
     h_max_mm: float = Field(gt=0)
     growth_rate_max: float = Field(gt=1)
-    quality_profile: Literal["AMG_QA_SHELL_V1"] = "AMG_QA_SHELL_V1"
+    quality_profile: Literal["AMG_QA_SHELL_V2"] = "AMG_QA_SHELL_V2"
 
     @model_validator(mode="after")
     def validate_bounds(self) -> MeshPolicy:
@@ -152,96 +138,3 @@ class FeatureTruthDocument(CdfBaseModel):
     sample_id: str
     part: PartParams
     features: list[FeatureTruth]
-
-
-class FeatureEntitySignature(CdfBaseModel):
-    feature_id: str
-    type: FeatureType
-    role: FeatureRole
-    signature: dict[str, Any]
-
-
-class EntitySignaturesDocument(CdfBaseModel):
-    schema_version: Literal["CDF_ENTITY_SIGNATURES_SM_V1"] = "CDF_ENTITY_SIGNATURES_SM_V1"
-    sample_id: str
-    part_name: str
-    features: list[FeatureEntitySignature]
-
-
-class HoleRefinedControl(CdfBaseModel):
-    edge_target_length_mm: float = Field(gt=0)
-    circumferential_divisions: int = Field(gt=0)
-    radial_growth_rate: float = Field(gt=1)
-
-
-class HoleWasherControl(HoleRefinedControl):
-    washer_rings: int = Field(ge=1)
-    washer_outer_radius_mm: float = Field(gt=0)
-
-
-class SlotControl(CdfBaseModel):
-    edge_target_length_mm: float = Field(gt=0)
-    end_arc_divisions: int | None = Field(default=None, gt=0)
-    slot_end_divisions: int | None = Field(default=None, gt=0)
-    straight_edge_divisions: int = Field(gt=0)
-    growth_rate: float = Field(gt=1)
-
-    @model_validator(mode="after")
-    def validate_end_divisions(self) -> SlotControl:
-        if self.end_arc_divisions is None and self.slot_end_divisions is None:
-            raise ValueError("end_arc_divisions or slot_end_divisions is required")
-        return self
-
-
-class CutoutControl(CdfBaseModel):
-    edge_target_length_mm: float = Field(gt=0)
-    perimeter_growth_rate: float = Field(gt=1)
-
-
-class BendControl(CdfBaseModel):
-    bend_rows: int = Field(gt=0)
-    bend_target_length_mm: float = Field(gt=0)
-    growth_rate: float = Field(gt=1)
-
-
-class FlangeControl(CdfBaseModel):
-    flange_target_length_mm: float | None = Field(default=None, gt=0)
-    free_edge_target_length_mm: float | None = Field(default=None, gt=0)
-    min_elements_across_width: int = Field(gt=0)
-
-    @model_validator(mode="after")
-    def validate_target_length(self) -> FlangeControl:
-        if self.flange_target_length_mm is None and self.free_edge_target_length_mm is None:
-            raise ValueError("flange_target_length_mm or free_edge_target_length_mm is required")
-        return self
-
-
-class SuppressionControl(CdfBaseModel):
-    reason: str | None = None
-    suppression_rule: str | None = None
-
-    @model_validator(mode="after")
-    def validate_reason(self) -> SuppressionControl:
-        if self.reason is None and self.suppression_rule is None:
-            raise ValueError("reason or suppression_rule is required")
-        return self
-
-
-ManifestControls: TypeAlias = (
-    HoleWasherControl
-    | HoleRefinedControl
-    | SlotControl
-    | CutoutControl
-    | BendControl
-    | FlangeControl
-    | SuppressionControl
-)
-
-
-class ManifestFeatureRecord(CdfBaseModel):
-    feature_id: str
-    type: FeatureType
-    role: FeatureRole
-    action: ManifestAction
-    controls: ManifestControls
-    geometry_signature: dict[str, Any] | None = None

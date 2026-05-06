@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "CDF_ENTITY_QUALITY_EVALUATION_SM_V2.schema.json",
+  "title": "CDF_ENTITY_QUALITY_EVALUATION_SM_V2",
+  "type": "object",
+  "required": ["schema_version", "sample_id", "evaluation_id", "size_field_path", "entity_quality", "global_quality_summary"],
+  "properties": {
+    "schema_version": {"const": "CDF_ENTITY_QUALITY_EVALUATION_SM_V2"},
+    "sample_id": {"type": "string", "minLength": 1},
+    "evaluation_id": {"type": "string", "minLength": 1},
+    "size_field_path": {"type": "string", "minLength": 1},
+    "entity_quality": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "entity_signature_id",
+          "entity_type",
+          "candidate_target_size_mm",
+          "candidate_growth_rate",
+          "measured_quality_margin",
+          "hard_fail",
+          "near_fail",
+          "metric_available"
+        ],
+        "properties": {
+          "entity_signature_id": {"type": "string", "minLength": 1},
+          "entity_type": {"enum": ["EDGE", "FACE"]},
+          "semantic_label": {"type": "string"},
+          "candidate_target_size_mm": {"type": "number", "exclusiveMinimum": 0},
+          "candidate_neighbor_size_ratio_max": {"type": "number", "minimum": 1},
+          "candidate_growth_rate": {"type": "number", "minimum": 1},
+          "measured_quality_margin": {"type": "number"},
+          "measured_boundary_size_error": {"type": "number", "minimum": 0},
+          "hard_fail": {"type": "boolean"},
+          "near_fail": {"type": "boolean"},
+          "metric_available": {"type": "boolean"},
+          "metric_unavailable_reason": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "global_quality_summary": {"type": "object"}
+  },
+  "additionalProperties": false
+}

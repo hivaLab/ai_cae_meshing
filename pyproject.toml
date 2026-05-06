@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ai-cae-meshing"
 version = "0.1.0"
-description = "AMG/CDF contract-first bootstrap for sheet-metal mesh-control manifests."
+description = "CAD-native AI meshing pipeline for sheet-metal B-rep entity size fields."
 requires-python = ">=3.11"
 dependencies = [
   "jsonschema>=4.22,<5",
@@ -18,20 +18,17 @@ cad = [
   "cadquery>=2.5,<3"
 ]
 model = [
-  "torch>=2,<3"
+  "torch>=2,<3",
+  "scikit-learn>=1.4,<2"
 ]
 
 [project.scripts]
+cdf-entity = "cad_dataset_factory.cdf.entity_cli:main"
 cdf = "cad_dataset_factory.cdf.cli:main"
-amg-train-real = "ai_mesh_generator.amg.training.real:main"
-amg-infer-real = "ai_mesh_generator.amg.inference.real_mesh:main"
-amg-benchmark-report = "ai_mesh_generator.amg.benchmark.real_pipeline:main"
-amg-train-quality = "ai_mesh_generator.amg.training.quality:main"
-amg-quality-benchmark = "ai_mesh_generator.amg.benchmark.quality:main"
-amg-recommend-quality = "ai_mesh_generator.amg.recommendation.quality:main"
-amg-recommendation-benchmark = "ai_mesh_generator.amg.benchmark.recommendation:main"
-amg-propose-quality = "ai_mesh_generator.amg.recommendation.fresh:main"
-amg-diagnose-quality-candidates = "ai_mesh_generator.amg.diagnostics.quality_candidates:main"
+amg-train-part-classifier = "ai_mesh_generator.amg.training.part_classifier:main"
+amg-train-entity-segmentation = "ai_mesh_generator.amg.training.segmentation:main"
+amg-train-quality-surrogate = "ai_mesh_generator.amg.training.quality_surrogate:main"
+amg-optimize-size-field = "ai_mesh_generator.amg.optimization.size_field:main"
 
 [tool.setuptools.packages.find]
 include = ["ai_mesh_generator*", "cad_dataset_factory*"]

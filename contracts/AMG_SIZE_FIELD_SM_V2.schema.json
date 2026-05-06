@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "AMG_SIZE_FIELD_SM_V2.schema.json",
+  "title": "AMG_SIZE_FIELD_SM_V2",
+  "type": "object",
+  "required": ["schema_version", "sample_id", "cad_file", "unit", "global_mesh", "edge_sizes", "face_sizes"],
+  "properties": {
+    "schema_version": {"const": "AMG_SIZE_FIELD_SM_V2"},
+    "sample_id": {"type": "string", "minLength": 1},
+    "cad_file": {"type": "string", "minLength": 1},
+    "unit": {"const": "mm"},
+    "global_mesh": {
+      "type": "object",
+      "required": ["h0_mm", "h_min_mm", "h_max_mm", "growth_rate", "quality_profile"],
+      "properties": {
+        "h0_mm": {"type": "number", "exclusiveMinimum": 0},
+        "h_min_mm": {"type": "number", "exclusiveMinimum": 0},
+        "h_max_mm": {"type": "number", "exclusiveMinimum": 0},
+        "growth_rate": {"type": "number", "minimum": 1.0},
+        "quality_profile": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "edge_sizes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["edge_signature_id", "target_size_mm"],
+        "properties": {
+          "edge_signature_id": {"type": "string", "minLength": 1},
+          "target_size_mm": {"type": "number", "exclusiveMinimum": 0},
+          "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+          "source": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "face_sizes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["face_signature_id", "target_size_mm"],
+        "properties": {
+          "face_signature_id": {"type": "string", "minLength": 1},
+          "target_size_mm": {"type": "number", "exclusiveMinimum": 0},
+          "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+          "source": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

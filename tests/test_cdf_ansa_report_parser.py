@@ -11,7 +11,6 @@ from cad_dataset_factory.cdf.oracle import (
     parse_ansa_quality_report,
     summarize_ansa_reports,
 )
-from cad_dataset_factory.cdf.oracle.ansa_scripts import cdf_ansa_oracle
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -157,36 +156,3 @@ def test_quality_report_requires_hard_fail_metric() -> None:
         parse_ansa_quality_report(report)
     assert exc_info.value.code == "missing_quality_metric"
 
-
-def test_controlled_failure_execution_report_from_t402_parses() -> None:
-    sample_dir = ROOT / "runs" / "pytest_tmp_local" / "test_cdf_ansa_report_parser" / "samples" / "sample_000402"
-    (sample_dir / "labels").mkdir(parents=True, exist_ok=True)
-    (sample_dir / "labels" / "amg_manifest.json").write_text(
-        '{"schema_version":"AMG_MANIFEST_SM_V1","status":"VALID"}\n',
-        encoding="utf-8",
-    )
-    argv = [
-        "--sample-dir",
-        sample_dir.as_posix(),
-        "--manifest",
-        (sample_dir / "labels" / "amg_manifest.json").as_posix(),
-        "--execution-report",
-        (sample_dir / "reports" / "ansa_execution_report.json").as_posix(),
-        "--quality-report",
-        (sample_dir / "reports" / "ansa_quality_report.json").as_posix(),
-        "--batch-mesh-session",
-        "AMG_SHELL_CONST_THICKNESS_V1",
-        "--quality-profile",
-        "AMG_QA_SHELL_V1",
-        "--solver-deck",
-        "NASTRAN",
-        "--save-ansa-database",
-        "true",
-    ]
-
-    cdf_ansa_oracle.main(argv)
-    parsed = parse_ansa_execution_report(sample_dir / "reports" / "ansa_execution_report.json")
-
-    assert parsed.sample_id == "sample_000402"
-    assert parsed.accepted is False
-    assert parsed.outputs["controlled_failure_reason"] == "ansa_api_unavailable"

@@ -1,17 +1,7 @@
-"""End-to-end CDF dataset pipeline orchestration."""
+"""Legacy CDF pipeline namespace.
 
-from cad_dataset_factory.cdf.pipeline.e2e_dataset import (
-    CdfPipelineError,
-    GenerateDatasetResult,
-    ValidateDatasetResult,
-    generate_dataset,
-    validate_dataset,
-)
+The manifest-oriented e2e pipeline is no longer a primary API.  Use
+``cad_dataset_factory.cdf.entity_pipeline`` instead.
+"""
 
-__all__ = [
-    "CdfPipelineError",
-    "GenerateDatasetResult",
-    "ValidateDatasetResult",
-    "generate_dataset",
-    "validate_dataset",
-]
+__all__: list[str] = []

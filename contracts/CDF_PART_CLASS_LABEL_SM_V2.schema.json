@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "CDF_PART_CLASS_LABEL_SM_V2.schema.json",
+  "title": "CDF_PART_CLASS_LABEL_SM_V2",
+  "type": "object",
+  "required": ["schema_version", "sample_id", "part_class", "source"],
+  "properties": {
+    "schema_version": {"const": "CDF_PART_CLASS_LABEL_SM_V2"},
+    "sample_id": {"type": "string", "minLength": 1},
+    "part_class": {
+      "enum": ["SM_FLAT_PANEL", "SM_SINGLE_FLANGE", "SM_L_BRACKET", "SM_U_CHANNEL", "SM_HAT_CHANNEL", "OTHER"]
+    },
+    "source": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": false
+}

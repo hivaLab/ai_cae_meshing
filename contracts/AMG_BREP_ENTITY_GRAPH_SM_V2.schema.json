@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "AMG_BREP_ENTITY_GRAPH_SM_V2.schema.json",
+  "title": "AMG_BREP_ENTITY_GRAPH_SM_V2",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "node_types",
+    "edge_types",
+    "part_feature_columns",
+    "face_feature_columns",
+    "edge_feature_columns",
+    "coedge_feature_columns",
+    "vertex_feature_columns"
+  ],
+  "properties": {
+    "schema_version": {"const": "AMG_BREP_ENTITY_GRAPH_SM_V2"},
+    "node_types": {
+      "type": "array",
+      "items": {"enum": ["PART", "FACE", "EDGE", "COEDGE", "VERTEX"]},
+      "uniqueItems": true
+    },
+    "edge_types": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "PART_HAS_FACE",
+          "FACE_HAS_COEDGE",
+          "COEDGE_HAS_EDGE",
+          "EDGE_HAS_VERTEX",
+          "COEDGE_NEXT",
+          "COEDGE_PREV",
+          "COEDGE_MATE",
+          "FACE_ADJACENT_FACE"
+        ]
+      },
+      "uniqueItems": true
+    },
+    "part_feature_columns": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "face_feature_columns": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "edge_feature_columns": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "coedge_feature_columns": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "vertex_feature_columns": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+  },
+  "additionalProperties": false
+}

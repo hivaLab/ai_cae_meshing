@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "CDF_EDGE_SEGMENTATION_SM_V2.schema.json",
+  "title": "CDF_EDGE_SEGMENTATION_SM_V2",
+  "type": "object",
+  "required": ["schema_version", "sample_id", "labels"],
+  "properties": {
+    "schema_version": {"const": "CDF_EDGE_SEGMENTATION_SM_V2"},
+    "sample_id": {"type": "string", "minLength": 1},
+    "labels": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["edge_signature_id", "semantic_label"],
+        "properties": {
+          "edge_signature_id": {"type": "string", "minLength": 1},
+          "semantic_label": {
+            "enum": ["OUTER_BOUNDARY", "HOLE_BOUNDARY", "SLOT_BOUNDARY", "CUTOUT_BOUNDARY", "BEND_EDGE", "FREE_EDGE", "INTERNAL", "OTHER"]
+          },
+          "instance_id": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

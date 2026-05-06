@@ -5,7 +5,6 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from jsonschema import Draft202012Validator
 
 from cad_dataset_factory.cdf import brep
 from cad_dataset_factory.cdf.brep import (
@@ -53,7 +52,6 @@ def test_extract_brep_graph_returns_nonempty_topology() -> None:
     assert graph.arrays["edge_features"].shape[0] > 0
     assert graph.arrays["vertex_features"].shape[0] > 0
     assert graph.arrays["coedge_features"].shape[0] > 0
-    assert graph.arrays["feature_candidate_features"].shape[1] == len(graph.graph_schema["feature_candidate_columns"])
 
 
 def test_write_graph_schema_validates_contract_and_has_no_target_leakage() -> None:
@@ -63,10 +61,8 @@ def test_write_graph_schema_validates_contract_and_has_no_target_leakage() -> No
     write_graph_schema(path, graph)
 
     written = json.loads(path.read_text(encoding="utf-8"))
-    schema = json.loads((ROOT / "contracts" / "AMG_BREP_GRAPH_SM_V1.schema.json").read_text(encoding="utf-8"))
-    Draft202012Validator(schema).validate(written)
     serialized = json.dumps(written)
-    for forbidden in ("target_action_id", "target_edge_length_mm", "circumferential_divisions", "washer_rings", "bend_rows"):
+    for forbidden in ("target_action_id", "target_edge_length_mm", "target", "quality", "action", "circumferential_divisions", "washer_rings", "bend_rows"):
         assert forbidden not in serialized
 
 
@@ -85,7 +81,6 @@ def test_write_brep_graph_creates_required_npz_arrays() -> None:
             "edge_features",
             "coedge_features",
             "vertex_features",
-            "feature_candidate_features",
             "adj_PART_HAS_FACE",
             "adj_FACE_HAS_COEDGE",
             "adj_COEDGE_HAS_EDGE",

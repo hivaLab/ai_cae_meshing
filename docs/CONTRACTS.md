@@ -1,29 +1,20 @@
-# CONTRACTS.md
+# Contracts
 
-## 1. 목적
+## Contract Policy
 
-이 문서는 AMG와 CDF가 공유하는 implementation-level contract이다. `AMG.md`와 `CDF.md`의 의미를 바꾸지 않고, 코딩 에이전트가 사용할 enum, schema version, 파일 경로, label leakage 방지 기준을 한 곳에 고정한다.
+Versioned files are the boundary between CDF, AMG, ANSA scripts, and tests.
 
-## 2. Schema version strings
+Contracts must prevent target leakage. Graph input files must not include:
 
-```text
-AMG_MANIFEST_SM_V1
-AMG_CONFIG_SM_V1
-AMG_FEATURE_OVERRIDES_SM_V1
-AMG_BREP_GRAPH_SM_V1
-CDF_CONFIG_SM_ANSA_V1
-CDF_FEATURE_TRUTH_SM_V1
-CDF_ENTITY_SIGNATURES_SM_V1
-CDF_GEOMETRY_VALIDATION_SM_V1
-CDF_FEATURE_MATCHING_REPORT_SM_V1
-CDF_ANSA_EXECUTION_REPORT_SM_V1
-CDF_ANSA_QUALITY_REPORT_SM_V1
-CDF_SAMPLE_ACCEPTANCE_SM_ANSA_V1
-```
+- target part class
+- target face or edge segmentation labels
+- target edge or face sizes
+- target quality scores
+- reference mesh decision flags
 
-## 3. Canonical enums
+Targets belong under `labels/` or `reports/`, never inside model input arrays.
 
-### 3.1 Part class
+## Canonical Part Classes
 
 ```text
 SM_FLAT_PANEL
@@ -31,321 +22,156 @@ SM_SINGLE_FLANGE
 SM_L_BRACKET
 SM_U_CHANNEL
 SM_HAT_CHANNEL
+OTHER
 ```
 
-### 3.2 Feature type
+`OTHER` is used for out-of-scope or uncertain clean CAD.
+
+## Face Segmentation Classes
 
 ```text
-HOLE
-SLOT
-CUTOUT
-BEND
+BASE_PANEL
 FLANGE
+BEND
+HOLE_WALL
+SLOT_WALL
+CUTOUT_WALL
+SIDE_WALL
+OTHER
+```
+
+## Edge Segmentation Classes
+
+```text
 OUTER_BOUNDARY
+HOLE_BOUNDARY
+SLOT_BOUNDARY
+CUTOUT_BOUNDARY
+BEND_EDGE
+FREE_EDGE
+INTERNAL
+OTHER
 ```
 
-### 3.3 Feature role
+## Mesh Size Field Contract
+
+Schema name:
 
 ```text
-BOLT
-MOUNT
-RELIEF
-DRAIN
-VENT
-PASSAGE
-STRUCTURAL
-UNKNOWN
+AMG_SIZE_FIELD_SM_V2
 ```
 
-### 3.4 Manifest action
-
-```text
-KEEP_REFINED
-KEEP_WITH_WASHER
-SUPPRESS
-KEEP_WITH_BEND_ROWS
-KEEP_WITH_FLANGE_SIZE
-```
-
-### 3.5 Manifest status
-
-```text
-VALID
-OUT_OF_SCOPE
-MESH_FAILED
-```
-
-### 3.6 Rejection or failure reason examples
-
-```text
-not_single_connected_solid
-non_constant_thickness
-midsurface_pairing_failed
-entity_matching_failed
-ambiguous_entity_matching
-quality_not_satisfied_after_retry
-FEATURE_CLEARANCE
-CAD_KERNEL_SOLID
-GEOMETRY_VALIDATION
-FEATURE_TRUTH_MATCHING
-ANSA_ORACLE
-MAX_TOTAL_ATTEMPTS_EXCEEDED
-```
-
-Reason enums may be extended only when the new reason is structured and added to schema/tests.
-
-## 4. AMG manifest contract
-
-Required top-level keys for `status=VALID`:
+Required top-level fields:
 
 ```text
 schema_version
-status
+sample_id
 cad_file
 unit
-part
 global_mesh
-features
-entity_matching
+edge_sizes
+face_sizes
 ```
 
-Required `part` keys:
-
-```text
-part_name
-part_class
-idealization
-thickness_mm
-element_type
-batch_session
-```
-
-Allowed fixed values:
-
-```text
-idealization = midsurface_shell
-element_type = quad_dominant_shell
-batch_session = AMG_SHELL_CONST_THICKNESS_V1
-unit = mm
-```
-
-Required `global_mesh` keys:
+Required global mesh fields:
 
 ```text
 h0_mm
 h_min_mm
 h_max_mm
-growth_rate_max
+growth_rate
 quality_profile
 ```
 
-Required feature keys:
+Edge size record:
 
 ```text
-feature_id
-type
-role
-action
-geometry_signature
-controls
+edge_signature_id
+target_size_mm
+confidence optional
+source optional
 ```
 
-Feature control requirements:
+Face size record:
 
 ```text
-HOLE + KEEP_REFINED:
-  edge_target_length_mm
-  circumferential_divisions
-  radial_growth_rate
-
-HOLE + KEEP_WITH_WASHER:
-  edge_target_length_mm
-  circumferential_divisions
-  washer_rings
-  washer_outer_radius_mm
-  radial_growth_rate
-
-HOLE + SUPPRESS:
-  reason or suppression_rule
-
-SLOT + KEEP_REFINED:
-  edge_target_length_mm
-  end_arc_divisions or slot_end_divisions
-  straight_edge_divisions
-  growth_rate
-
-CUTOUT + KEEP_REFINED:
-  edge_target_length_mm
-  perimeter_growth_rate
-
-BEND + KEEP_WITH_BEND_ROWS:
-  bend_rows
-  bend_target_length_mm
-  growth_rate
-
-FLANGE + KEEP_WITH_FLANGE_SIZE:
-  flange_target_length_mm or free_edge_target_length_mm
-  min_elements_across_width
+face_signature_id
+target_size_mm
+confidence optional
+source optional
 ```
 
-`status=OUT_OF_SCOPE` manifest:
-
-```json
-{
-  "schema_version": "AMG_MANIFEST_SM_V1",
-  "status": "OUT_OF_SCOPE",
-  "reason": "non_constant_thickness"
-}
-```
-
-`status=MESH_FAILED` manifest:
-
-```json
-{
-  "schema_version": "AMG_MANIFEST_SM_V1",
-  "status": "MESH_FAILED",
-  "reason": "quality_not_satisfied_after_retry"
-}
-```
-
-## 5. CDF sample directory contract
+## CDF Label Contracts
 
 ```text
-sample_000001/
-  cad/
-    input.step
-    reference_midsurface.step
-  metadata/
-    generator_params.json
-    feature_truth.json
-    entity_signatures.json
-  graph/
-    brep_graph.npz
-    graph_schema.json
-    face_features.npy
-    edge_features.npy
-    coedge_features.npy
-    feature_features.npy
-    adjacency.json
-  labels/
-    amg_manifest.json
-    face_labels.json
-    edge_labels.json
-    feature_labels.json
-  meshes/
-    ansa_oracle_mesh.bdf
-    ansa_oracle_model.ansa
-  reports/
-    geometry_validation.json
-    feature_matching_report.json
-    ansa_execution_report.json
-    ansa_quality_report.json
-    sample_acceptance.json
+CDF_PART_CLASS_LABEL_SM_V2
+CDF_FACE_SEGMENTATION_SM_V2
+CDF_EDGE_SEGMENTATION_SM_V2
+CDF_MESH_SIZE_FIELD_SM_V2
+CDF_ENTITY_QUALITY_EVALUATION_SM_V2
+CDF_ANSA_EXECUTION_REPORT_SM_V1
+CDF_ANSA_QUALITY_REPORT_SM_V1
 ```
 
-Accepted sample must contain all required files. Rejected samples may contain partial files plus a rejection record.
+## Entity Quality Evaluation Contract
 
-## 6. Graph input contract
-
-Allowed node types:
+Schema name:
 
 ```text
-PART
-FACE
-EDGE
-COEDGE
-VERTEX
-FEATURE_CANDIDATE
+CDF_ENTITY_QUALITY_EVALUATION_SM_V2
 ```
 
-Allowed edge types:
+Required fields:
 
 ```text
-PART_HAS_FACE
-FACE_HAS_COEDGE
-COEDGE_HAS_EDGE
-EDGE_HAS_VERTEX
-COEDGE_NEXT
-COEDGE_PREV
-COEDGE_MATE
-FACE_ADJACENT_FACE
-FEATURE_CONTAINS_FACE
-FEATURE_CONTAINS_EDGE
+schema_version
+sample_id
+evaluation_id
+size_field_path
+entity_quality
+global_quality_summary
 ```
 
-Feature candidate input columns may include:
+Entity quality record:
 
 ```text
-feature_type_id
-role_id
-size_1_over_Lref
-size_2_over_Lref
-radius_over_Lref
-width_over_Lref
-length_over_Lref
-center_x_over_Lref
-center_y_over_Lref
-center_z_over_Lref
-distance_to_outer_boundary_over_Lref
-distance_to_nearest_feature_over_Lref
-clearance_ratio
-expected_action_mask
+entity_signature_id
+entity_type                 # EDGE or FACE
+semantic_label optional
+candidate_target_size_mm
+candidate_neighbor_size_ratio_max
+candidate_growth_rate
+measured_quality_margin
+measured_boundary_size_error optional
+hard_fail
+near_fail
+metric_available
+metric_unavailable_reason optional
 ```
 
-Feature candidate input columns must not include:
+These records are labels. They must not be copied into graph input arrays.
+
+## ANSA Quality Contract
+
+The quality report must separate:
 
 ```text
-target_action_id
-target_edge_length_mm
-circumferential_divisions
-washer_rings
-bend_rows
-any field copied from labels/*.json
+global_mesh_quality
+local_feature_quality
+metric_availability
+artifacts
 ```
 
-## 7. CDF profile contract
+Hard acceptance for `VALID_MESH`:
 
-Allowed dataset profiles:
+- real ANSA execution report exists
+- real quality report exists
+- solver deck exists and is non-empty
+- hard failed element count is zero
+- required local metrics are available
+- local boundary error is within configured threshold
 
-```text
-SM_KEEP_ALL_CUT_FEATURES_V1
-SM_RULED_SMALL_FEATURE_SUPPRESSION_V1
-```
+## Removed Contracts
 
-Profile behavior:
-
-```text
-SM_KEEP_ALL_CUT_FEATURES_V1:
-  allow_small_feature_suppression = false
-  HOLE/SLOT/CUTOUT boundaries are retained and refined.
-
-SM_RULED_SMALL_FEATURE_SUPPRESSION_V1:
-  allow_small_feature_suppression = true
-  RELIEF or DRAIN small features may be suppressed by AMG-SM-V1 rules.
-```
-
-## 8. Quality profile contract
-
-Canonical quality profile name:
-
-```text
-AMG_QA_SHELL_V1
-```
-
-Core thresholds:
-
-```text
-quad fraction >= 0.85
-tria fraction <= 0.15
-aspect ratio <= 5.0
-skew angle <= 60 deg
-warpage <= 15 deg
-min angle >= 30 deg
-max angle <= 150 deg
-Jacobian >= 0.50
-negative Jacobian = 0
-duplicate elements = 0
-unmeshed face = 0
-```
-
-ANSA oracle may use slightly different parser field names, but report normalization must produce comparable fields.
+Feature-action manifest contracts were removed from the active code path. New code must
+publish graph inputs, entity labels, size fields, and real quality evidence instead.

@@ -5,9 +5,9 @@ Last updated: 2026-05-05 KST
 ## Project State
 
 ```text
-Project state        : T-712 AI-only mixed/family quality generalization complete
+Project state        : T-713 mixed/family fresh AI control proposal complete
 Active phase         : P7_REAL_PIPELINE_COMPLETION
-Active task          : T-713_MIXED_FAMILY_FRESH_AI_CONTROL_PROPOSAL
+Active task          : T-714_USER_SCALED_QUALITY_ACTIVE_LEARNING_ROUND
 Primary source docs  : AMG.md, CDF.md
 Execution backend    : ANSA Batch Mesh through adapter/script boundary
 Dataset factory      : CDF-SM-ANSA-V1
@@ -38,6 +38,7 @@ Verified ANSA path   : C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v
 | Fresh active-learning loop | DONE | T-710, 48 fresh real ANSA candidates, 5/6 improved after retraining, benchmark SUCCESS |
 | AI-only quality recommendation | DONE | T-711, 6/6 non-baseline AI manifests produced real ANSA VALID_MESH, no baseline execution |
 | AI-only mixed/family quality generalization | DONE | T-712, 42 real samples, 14/14 mixed/family test VALID_MESH, coverage benchmark SUCCESS |
+| Mixed/family fresh AI control proposal | DONE | T-713, 112 fresh candidates, 14/14 AI-only mixed/family test VALID_MESH, no baseline selection |
 
 ## Current Evidence
 
@@ -45,7 +46,8 @@ Verified ANSA path   : C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v
 Note:
   Older generated run directories through T-707 were cleaned from the workspace after completion.
   Their counts below are historical recorded evidence, not currently retained run artifacts.
-  Retained real ANSA artifacts for immediate reuse are T-708, T-710, and T-711 outputs.
+  Retained real ANSA artifacts for immediate reuse are T-712 and T-713 outputs.
+  Older T-708, T-710, and T-711 run directories were cleaned after their results were recorded.
 
 Historical T-707 benchmark root:
   runs\t707_family_benchmark
@@ -174,6 +176,29 @@ T-712 mixed/family AI-only recommendation gate:
     part_class: SM_FLAT_PANEL=10, SM_SINGLE_FLANGE=1, SM_L_BRACKET=1, SM_U_CHANNEL=1, SM_HAT_CHANNEL=1
     feature_type: HOLE=7, SLOT=4, CUTOUT=4, BEND=8, FLANGE=8
   status=SUCCESS
+
+T-713 mixed/family fresh AI control gate:
+  fresh evidence root: runs\t713_mixed_family_fresh_ai_control\fresh_quality_exploration
+  refreshed training: runs\t713_mixed_family_fresh_ai_control\training_refreshed
+  recommendation root: runs\t713_mixed_family_fresh_ai_control\recommendation_ai_only
+  AI-only benchmark report: runs\t713_mixed_family_fresh_ai_control\recommendation_ai_only_benchmark.json
+  fresh sample_count=14
+  fresh generated_count=112
+  fresh evaluated_count=112
+  fresh blocked_count=0
+  fresh unique_candidate_hash_count=112
+  fresh quality_score_variance=10.314708118915938
+  refreshed training: example_count=322, validation_pairwise_accuracy=0.8978102189781022
+  AI-only recommendation: attempted_count=14, valid_mesh_count=14, selected_non_baseline_count=14, selected_baseline_count=0
+  compare_baseline=false
+  selected_evaluation_ids=[fresh_002, fresh_008, fresh_007, fresh_006, fresh_003, fresh_007, fresh_008, fresh_007, fresh_003, fresh_003, fresh_005, fresh_005, fresh_007, fresh_007]
+  recommended_quality_score_min=0.23220300000000862
+  recommended_quality_score_median=0.9329530000000087
+  recommended_quality_score_max=9.108781000000016
+  test split coverage:
+    part_class: SM_FLAT_PANEL=10, SM_SINGLE_FLANGE=1, SM_L_BRACKET=1, SM_U_CHANNEL=1, SM_HAT_CHANNEL=1
+    feature_type: HOLE=7, SLOT=4, CUTOUT=4, BEND=8, FLANGE=8
+  status=SUCCESS
 ```
 
 ## Blockers And Risks
@@ -194,17 +219,19 @@ T-712 mixed/family AI-only recommendation gate:
 | Baseline fallback masking | resolved | risk-aware mode no longer selects baseline as a successful recommendation; no candidate means `no_ai_candidate_passed_risk_gate` |
 | AI candidate/model quality | resolved for T-711 smoke gate | every T-710 held-out sample now receives a non-baseline AI recommendation with real ANSA VALID_MESH |
 | Mixed/family quality generalization | resolved for T-712 compact gate | held-out test split covers all required part classes and feature types with AI-only real ANSA VALID_MESH |
-| Mixed/family fresh proposal | open | T-712 still chooses among evaluated quality-exploration perturbations; next task should generate fresh AMG candidates on the mixed/family set |
+| Mixed/family fresh proposal | resolved for T-713 | fresh mixed/family candidates generated, evaluated with real ANSA, appended to training evidence, and recommended AI-only |
+| User-scaled active learning | open | next task should run the same quality-aware loop at user-chosen scale and inspect whether fresh candidate diversity and quality learning remain useful |
 
 ## Next Task
 
 ```text
-T-713_MIXED_FAMILY_FRESH_AI_CONTROL_PROPOSAL
+T-714_USER_SCALED_QUALITY_ACTIVE_LEARNING_ROUND
 
-Use the T-712 mixed/family dataset and quality ranker to generate fresh AMG candidate manifests
-for the held-out mixed/family split, evaluate them with real ANSA, retrain with appended evidence,
-and require AI-only non-baseline recommendations to produce real ANSA VALID_MESH without baseline
-fallback or choosing only from the original evaluated perturbation pool.
+Use the completed T-713 mixed/family fresh-candidate pipeline as the working baseline, then run
+a user-scaled quality active-learning round with user-controlled sample count, candidate budget,
+and ANSA budget. The goal is not blind dataset growth; it is to measure whether additional fresh
+candidate evidence improves coverage, score variance, and AI-only real ANSA VALID_MESH reliability
+without baseline fallback.
 ```
 
 ## Session Log Template
@@ -232,6 +259,38 @@ Blockers:
 Next:
   - T-YYY ...
 ```
+
+## Session 2026-05-05 T-713
+
+Completed:
+  - T-713_MIXED_FAMILY_FRESH_AI_CONTROL_PROPOSAL
+  - Generated fresh non-baseline AMG candidates for the T-712 mixed/family test split.
+  - Evaluated fresh candidates with real ANSA, appended evidence, retrained the quality ranker, and closed the AI-only recommendation benchmark with required mixed/family coverage.
+
+Changed files:
+  - docs/STATUS.md
+  - docs/TASKS.md
+  - docs/NEXT_AGENT_PROMPT.md
+
+Tests:
+  - command: python -m pytest
+  - result: PASS, 252 passed, 2 skipped in 11.06s
+
+Real gates:
+  - command: python -m ai_mesh_generator.amg.recommendation.fresh --dataset runs\t712_quality_family_generalization\dataset --quality-exploration runs\t712_quality_family_generalization\quality_exploration --training runs\t712_quality_family_generalization\training_quality --out runs\t713_mixed_family_fresh_ai_control\fresh_quality_exploration --split test --candidates-per-sample 8 --seed 713 --ansa-executable C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat
+  - result: SUCCESS, sample_count=14, generated_count=112, evaluated_count=112, blocked_count=0, quality_score_variance=10.314708118915938
+  - command: python -m ai_mesh_generator.amg.training.quality --dataset runs\t712_quality_family_generalization\dataset --quality-exploration runs\t712_quality_family_generalization\quality_exploration --extra-quality-evidence runs\t713_mixed_family_fresh_ai_control\fresh_quality_exploration --out runs\t713_mixed_family_fresh_ai_control\training_refreshed --epochs 5 --batch-size 32 --seed 713
+  - result: SUCCESS, example_count=322, validation_pairwise_accuracy=0.8978102189781022
+  - command: python -m ai_mesh_generator.amg.recommendation.quality --dataset runs\t712_quality_family_generalization\dataset --quality-exploration runs\t713_mixed_family_fresh_ai_control\fresh_quality_exploration --training runs\t713_mixed_family_fresh_ai_control\training_refreshed --out runs\t713_mixed_family_fresh_ai_control\recommendation_ai_only --split test --risk-aware --ansa-executable C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat
+  - result: SUCCESS, attempted_count=14, valid_pair_count=14, selected_baseline_count=0, compare_baseline=false
+  - command: python -m ai_mesh_generator.amg.benchmark.recommendation --recommendation runs\t713_mixed_family_fresh_ai_control\recommendation_ai_only --out runs\t713_mixed_family_fresh_ai_control\recommendation_ai_only_benchmark.json --ai-only --dataset runs\t712_quality_family_generalization\dataset --split test --required-part-classes SM_FLAT_PANEL,SM_SINGLE_FLANGE,SM_L_BRACKET,SM_U_CHANNEL,SM_HAT_CHANNEL --required-feature-types HOLE,SLOT,CUTOUT,BEND,FLANGE
+  - result: SUCCESS, valid_mesh_count=14, selected_non_baseline_count=14, selected_baseline_count=0, all required coverage present
+
+Blockers:
+  - none
+
+Next:
+  - T-714_USER_SCALED_QUALITY_ACTIVE_LEARNING_ROUND
 
 ## Session 2026-05-03 T-707
 

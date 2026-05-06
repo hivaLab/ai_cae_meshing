@@ -1286,7 +1286,7 @@ selected_baseline_count=0, all required part classes and feature types present.
 
 ### T-713_MIXED_FAMILY_FRESH_AI_CONTROL_PROPOSAL
 
-Status: TODO
+Status: DONE
 
 Goal:
 
@@ -1305,4 +1305,52 @@ the T-712 mixed/family test split. Selection must not read quality_score, status
 artifacts. T-713 is DONE only if the refreshed recommendation benchmark succeeds in AI-only mode
 with required mixed/family coverage, selected_baseline_count=0, hard failed element count 0, and
 non-empty real BDF output for every counted recommendation.
+```
+
+Completion evidence:
+
+```text
+Fresh proposal command:
+python -m ai_mesh_generator.amg.recommendation.fresh --dataset runs\t712_quality_family_generalization\dataset --quality-exploration runs\t712_quality_family_generalization\quality_exploration --training runs\t712_quality_family_generalization\training_quality --out runs\t713_mixed_family_fresh_ai_control\fresh_quality_exploration --split test --candidates-per-sample 8 --seed 713 --ansa-executable C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat
+Result: SUCCESS, sample_count=14, generated_count=112, evaluated_count=112,
+blocked_count=0, unique_candidate_hash_count=112, quality_score_variance=10.314708118915938.
+
+Refreshed training command:
+python -m ai_mesh_generator.amg.training.quality --dataset runs\t712_quality_family_generalization\dataset --quality-exploration runs\t712_quality_family_generalization\quality_exploration --extra-quality-evidence runs\t713_mixed_family_fresh_ai_control\fresh_quality_exploration --out runs\t713_mixed_family_fresh_ai_control\training_refreshed --epochs 5 --batch-size 32 --seed 713
+Result: SUCCESS, example_count=322, validation_pairwise_accuracy=0.8978102189781022.
+
+AI-only recommendation command:
+python -m ai_mesh_generator.amg.recommendation.quality --dataset runs\t712_quality_family_generalization\dataset --quality-exploration runs\t713_mixed_family_fresh_ai_control\fresh_quality_exploration --training runs\t713_mixed_family_fresh_ai_control\training_refreshed --out runs\t713_mixed_family_fresh_ai_control\recommendation_ai_only --split test --risk-aware --ansa-executable C:\Users\r0801\AppData\Local\Apps\BETA_CAE_Systems\ansa_v25.1.0\ansa64.bat
+Result: SUCCESS, attempted_count=14, valid_pair_count=14, selected_non_baseline_count=14,
+selected_baseline_count=0, compare_baseline=false.
+
+AI-only benchmark command:
+python -m ai_mesh_generator.amg.benchmark.recommendation --recommendation runs\t713_mixed_family_fresh_ai_control\recommendation_ai_only --out runs\t713_mixed_family_fresh_ai_control\recommendation_ai_only_benchmark.json --ai-only --dataset runs\t712_quality_family_generalization\dataset --split test --required-part-classes SM_FLAT_PANEL,SM_SINGLE_FLANGE,SM_L_BRACKET,SM_U_CHANNEL,SM_HAT_CHANNEL --required-feature-types HOLE,SLOT,CUTOUT,BEND,FLANGE
+Result: SUCCESS, valid_mesh_count=14, selected_non_baseline_count=14,
+selected_baseline_count=0, all required part classes and feature types present.
+```
+
+### T-714_USER_SCALED_QUALITY_ACTIVE_LEARNING_ROUND
+
+Status: TODO
+
+Goal:
+
+```text
+Scale the completed quality-aware active-learning loop with user-controlled dataset count,
+candidate budget, and ANSA budget. The goal is not blind sample-count growth; it is to measure
+whether additional real ANSA fresh-candidate evidence improves shape/feature/control coverage,
+quality score variance, ranker calibration, and AI-only VALID_MESH reliability without baseline
+fallback.
+```
+
+Acceptance:
+
+```text
+T-714 must expose explicit knobs for sample count, split selection, candidates per sample,
+and ANSA run limit. It must report coverage, quality score variance, fresh candidate uniqueness,
+AI-only recommendation success rate, and failure histograms. Baseline/reference evidence may be
+used only as label-side evidence; no baseline mesh generation, fallback, mock, placeholder,
+controlled failure, unavailable ANSA, synthetic graph targets, or reference_midsurface.step
+model input may count as success.
 ```

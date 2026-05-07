@@ -28,6 +28,10 @@ Completed:
 - `T-806_ANSA_SIZE_FIELD_CONTROL_GATE`
 - `T-811_REAL_AI_SIZE_FIELD_GATE`
 - `T-812_DIVERSE_ENTITY_DATASET_AND_MODEL_VALIDATION`
+- `T-813_ENTITY_MATCHING_AND_QUALITY_EVIDENCE_COVERAGE`
+- `T-814_QUALITY_AWARE_SIZE_FIELD_LEARNING`
+- `T-815_FULL_HELD_OUT_AI_ANSA_GATE`
+- `T-816_PRIMARY_END_TO_END_COMMAND`
 
 Latest regression:
 
@@ -36,78 +40,91 @@ python -m pytest
 ```
 
 ```text
-69 passed
+72 passed
 ```
 
-T-812 real evidence:
+## Real Evidence To Preserve
+
+Slot matching repair:
 
 ```text
 dataset: runs\t812_diverse_entity_validation\dataset
-profile: sm_entity_v2_diverse_quality
-sample count: 32
-train/test split: 24/8
-size sweep: 32 attempted, 17 completed, 3 failed, 12 blocked
-hard_fail rows: 18
-near_fail rows: 18
-quality rows: 260 total, 248 metric_available
+fixed flat slot samples: sample_000002, sample_000010, sample_000018
+per sample sweep: 4 attempted, 3 completed, 1 mesh-quality failed, 0 blocked
 ```
 
-Held-out AI gates:
+Quality-aware training:
 
 ```text
-flat sample: sample_000025, SM_FLAT_PANEL
-status: SUCCESS
-edge size stats: count=10, min/mean/max/std=0.5/0.5899280985082083/0.625/0.04901566409509156
-h_min edge fraction: 0.2
-max boundary size error: 0.004648606178533798
-BDF bytes: 9528865
+output: runs\t813_entity_matching_closure\size_field
+sample_count: 24
+trained_sample_count: 8
+skipped_sample_count: 16
+edge target count: 110
+edge target min/mean/max/std: 0.7875 / 3.1177 / 8.0 / 2.1553 mm
+h_min edge fraction: 0.0
+learning_signal_status: SUCCESS
+```
 
-bent sample: sample_000032, SM_HAT_CHANNEL
+Full AI-to-ANSA workflow:
+
+```text
+workflow: runs\t816_entity_ai_meshing_gate_v2\workflow_report.json
+attempted_count: 8
+valid_mesh_count: 8
 status: SUCCESS
-edge size stats: count=24, min/mean/max/std=0.5/0.5449059218846366/0.625/0.05722437956992055
-h_min edge fraction: 0.5
-max boundary size error: 0.008064516129032473
-BDF bytes: 20326149
+families: SM_FLAT_PANEL, SM_SINGLE_FLANGE, SM_L_BRACKET, SM_U_CHANNEL, SM_HAT_CHANNEL
+num_hard_failed_elements: 0 for every sample
+entity-local metrics: available for every controlled entity
+BDF outputs: non-empty for every sample
 ```
 
 Important caveat:
 
-T-812 proves non-h_min AI size fields can pass real ANSA on one flat and one bent
-held-out sample. It does not prove broad generalization. Quality-aware size-field
-training used only 5 samples with usable evidence because flat slot cases blocked during
-entity matching.
+The compact tool now works end to end, but mesh efficiency and semantic quality are not
+yet strong enough. Predicted edge sizes are still conservative:
+
+```text
+predicted edge size std min/mean on held-out samples: 0.000531993286870984 / 0.03425069807954155
+max h_min edge fraction: 0.9615384615384616
+edge segmentation training accuracy: about 0.70
+face segmentation training accuracy: about 0.956
+```
 
 ## Next Task
 
 Implement:
 
 ```text
-T-813_ENTITY_MATCHING_AND_QUALITY_EVIDENCE_COVERAGE
+T-817_SEGMENTATION_AND_SIZE_EFFICIENCY_IMPROVEMENT
 ```
 
 ## Required Work
 
-1. Diagnose `entity_matching_failed` for flat slot sweep samples:
-   - `sample_000002`
-   - `sample_000010`
-   - `sample_000018`
-2. Compare CDF and ANSA descriptors for failed slot cases and identify whether ambiguity
-   comes from duplicate arcs, line endpoints, loop role, or descriptor tolerance.
-3. Harden descriptor matching without weakening fail-closed behavior.
-4. Re-run `local_quality_v1` sweep on the previously blocked flat slot samples.
-5. Re-train size-field with `--prefer-quality-evidence`.
-6. Confirm trained sample count increases and held-out AI gates still pass with nonzero
-   target-size variance.
+1. Improve edge segmentation fidelity.
+   - Add class-balanced loss or weighted sampling for rare classes.
+   - Report per-class edge confusion/F1, not only aggregate accuracy.
+   - Specifically inspect why flat samples receive `BEND_EDGE` predictions.
+2. Improve size-field efficiency.
+   - Add an efficiency-aware training term or label-selection penalty using shell element
+     count/BDF size and h-min fraction.
+   - Keep hard-fail and local boundary error penalties dominant.
+   - Do not let the model pass by setting almost every edge to `h_min`.
+3. Increase usable quality evidence without broad sample-count expansion.
+   - Run targeted sweeps on skipped train samples.
+   - Preserve failed/near-fail evidence; do not hide it.
+4. Re-run the primary workflow:
+   - `amg-entity-size-field-gate`
+   - same 8-sample test split
+   - real ANSA required
+5. Acceptance should require:
+   - `valid_mesh_count == attempted_count`
+   - zero hard failed elements
+   - all entity-local metrics available
+   - lower h-min fraction than T-816
+   - higher edge-size variance than T-816
+   - improved per-class edge segmentation metrics
 
-## Acceptance Direction
-
-T-813 should be `DONE` only if:
-
-- flat slot sweep no longer blocks with `entity_matching_failed`;
-- quality-aware training uses substantially more than 5 samples;
-- no ambiguous entity match is silently accepted;
-- real ANSA reports, BDFs, and entity-local metrics remain required for counted success;
-- graph arrays still contain no target, quality, label, or action leakage.
-
-If matching remains ambiguous, keep T-813 `IN_PROGRESS` or `BLOCKED` and record the exact
-CDF/ANSA descriptor mismatch rather than widening tolerance until it passes.
+If real ANSA still succeeds only through heavy over-refinement, keep T-817 `IN_PROGRESS`
+and record exact sample-level size distributions and reports rather than claiming a
+quality improvement.

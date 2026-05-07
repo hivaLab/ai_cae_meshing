@@ -244,4 +244,6 @@ The following ideas are no longer primary architecture:
 - graph target columns
 - reference midsurface as model input
 
-Some legacy code may remain until replaced, but new work must not deepen those paths.
+Code paths for these ideas should not remain on the active API or CLI surface. If a
+future experiment needs one of them, it must be introduced as an explicitly scoped
+research artifact and cannot count as pipeline success.

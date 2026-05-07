@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 from pathlib import Path
 from typing import Sequence
 
@@ -57,7 +58,9 @@ def train_size_field_model(
     last_loss = None
     target_rows = 0
     skipped_samples: set[str] = set()
-    for _epoch in range(epochs):
+    metric_edge_targets: list[float] = []
+    metric_h_min_values: list[float] = []
+    for epoch in range(epochs):
         total = torch.tensor(0.0)
         count = 0
         for sample in samples:
@@ -71,6 +74,12 @@ def train_size_field_model(
                 raise
             output = model(tensors)
             loss = _loss(output, targets)
+            if epoch == 0:
+                edge_values = torch.exp(targets.edge_log_h[targets.edge_mask]).detach().cpu().tolist()
+                metric_edge_targets.extend(float(value) for value in edge_values)
+                global_mesh = sample.labels.mesh_size_field.get("global_mesh", {}) if hasattr(sample, "labels") else {}
+                h_min = float(global_mesh.get("h_min_mm", 0.5)) if isinstance(global_mesh, dict) else 0.5
+                metric_h_min_values.extend([h_min] * len(edge_values))
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -92,8 +101,13 @@ def train_size_field_model(
         "seed": seed,
     }
     torch.save(checkpoint, out / "model.pt")
+    edge_target_stats = _edge_target_stats(metric_edge_targets, metric_h_min_values)
+    learning_signal_status = "SUCCESS"
+    if edge_target_stats["count"] == 0 or edge_target_stats["h_min_edge_fraction"] >= 1.0 or edge_target_stats["std"] <= 1.0e-9:
+        learning_signal_status = "FAILED_LEARNING_SIGNAL"
     metrics = {
         "status": "SUCCESS",
+        "learning_signal_status": learning_signal_status,
         "split": split,
         "sample_count": len(samples),
         "trained_sample_count": len(samples) - len(skipped_samples),
@@ -105,9 +119,29 @@ def train_size_field_model(
         "checkpoint": (out / "model.pt").as_posix(),
         "model": "BrepSizeFieldModel",
         "prefer_quality_evidence": prefer_quality_evidence,
+        "edge_target_size_stats": edge_target_stats,
     }
     write_json(out / "metrics.json", metrics)
     return metrics
+
+
+def _edge_target_stats(values: list[float], h_min_values: list[float]) -> dict[str, float | int]:
+    if not values:
+        return {"count": 0, "min": 0.0, "mean": 0.0, "max": 0.0, "std": 0.0, "h_min_edge_fraction": 1.0}
+    mean = sum(values) / len(values)
+    variance = sum((value - mean) ** 2 for value in values) / len(values)
+    h_min_count = 0
+    for value, h_min in zip(values, h_min_values, strict=True):
+        if abs(value - h_min) <= max(1.0e-9, h_min * 1.0e-6):
+            h_min_count += 1
+    return {
+        "count": len(values),
+        "min": min(values),
+        "mean": mean,
+        "max": max(values),
+        "std": math.sqrt(variance),
+        "h_min_edge_fraction": h_min_count / len(values),
+    }
 
 
 def main(argv: Sequence[str] | None = None) -> int:

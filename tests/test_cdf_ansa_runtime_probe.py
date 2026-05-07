@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 import cad_dataset_factory.cdf.oracle.ansa_probe as ansa_probe
-from cad_dataset_factory.cdf.cli import main as cdf_main
+from cad_dataset_factory.cdf.entity_cli import main as cdf_main
 from cad_dataset_factory.cdf.oracle import run_ansa_probe
 
 ROOT = Path(__file__).resolve().parents[1]

@@ -176,7 +176,105 @@ quality evidence and flat slot entity matching still blocks sweep coverage.
 
 ### T-813_ENTITY_MATCHING_AND_QUALITY_EVIDENCE_COVERAGE
 
+Status: `DONE`
+
+Rebased slot arc matching away from unstable center-point comparison and onto endpoint
+pair, radius, curve plane, length, and fail-closed ambiguity checks.
+
+Real evidence:
+
+```text
+fixed samples: sample_000002, sample_000010, sample_000018
+previous blocker: entity_matching_failed on every flat slot sweep variant
+after fix: blocked_count=0 for each flat slot sample
+per slot sample sweep: 4 attempted, 3 completed, 1 mesh-quality failed
+```
+
+The remaining failed variants are real quality failures and remain label-side evidence;
+they are not counted as hidden success.
+
+### T-814_QUALITY_AWARE_SIZE_FIELD_LEARNING
+
+Status: `DONE`
+
+Strengthened quality-aware size-field training diagnostics. Training metrics now expose
+usable sample count, skipped sample count, target-size histogram/statistics, target
+standard deviation, h-min fraction, and `FAILED_LEARNING_SIGNAL` when targets collapse.
+
+Real evidence:
+
+```text
+training output: runs/t813_entity_matching_closure/size_field
+split: train
+sample_count: 24
+trained_sample_count: 8
+skipped_sample_count: 16
+edge target count: 110
+edge target min/mean/max/std: 0.7875 / 3.1177 / 8.0 / 2.1553 mm
+h_min edge fraction: 0.0
+learning_signal_status: SUCCESS
+```
+
+### T-815_FULL_HELD_OUT_AI_ANSA_GATE
+
+Status: `DONE`
+
+Ran AI-predicted size fields through real ANSA on the entire 8-sample test split.
+
+Real evidence:
+
+```text
+workflow: runs/t816_entity_ai_meshing_gate_v2/workflow_report.json
+attempted_count: 8
+valid_mesh_count: 8
+status_counts: SUCCESS=8
+num_hard_failed_elements: 0 for every sample
+entity-local metrics: available for every controlled entity
+BDF outputs: non-empty for every sample
+edge_size_std_min: 0.000531993286870984
+edge_size_std_mean: 0.03425069807954155
+h_min_edge_fraction_max: 0.9615384615384616
+```
+
+Coverage:
+
+```text
+flat: sample_000025, sample_000026, sample_000027, sample_000028
+bent: sample_000029, sample_000030, sample_000031, sample_000032
+families: SM_FLAT_PANEL, SM_SINGLE_FLANGE, SM_L_BRACKET, SM_U_CHANNEL, SM_HAT_CHANNEL
+```
+
+### T-816_PRIMARY_END_TO_END_COMMAND
+
+Status: `DONE`
+
+Added `amg-entity-size-field-gate`, the primary end-to-end runner for:
+
+```text
+train part classifier
+train face/edge segmentation
+train direct size-field model from quality evidence
+infer AI size field on held-out samples
+call cdf-entity ansa-evaluate-size-field via subprocess/file contract
+write workflow_report.json and per-sample gate reports
+```
+
+AMG still does not import CDF Python modules. ANSA evaluation remains outside AMG and is
+called through the CLI/file contract.
+
+### T-817_SEGMENTATION_AND_SIZE_EFFICIENCY_IMPROVEMENT
+
 Status: `TODO`
 
-Harden entity matching and sweep coverage so quality-aware size-field training uses all
-profile cases, especially flat slot and duplicate-like boundary entities.
+Improve mesh efficiency and segmentation fidelity after the first full AI-to-ANSA closure.
+
+Motivation:
+
+- The full gate succeeds on 8/8 held-out samples, but predicted edge sizes are still
+  conservative: most controlled edges stay near `0.5..0.625 mm`.
+- `h_min_edge_fraction_max` is `0.9615`, so one flat combo case is almost all h-min.
+- Edge segmentation train accuracy is only about `0.70`, and flat samples still show
+  semantically suspicious edge histograms such as `BEND_EDGE` predictions.
+
+Next work should improve segmentation class balance, size-label construction, and
+efficiency-aware loss so real ANSA success does not rely on heavy over-refinement.

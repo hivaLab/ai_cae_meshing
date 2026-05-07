@@ -206,8 +206,8 @@ def _signature_records(prefix: str, arrays: dict[str, np.ndarray], adjacency: di
     return records
 
 
-def from_legacy_brep_graph(graph: BrepGraph) -> EntityBrepGraph:
-    """Convert the existing structural graph into the entity-native v2 graph."""
+def from_structural_brep_graph(graph: BrepGraph) -> EntityBrepGraph:
+    """Convert the structural graph extractor output into the entity-native v2 graph."""
 
     validate_brep_graph_structure(graph)
     arrays = {
@@ -229,7 +229,7 @@ def from_legacy_brep_graph(graph: BrepGraph) -> EntityBrepGraph:
 
 
 def extract_entity_brep_graph(step_path: str | Path) -> EntityBrepGraph:
-    return from_legacy_brep_graph(extract_brep_graph(step_path))
+    return from_structural_brep_graph(extract_brep_graph(step_path))
 
 
 def validate_entity_brep_graph_structure(graph: EntityBrepGraph) -> None:

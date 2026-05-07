@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
+from types import SimpleNamespace
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,7 @@ from ai_mesh_generator.amg.inference.size_field import infer_size_field_document
 from ai_mesh_generator.amg.training.part_classifier import train_part_classifier_from_dataset
 from ai_mesh_generator.amg.training.segmentation import train_entity_segmentation_from_dataset
 from ai_mesh_generator.amg.training.size_field import train_size_field_model
+from ai_mesh_generator.amg.workflow.entity_size_field_gate import run_entity_size_field_gate_workflow
 from cad_dataset_factory.cdf.entity_pipeline import generate_entity_dataset, validate_entity_dataset
 from cad_dataset_factory.cdf.labels.entity_labels import PartClass
 from cad_dataset_factory.cdf.quality import write_size_sweep_variants
@@ -71,6 +73,9 @@ def test_primary_training_and_direct_size_field_commands_write_artifacts() -> No
 
     size_metrics = train_size_field_model(dataset, out / "size_field_model", split="train", epochs=5, hidden_dim=16, seed=11)
     assert size_metrics["target_row_count"] >= 4
+    assert size_metrics["edge_target_size_stats"]["count"] > 0
+    assert "h_min_edge_fraction" in size_metrics["edge_target_size_stats"]
+    assert size_metrics["learning_signal_status"] in {"SUCCESS", "FAILED_LEARNING_SIGNAL"}
     assert (out / "size_field_model" / "model.pt").is_file()
     size_field_path = out / "size_field.json"
     with pytest.raises(ValueError):
@@ -258,3 +263,59 @@ def test_diverse_quality_profile_requires_coverage_and_writes_stratified_splits(
     index = json.loads((dataset / "dataset_index.json").read_text(encoding="utf-8"))
     cases = {record["profile_case"] for record in index["samples"] if record["sample_id"] in test_ids}
     assert cases == {"flat_hole", "flat_slot", "flat_cutout", "flat_combo", "single_flange", "l_bracket", "u_channel", "hat_channel"}
+
+
+def test_entity_size_field_workflow_uses_file_contract_for_ansa(monkeypatch) -> None:
+    dataset = _fixture_dataset("workflow_dataset")
+    out = _tmp("workflow_out")
+    calls: list[list[str]] = []
+
+    def fake_run(command, capture_output, text, timeout, check):  # noqa: ANN001
+        calls.append(list(command))
+        out_dir = Path(command[command.index("--out") + 1])
+        size_field_path = Path(command[command.index("--size-field") + 1])
+        size_field = json.loads(size_field_path.read_text(encoding="utf-8"))
+        first_edge = size_field["edge_sizes"][0]
+        out_dir.joinpath("reports").mkdir(parents=True, exist_ok=True)
+        out_dir.joinpath("quality_evaluations", "evaluation_000001").mkdir(parents=True, exist_ok=True)
+        out_dir.joinpath("meshes").mkdir(parents=True, exist_ok=True)
+        out_dir.joinpath("reports", "ansa_execution_report.json").write_text(json.dumps({"accepted": True, "sample_id": "sample_000004"}), encoding="utf-8")
+        out_dir.joinpath("reports", "ansa_quality_report.json").write_text(
+            json.dumps({"accepted": True, "mesh_stats": {"shell_element_count": 12}, "quality": {"num_hard_failed_elements": 0}}),
+            encoding="utf-8",
+        )
+        out_dir.joinpath("quality_evaluations", "evaluation_000001", "entity_quality_labels.json").write_text(
+            json.dumps(
+                {
+                    "entity_quality": [
+                        {
+                            "entity_signature_id": first_edge["edge_signature_id"],
+                            "metric_available": True,
+                            "hard_fail": False,
+                            "measured_boundary_size_error": 0.1,
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        out_dir.joinpath("meshes", "ansa_size_field_mesh.bdf").write_text("$ workflow unit-test bdf\n", encoding="utf-8")
+        return SimpleNamespace(returncode=0, stdout='{"status":"COMPLETED"}', stderr="")
+
+    monkeypatch.setattr("ai_mesh_generator.amg.workflow.entity_size_field_gate.subprocess.run", fake_run)
+    report = run_entity_size_field_gate_workflow(
+        dataset=dataset,
+        ansa_executable=str(ROOT / "fake_ansa64.bat"),
+        out=out,
+        train_split="train",
+        test_split="test",
+        epochs_segmentation=2,
+        epochs_size_field=2,
+        seed=31,
+        timeout_sec=30,
+    )
+    assert calls
+    assert calls[0][2:5] == ["cad_dataset_factory.cdf.entity_cli", "ansa-evaluate-size-field", "--sample-dir"]
+    assert (out / "workflow_report.json").is_file()
+    assert report["gate"]["attempted_count"] == 1
+    assert report["gate"]["valid_mesh_count"] == 1

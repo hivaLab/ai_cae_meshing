@@ -69,6 +69,7 @@ class EntityDescriptor:
     bbox: tuple[float, float, float] | None = None
     center: tuple[float, float, float] | None = None
     anchor: tuple[float, float, float] | None = None
+    endpoint: tuple[float, float, float] | None = None
     raw: dict[str, Any] | None = None
 
 
@@ -137,6 +138,8 @@ def cdf_edge_descriptors(graph_npz: str | Path, entity_signatures: dict[str, Any
         row = rows[index]
         fingerprint = record.get("fingerprint") if isinstance(record.get("fingerprint"), dict) else {}
         vertex_points = fingerprint.get("vertex_points_mm") if isinstance(fingerprint.get("vertex_points_mm"), list) else []
+        anchor = _tuple3(vertex_points[0]) if len(vertex_points) >= 1 else None
+        endpoint = _tuple3(vertex_points[1]) if len(vertex_points) >= 2 else None
         descriptors.append(
             EntityDescriptor(
                 signature_id=str(record["signature_id"]),
@@ -147,7 +150,8 @@ def cdf_edge_descriptors(graph_npz: str | Path, entity_signatures: dict[str, Any
                 length=_positive_float(fingerprint.get("length_mm")) or float(row[1]),
                 bbox=_tuple3(fingerprint.get("bbox_mm")) or (float(row[2]), float(row[3]), float(row[4])),
                 center=_tuple3(fingerprint.get("center_mm")) or (float(row[5]), float(row[6]), float(row[7])),
-                anchor=_tuple3(vertex_points[0]) if vertex_points else None,
+                anchor=anchor,
+                endpoint=endpoint,
             )
         )
     return descriptors
@@ -198,6 +202,7 @@ def _adapter_descriptor(raw: dict[str, Any], entity_type: str, index: int) -> En
         bbox=bbox,
         center=center,
         anchor=anchor,
+        endpoint=endpoint,
         raw=raw_cards or None,
     )
 
@@ -225,11 +230,118 @@ def _distance(left: tuple[float, float, float] | None, right: tuple[float, float
     return math.sqrt(sum((a - b) ** 2 for a, b in zip(left, right, strict=True)))
 
 
+def _endpoint_pair_distance(left: EntityDescriptor, right: EntityDescriptor) -> float | None:
+    if left.anchor is None or left.endpoint is None or right.anchor is None or right.endpoint is None:
+        return None
+    same = _distance(left.anchor, right.anchor) + _distance(left.endpoint, right.endpoint)  # type: ignore[operator]
+    flipped = _distance(left.anchor, right.endpoint) + _distance(left.endpoint, right.anchor)  # type: ignore[operator]
+    return min(same, flipped) * 0.5
+
+
 def _relative_error(left: float | None, right: float | None) -> float | None:
     if left is None or right is None:
         return None
     scale = max(abs(left), abs(right), 1.0)
     return abs(left - right) / scale
+
+
+def _matching_radius(descriptor: EntityDescriptor) -> float | None:
+    if descriptor.curve_type_id != 2:
+        return None
+    if descriptor.bbox is not None:
+        radius = max(abs(value) for value in descriptor.bbox) * 0.5
+        if radius > 1.0e-9:
+            return radius
+    if descriptor.length is not None:
+        if descriptor.anchor is not None and descriptor.endpoint is not None:
+            chord = _distance(descriptor.anchor, descriptor.endpoint)
+            if chord is not None and chord > 1.0e-9 and abs(descriptor.length - math.pi * chord * 0.5) / max(descriptor.length, 1.0) < 0.1:
+                return chord * 0.5
+        if descriptor.length > 0:
+            return descriptor.length / (2.0 * math.pi)
+    return None
+
+
+def _matching_plane_axis(descriptor: EntityDescriptor) -> int | None:
+    if descriptor.bbox is None:
+        return None
+    if abs(descriptor.bbox[2]) <= 1.0e-9:
+        return 2
+    return min(range(3), key=lambda index: abs(descriptor.bbox[index]))
+
+
+def _candidate_mismatch_details(cdf: EntityDescriptor, ansa: EntityDescriptor, tolerance_mm: float, relative_tolerance: float) -> dict[str, Any]:
+    length_error = _relative_error(cdf.length, ansa.length)
+    area_error = _relative_error(cdf.area, ansa.area)
+    endpoint_distance = _endpoint_pair_distance(cdf, ansa)
+    center_distance = _distance(cdf.center, ansa.center)
+    bbox_distance = _distance(cdf.bbox, ansa.bbox)
+    anchor_distance = _distance(cdf.anchor, ansa.anchor)
+    radius_error = _relative_error(_matching_radius(cdf), _matching_radius(ansa))
+    plane_match = _matching_plane_axis(cdf) == _matching_plane_axis(ansa) if _matching_plane_axis(cdf) is not None and _matching_plane_axis(ansa) is not None else None
+    return {
+        "ansa_index": ansa.index,
+        "length_error": length_error,
+        "area_error": area_error,
+        "endpoint_distance_mm": endpoint_distance,
+        "center_distance_mm": center_distance,
+        "bbox_distance_mm": bbox_distance,
+        "anchor_distance_mm": anchor_distance,
+        "radius_error": radius_error,
+        "plane_match": plane_match,
+        "passes_length": length_error is None or length_error <= relative_tolerance,
+        "passes_area": area_error is None or area_error <= relative_tolerance,
+        "passes_endpoint": endpoint_distance is None or endpoint_distance <= tolerance_mm,
+        "passes_radius": radius_error is None or radius_error <= relative_tolerance,
+        "passes_plane": plane_match is None or plane_match,
+    }
+
+
+def _descriptor_score(
+    cdf: EntityDescriptor,
+    ansa: EntityDescriptor,
+    *,
+    tolerance_mm: float,
+    relative_tolerance: float,
+) -> float | None:
+    if cdf.curve_type_id is not None and ansa.curve_type_id is not None and cdf.curve_type_id != ansa.curve_type_id:
+        return None
+    length_error = _relative_error(cdf.length, ansa.length)
+    area_error = _relative_error(cdf.area, ansa.area)
+    radius_error = _relative_error(_matching_radius(cdf), _matching_radius(ansa))
+    endpoint_distance = _endpoint_pair_distance(cdf, ansa)
+    center_distance = _distance(cdf.center, ansa.center)
+    bbox_distance = _distance(cdf.bbox, ansa.bbox)
+    anchor_distance = _distance(cdf.anchor, ansa.anchor)
+    if all(value is None for value in (length_error, area_error, radius_error, endpoint_distance, center_distance, bbox_distance, anchor_distance)):
+        return None
+    if length_error is not None and length_error > relative_tolerance:
+        return None
+    if area_error is not None and area_error > relative_tolerance:
+        return None
+    if radius_error is not None and radius_error > relative_tolerance:
+        return None
+    if cdf.entity_type == "EDGE" and cdf.curve_type_id in {1, 2}:
+        spatial = endpoint_distance
+        if spatial is None and cdf.curve_type_id == 2:
+            spatial = anchor_distance
+        if spatial is None:
+            spatial = center_distance
+    else:
+        spatial = center_distance
+    if spatial is None:
+        spatial = bbox_distance
+    if spatial is not None and spatial > tolerance_mm:
+        return None
+    if cdf.entity_type == "EDGE" and cdf.curve_type_id == 2:
+        cdf_plane = _matching_plane_axis(cdf)
+        ansa_plane = _matching_plane_axis(ansa)
+        if cdf_plane is not None and ansa_plane is not None and cdf_plane != ansa_plane:
+            return None
+    score = sum(value for value in (length_error, area_error, radius_error) if value is not None)
+    if spatial is not None:
+        score += spatial / max(tolerance_mm, 1.0e-9)
+    return score
 
 
 def match_descriptors(
@@ -246,42 +358,44 @@ def match_descriptors(
         if not cdf.signature_id:
             continue
         candidates: list[tuple[float, EntityDescriptor]] = []
+        nearest: list[dict[str, Any]] = []
         for ansa in ansa_descriptors:
             if ansa.index in used:
                 continue
-            if cdf.curve_type_id is not None and ansa.curve_type_id is not None and cdf.curve_type_id != ansa.curve_type_id:
-                continue
-            length_error = _relative_error(cdf.length, ansa.length)
-            area_error = _relative_error(cdf.area, ansa.area)
-            center_distance = _distance(cdf.center, ansa.center)
-            bbox_distance = _distance(cdf.bbox, ansa.bbox)
-            anchor_distance = _distance(cdf.anchor, ansa.anchor)
-            if all(value is None for value in (length_error, area_error, center_distance, bbox_distance, anchor_distance)):
-                continue
-            if length_error is not None and length_error > relative_tolerance:
-                continue
-            if area_error is not None and area_error > relative_tolerance:
-                continue
-            if cdf.entity_type == "EDGE" and cdf.curve_type_id == 2:
-                spatial = anchor_distance if anchor_distance is not None else center_distance
-            else:
-                spatial = center_distance
-            if spatial is None:
-                spatial = bbox_distance
-            if spatial is not None and spatial > tolerance_mm:
-                continue
-            score = sum(value for value in (length_error, area_error) if value is not None)
-            if spatial is not None:
-                score += spatial / max(tolerance_mm, 1.0e-9)
-            candidates.append((score, ansa))
-        if len(candidates) == 1:
+            details = _candidate_mismatch_details(cdf, ansa, tolerance_mm, relative_tolerance)
+            rough_score = sum(
+                float(value)
+                for value in (
+                    details["length_error"],
+                    details["area_error"],
+                    details["radius_error"],
+                    (details["endpoint_distance_mm"] / max(tolerance_mm, 1.0e-9)) if details["endpoint_distance_mm"] is not None else None,
+                    (details["center_distance_mm"] / max(tolerance_mm, 1.0e-9)) if details["center_distance_mm"] is not None else None,
+                )
+                if value is not None
+            )
+            details["rough_score"] = rough_score
+            nearest.append(details)
+            score = _descriptor_score(cdf, ansa, tolerance_mm=tolerance_mm, relative_tolerance=relative_tolerance)
+            if score is not None:
+                candidates.append((score, ansa))
+        candidates.sort(key=lambda item: (item[0], item[1].index))
+        nearest.sort(key=lambda item: float(item["rough_score"]))
+        if candidates and (len(candidates) == 1 or candidates[1][0] - candidates[0][0] > 1.0e-6):
             match = candidates[0][1]
             matches[cdf.signature_id] = match
             used.add(match.index)
         elif not candidates:
-            diagnostics["unmatched"].append(cdf.signature_id)
+            diagnostics["unmatched"].append({"signature_id": cdf.signature_id, "nearest_candidates": nearest[:5]})
         else:
-            diagnostics["ambiguous"].append({"signature_id": cdf.signature_id, "candidate_count": len(candidates)})
+            diagnostics["ambiguous"].append(
+                {
+                    "signature_id": cdf.signature_id,
+                    "candidate_count": len(candidates),
+                    "candidate_indices": [item[1].index for item in candidates[:5]],
+                    "candidate_scores": [item[0] for item in candidates[:5]],
+                }
+            )
     if diagnostics["unmatched"] or diagnostics["ambiguous"]:
         raise SizeFieldScriptError("entity_matching_failed", "CDF entity descriptors could not be matched to ANSA entities", diagnostics)
     return matches
@@ -409,7 +523,7 @@ def _mesh_edge_matches_circle(
     descriptor: EntityDescriptor,
     tolerance: float,
 ) -> bool:
-    center = descriptor.center
+    center = _circle_center(descriptor)
     radius = _descriptor_radius(descriptor)
     if center is None or radius is None:
         return False
@@ -423,7 +537,15 @@ def _mesh_edge_matches_circle(
     return True
 
 
+def _circle_center(descriptor: EntityDescriptor) -> tuple[float, float, float] | None:
+    if descriptor.anchor is not None and descriptor.endpoint is not None:
+        return tuple((left + right) * 0.5 for left, right in zip(descriptor.anchor, descriptor.endpoint, strict=True))  # type: ignore[return-value]
+    return descriptor.center
+
+
 def _descriptor_line_endpoints(descriptor: EntityDescriptor) -> tuple[tuple[float, float, float], tuple[float, float, float]] | None:
+    if descriptor.anchor is not None and descriptor.endpoint is not None:
+        return descriptor.anchor, descriptor.endpoint
     if descriptor.anchor is None or descriptor.center is None:
         return None
     other = tuple(2.0 * center - anchor for center, anchor in zip(descriptor.center, descriptor.anchor, strict=True))
@@ -431,6 +553,9 @@ def _descriptor_line_endpoints(descriptor: EntityDescriptor) -> tuple[tuple[floa
 
 
 def _descriptor_radius(descriptor: EntityDescriptor) -> float | None:
+    radius = _matching_radius(descriptor)
+    if radius is not None:
+        return radius
     if descriptor.bbox is not None:
         radius = max(descriptor.bbox) * 0.5
         if radius > 0:
@@ -441,9 +566,7 @@ def _descriptor_radius(descriptor: EntityDescriptor) -> float | None:
 
 
 def _circle_plane_axis(descriptor: EntityDescriptor) -> int:
-    if descriptor.bbox is None:
-        return 2
-    return min(range(3), key=lambda index: abs(descriptor.bbox[index]))
+    return _matching_plane_axis(descriptor) or 2
 
 
 def _point_distance(left: tuple[float, float, float], right: tuple[float, float, float]) -> float:
@@ -703,6 +826,9 @@ def _descriptor_diagnostic(descriptor: EntityDescriptor) -> dict[str, Any]:
         "bbox": descriptor.bbox,
         "center": descriptor.center,
         "anchor": descriptor.anchor,
+        "endpoint": descriptor.endpoint,
+        "radius": _matching_radius(descriptor),
+        "plane_axis": _matching_plane_axis(descriptor),
         "raw": descriptor.raw,
         "has_entity": descriptor.entity is not None,
     }
@@ -799,6 +925,7 @@ class RealAnsaSizeFieldAdapter:
                     "center": self._center(entity, endpoints),
                     "bbox": self._bbox(entity, endpoints),
                     "anchor": endpoints[0] if endpoints else None,
+                    "endpoint": endpoints[1] if endpoints else None,
                     "raw_card_values": raw_card_values,
                 }
             )

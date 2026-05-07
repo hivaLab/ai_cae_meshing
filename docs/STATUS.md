@@ -2,9 +2,8 @@
 
 ## Current State
 
-The repository is now on the B-rep entity AI meshing path. The legacy feature-action
-manifest, ranker recommendation, baseline selection, and surrogate optimizer primary
-paths have been removed from active scripts and exports.
+The active project is now a B-rep entity AI meshing tool. Feature-manifest,
+recommendation/ranker, and baseline-selection paths are not active success paths.
 
 Primary path:
 
@@ -15,43 +14,25 @@ clean STEP CAD
   -> AMG face/edge segmentation
   -> AMG direct segmentation-aware size-field GNN
   -> AMG_SIZE_FIELD_SM_V2
-  -> ANSA real edge/face size controls
-  -> BDF + real quality/entity-local evidence
+  -> real ANSA edge/face size controls
+  -> BDF + real global and entity-local quality evidence
 ```
 
-## Recently Completed
+## Latest Completed Work
 
-`T-806B_ENTITY_IDENTITY_REBASE`
+`T-813` through `T-816` are complete.
 
-- `entity_signatures.json` now stores geometry fingerprints, not only row hashes.
-- Edge fingerprints include curve type, length, bbox, center, vertex anchor points,
-  adjacent faces, coedge count, and loop role.
-- Face fingerprints include area, bbox, center, normal, loop count, edge descriptors,
-  and adjacent faces.
-- Weak row hashes remain only as `debug_row_hash`.
-- Added `cdf-entity ansa-probe-entities`.
-- Real ANSA probe succeeded at:
+What changed:
 
-```text
-runs/t806b_identity_probe/ansa_entity_probe_v2.json
-```
+- Slot arc entity matching now uses endpoint-pair, radius, curve-plane, and length
+  descriptors instead of unstable arc center matching.
+- Flat slot sweep samples `sample_000002`, `sample_000010`, and `sample_000018` no
+  longer block with `entity_matching_failed`.
+- Quality-aware size-field training records target-size statistics and fails visibly
+  when the target signal collapses.
+- Added `amg-entity-size-field-gate`, the primary end-to-end runner.
 
-Probe evidence:
-
-- `CONS` count: 17
-- `FACE` count: 8
-- usable `CONS` card fields include `Length`, `Start Point`, `End Point`, and
-  `Min Radius`
-
-`T-809_DIRECT_SIZE_FIELD_MODEL`
-
-- Added `BrepSizeFieldModel`, a coedge-aware direct edge/face size-field regressor.
-- Added `amg-train-size-field`.
-- Added `amg-infer-size-field`.
-- Removed the old quality-surrogate optimizer from the active AMG model/training/script
-  surface.
-
-Verification:
+Regression:
 
 ```powershell
 python -m pytest
@@ -60,121 +41,78 @@ python -m pytest
 Result:
 
 ```text
-66 passed
+72 passed
 ```
 
-`T-810_ENTITY_LOCAL_BDF_METRIC_EXTRACTION`
+## Real ANSA Evidence
 
-- Added BDF-based local edge metric extraction from exported NASTRAN GRID/CQUAD4/CTRIA3 data.
-- The metric path measures real mesh segment mean/min/max/count per controlled edge.
-- `CDF_ENTITY_QUALITY_EVALUATION_SM_V2` now carries measured edge length statistics.
-- CDF size-field labels now exclude solid-only seam/thickness edges that are not shell
-  mesh-control entities.
-
-Real gate evidence:
-
-```text
-sample: runs/t806b_identity_probe_v3/dataset/samples/sample_000001
-result: COMPLETED
-edge_match_count: 10
-BDF: runs/t806b_identity_probe_v3/ansa_eval/meshes/ansa_size_field_mesh.bdf
-BDF size: 469274 bytes
-entity quality rows: 10
-metric_available rows: 10
-hard_fail rows: 0
-max boundary size error: 0.012345679012345881
-```
-
-`T-812_DIVERSE_ENTITY_DATASET_AND_MODEL_VALIDATION`
-
-- Added `sm_entity_v2_diverse_quality`, a 32-sample compact profile with case-stratified
-  train/test splits.
-- Added real ANSA size-field sweeps for `h_min_overrefined`, `fine`, `nominal`, and
-  `coarse` variants.
-- Added quality-aware size-field training through `--prefer-quality-evidence`.
-- Added gate-report learning-signal checks for target-size variance and all-`h_min`
-  collapse.
-
-Verification:
-
-```powershell
-python -m pytest
-```
-
-Result:
-
-```text
-69 passed
-```
-
-Real T-812 evidence:
+Slot sweep repair:
 
 ```text
 dataset: runs/t812_diverse_entity_validation/dataset
-profile: sm_entity_v2_diverse_quality
-sample count: 32
-train/test split: 24/8
-size sweep: 32 attempted, 17 completed, 3 failed, 12 blocked
-quality rows: 260 total, 248 metric_available
-hard_fail rows: 18
-near_fail rows: 18
+samples repaired: sample_000002, sample_000010, sample_000018
+per sample sweep: 4 attempted, 3 completed, 1 mesh-quality failed, 0 blocked
 ```
 
-Held-out flat sample:
+Quality-aware training after repair:
 
 ```text
-sample: sample_000025
-part class: SM_FLAT_PANEL
-status: SUCCESS
-edge size stats: count=10, min/mean/max/std=0.5/0.5899280985082083/0.625/0.04901566409509156
-h_min edge fraction: 0.2
-entity metrics: 10/10 available
-hard_fail rows: 0
-max boundary size error: 0.004648606178533798
-BDF bytes: 9528865
+output: runs/t813_entity_matching_closure/size_field
+split: train
+sample_count: 24
+trained_sample_count: 8
+skipped_sample_count: 16
+edge target count: 110
+edge target min/mean/max/std: 0.7875 / 3.1177 / 8.0 / 2.1553 mm
+h_min edge fraction: 0.0
+learning_signal_status: SUCCESS
 ```
 
-Held-out bent sample:
+Full held-out AI-to-ANSA gate:
 
 ```text
-sample: sample_000032
-part class: SM_HAT_CHANNEL
+workflow: runs/t816_entity_ai_meshing_gate_v2/workflow_report.json
+attempted_count: 8
+valid_mesh_count: 8
 status: SUCCESS
-edge size stats: count=24, min/mean/max/std=0.5/0.5449059218846366/0.625/0.05722437956992055
-h_min edge fraction: 0.5
-entity metrics: 24/24 available
-hard_fail rows: 0
-max boundary size error: 0.008064516129032473
-BDF bytes: 20326149
+families: SM_FLAT_PANEL, SM_SINGLE_FLANGE, SM_L_BRACKET, SM_U_CHANNEL, SM_HAT_CHANNEL
+num_hard_failed_elements: 0 for every sample
+entity-local metrics: available for every controlled entity
+BDF outputs: non-empty for every sample
+```
+
+Learning signal in the final workflow:
+
+```text
+size-field trained samples: 8 / 24 train samples
+target size std: 2.1553154324235733
+target h_min fraction: 0.0
+predicted edge size std min/mean on test split: 0.000531993286870984 / 0.03425069807954155
+max predicted h_min edge fraction: 0.9615384615384616
 ```
 
 ## Active Task
 
-`T-813_ENTITY_MATCHING_AND_QUALITY_EVIDENCE_COVERAGE`
+`T-817_SEGMENTATION_AND_SIZE_EFFICIENCY_IMPROVEMENT`
 
-Why this is the active task:
+Why:
 
-- T-812 produced real pass and fail/near-fail size sweep evidence, but sweep coverage is
-  incomplete.
-- Flat slot cases were blocked by `entity_matching_failed`.
-- Quality-aware size-field training used only 5 samples with usable evidence.
-- The next improvement must increase real evidence coverage before claiming broader
-  model generalization.
-
-```text
-T-812 blocker:
-flat_slot sweep samples sample_000002, sample_000010, and sample_000018 blocked with
-entity_matching_failed for every sweep variant.
-```
+- The first compact end-to-end AI meshing tool now works on the full 8-sample held-out
+  split with real ANSA.
+- The next bottleneck is no longer basic functionality; it is mesh efficiency and
+  semantic fidelity.
+- Edge segmentation train accuracy is only about `0.70`.
+- Several held-out predictions are still heavily conservative near `h_min`, especially
+  the flat combo case with `h_min_edge_fraction=0.9615`.
 
 ## Known Gaps
 
-1. Entity matching is not robust for flat slot cases.
-2. Quality-aware training currently skips samples without usable real sweep metrics.
-3. The direct size-field model now predicts nontrivial sizes on two held-out samples, but
-   the learned range is still narrow: `0.5..0.625 mm`.
-4. Face controls remain secondary until edge-local metric extraction is reliable across
-   non-flat families.
+1. The model is compact and not yet production generalization evidence.
+2. Size predictions pass ANSA but remain too conservative.
+3. Edge segmentation confuses some flat boundaries with bend/internal classes.
+4. Quality evidence coverage improved from 5 to 8 train samples, but 16 train samples
+   are still skipped because their sweep evidence is incomplete or unusable.
+5. Face controls remain optional; edge controls are the current required success path.
 
 ## Verified ANSA Path
 

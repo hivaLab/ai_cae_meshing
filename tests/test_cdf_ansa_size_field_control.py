@@ -181,6 +181,64 @@ def test_descriptor_matching_requires_real_geometry_descriptor() -> None:
     assert excinfo.value.code == "entity_matching_failed"
 
 
+def test_slot_arc_matching_uses_endpoints_when_arc_centers_disagree() -> None:
+    cdf = [
+        EntityDescriptor(
+            signature_id="EDGE_SLOT_ARC",
+            index=0,
+            entity_type="EDGE",
+            entity=None,
+            curve_type_id=2,
+            length=10.995574,
+            bbox=(3.5, 7.0, 0.0),
+            center=(99.128169, 60.5, 0.75),
+            anchor=(96.9, 64.0, 0.75),
+            endpoint=(96.9, 57.0, 0.75),
+        )
+    ]
+    ansa_entity = object()
+    ansa = [
+        EntityDescriptor(
+            signature_id=None,
+            index=0,
+            entity_type="EDGE",
+            entity=ansa_entity,
+            curve_type_id=2,
+            length=10.984273,
+            bbox=(0.0, 7.0, 0.0),
+            center=(96.9, 60.5, 0.75),
+            anchor=(96.9, 57.0, 0.75),
+            endpoint=(96.9, 64.0, 0.75),
+        )
+    ]
+    matches = match_descriptors(cdf, ansa)
+    assert matches["EDGE_SLOT_ARC"].entity is ansa_entity
+
+
+def test_duplicate_slot_arc_descriptors_remain_ambiguous() -> None:
+    cdf = [
+        EntityDescriptor(
+            signature_id="EDGE_SLOT_ARC",
+            index=0,
+            entity_type="EDGE",
+            entity=None,
+            curve_type_id=2,
+            length=10.995574,
+            bbox=(3.5, 7.0, 0.0),
+            anchor=(96.9, 64.0, 0.75),
+            endpoint=(96.9, 57.0, 0.75),
+        )
+    ]
+    ansa = [
+        EntityDescriptor(index=0, signature_id=None, entity_type="EDGE", entity=object(), curve_type_id=2, length=10.995574, bbox=(0.0, 7.0, 0.0), anchor=(96.9, 57.0, 0.75), endpoint=(96.9, 64.0, 0.75)),
+        EntityDescriptor(index=1, signature_id=None, entity_type="EDGE", entity=object(), curve_type_id=2, length=10.995574, bbox=(0.0, 7.0, 0.0), anchor=(96.9, 57.0, 0.75), endpoint=(96.9, 64.0, 0.75)),
+    ]
+    with pytest.raises(SizeFieldScriptError) as excinfo:
+        match_descriptors(cdf, ansa)
+    assert excinfo.value.code == "entity_matching_failed"
+    assert excinfo.value.diagnostics["ambiguous"][0]["signature_id"] == "EDGE_SLOT_ARC"
+
+
 def test_bdf_entity_length_stats_measure_real_mesh_segments() -> None:
     root = _tmp("bdf_metric")
     bdf = root / "mesh.bdf"

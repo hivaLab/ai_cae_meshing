@@ -32,13 +32,16 @@ OTHER
 ```text
 BASE_PANEL
 FLANGE
-BEND
 HOLE_WALL
 SLOT_WALL
 CUTOUT_WALL
 SIDE_WALL
 OTHER
 ```
+
+`BEND` is not part of the active face-label contract because the current clean CAD
+generator does not yet provide true cylindrical bend-face support. Bend-related control
+is represented by `BEND_EDGE` in the edge semantic labels.
 
 ## Edge Segmentation Classes
 

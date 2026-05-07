@@ -52,14 +52,17 @@ reports/amg_inference_report.json
 
 ### Model
 
-Initial production model:
+Production baseline:
 
 ```text
-CAD-native tabular Random Forest or Gradient Boosted Trees
+CAD-native tabular ensemble: RandomForest, ExtraTrees, HistGradientBoosting
 ```
 
 This is the most appropriate first model because the part-class problem has a small
 number of classes, strong engineered B-rep signals, and a high need for interpretability.
+The current trainer evaluates all three model families and stores the selected model,
+per-class metrics, confusion matrix, feature importances, uncertainty count, and
+calibration status.
 
 Later upgrade:
 
@@ -109,14 +112,16 @@ instead of guessing silently.
 
 ### Model
 
-Initial model:
+Primary model:
 
 ```text
-BRepSegNet: BRepNet-style coedge message passing with face/edge heads
+BRepNetSegmentationModel: BRepNet-style winged-edge coedge message passing
 ```
 
 This is the most appropriate first segmentation model because ANSA controls are applied
 to CAD entities, and B-rep coedge topology preserves the exact boundary structure.
+The active model uses coedge `next`, `prev`, and `mate` walks, parent face/edge pooling,
+global part-summary context, and direct geometry heads for face/edge semantic logits.
 
 ### Input Layer
 
@@ -152,13 +157,16 @@ Face classes:
 ```text
 BASE_PANEL
 FLANGE
-BEND
 HOLE_WALL
 SLOT_WALL
 CUTOUT_WALL
 SIDE_WALL
 OTHER
 ```
+
+`BEND` is intentionally not an active face class until the generated CAD contains true
+cylindrical bend-surface support. Bend behavior is currently represented by
+`BEND_EDGE`.
 
 Edge semantic logits:
 

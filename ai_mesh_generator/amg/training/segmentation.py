@@ -13,6 +13,7 @@ import numpy as np
 from ai_mesh_generator.amg.model.segmentation import (
     EDGE_SEGMENTATION_CLASSES,
     FACE_SEGMENTATION_CLASSES,
+    BRepNetSegmentationModel,
     BrepSegmentationModel,
     build_entity_graph_tensors,
     build_segmentation_targets,
@@ -33,15 +34,34 @@ def _load_torch():
     return torch, F
 
 
-def _class_weights(counts: np.ndarray) -> np.ndarray:
-    weights = np.asarray([1.0 / math.sqrt(float(count) + 1.0) for count in counts], dtype=np.float32)
+def _class_weights(counts: np.ndarray, *, power: float = 0.75) -> np.ndarray:
+    weights = np.asarray([1.0 / ((float(count) + 1.0) ** power) for count in counts], dtype=np.float32)
     return weights / max(float(weights.mean()), 1.0e-12)
+
+
+def _edge_weight_boosts() -> np.ndarray:
+    boosts = np.ones((len(EDGE_SEGMENTATION_CLASSES),), dtype=np.float32)
+    # OUTER_BOUNDARY is a hard metric for surface size-field control and can be
+    # numerically overshadowed by abundant bent/internal edges in compact datasets.
+    boosts[EDGE_SEGMENTATION_CLASSES.index("OUTER_BOUNDARY")] = 4.0
+    boosts[EDGE_SEGMENTATION_CLASSES.index("HOLE_BOUNDARY")] = 1.4
+    boosts[EDGE_SEGMENTATION_CLASSES.index("CUTOUT_BOUNDARY")] = 1.4
+    return boosts
+
+
+def _face_weight_boosts() -> np.ndarray:
+    boosts = np.ones((len(FACE_SEGMENTATION_CLASSES),), dtype=np.float32)
+    for label in ("HOLE_WALL", "SLOT_WALL", "CUTOUT_WALL"):
+        boosts[FACE_SEGMENTATION_CLASSES.index(label)] = 1.8
+    return boosts
 
 
 def _segmentation_stats(confusion: np.ndarray, classes: tuple[str, ...]) -> dict:
     per_class = {}
     true_histogram = {}
     predicted_histogram = {}
+    f1_values: list[float] = []
+    iou_values: list[float] = []
     for index, label in enumerate(classes):
         tp = int(confusion[index, index])
         fp = int(confusion[:, index].sum() - tp)
@@ -49,19 +69,24 @@ def _segmentation_stats(confusion: np.ndarray, classes: tuple[str, ...]) -> dict
         precision = tp / max(tp + fp, 1)
         recall = tp / max(tp + fn, 1)
         f1 = 2.0 * precision * recall / max(precision + recall, 1.0e-12)
-        per_class[label] = {"precision": precision, "recall": recall, "f1": f1, "support": int(confusion[index, :].sum())}
+        iou = tp / max(tp + fp + fn, 1)
+        f1_values.append(f1)
+        iou_values.append(iou)
+        per_class[label] = {"precision": precision, "recall": recall, "f1": f1, "iou": iou, "support": int(confusion[index, :].sum())}
         true_histogram[label] = int(confusion[index, :].sum())
         predicted_histogram[label] = int(confusion[:, index].sum())
     return {
         "classes": list(classes),
         "confusion_matrix": confusion.astype(int).tolist(),
         "per_class": per_class,
+        "macro_f1": float(np.mean(f1_values)) if f1_values else 0.0,
+        "macro_iou": float(np.mean(iou_values)) if iou_values else 0.0,
         "true_histogram": true_histogram,
         "predicted_histogram": predicted_histogram,
     }
 
 
-def _evaluate_segmentation_model(samples: list, model: BrepSegmentationModel, torch_module) -> dict:
+def _evaluate_segmentation_model(samples: list, model, torch_module) -> dict:
     face_total = edge_total = face_correct = edge_correct = 0
     face_confusion = np.zeros((len(FACE_SEGMENTATION_CLASSES), len(FACE_SEGMENTATION_CLASSES)), dtype=np.int64)
     edge_confusion = np.zeros((len(EDGE_SEGMENTATION_CLASSES), len(EDGE_SEGMENTATION_CLASSES)), dtype=np.int64)
@@ -99,12 +124,26 @@ def train_entity_segmentation_from_dataset(
     lr: float = 1e-3,
     seed: int = 1,
     edge_loss_multiplier: float = 2.0,
+    model_type: str = "brepnet",
+    num_layers: int = 3,
+    class_weight_power: float = 0.75,
 ) -> dict:
     torch, F = _load_torch()
     torch.manual_seed(seed)
     samples = load_entity_samples(dataset_root, split=split)
     first = build_entity_graph_tensors(samples[0])
-    model = BrepSegmentationModel(first.face_features.shape[1], first.edge_features.shape[1], hidden_dim=hidden_dim)
+    if model_type == "brepnet":
+        model = BRepNetSegmentationModel(
+            first.face_features.shape[1],
+            first.edge_features.shape[1],
+            first.coedge_features.shape[1],
+            hidden_dim=hidden_dim,
+            num_layers=num_layers,
+        )
+    elif model_type == "compact-debug":
+        model = BrepSegmentationModel(first.face_features.shape[1], first.edge_features.shape[1], hidden_dim=hidden_dim, coedge_feature_dim=first.coedge_features.shape[1])
+    else:
+        raise SegmentationTrainingError(f"unsupported segmentation model type: {model_type}")
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     face_counts = np.zeros((len(FACE_SEGMENTATION_CLASSES),), dtype=np.int64)
     edge_counts = np.zeros((len(EDGE_SEGMENTATION_CLASSES),), dtype=np.int64)
@@ -112,8 +151,12 @@ def train_entity_segmentation_from_dataset(
         targets = build_segmentation_targets(sample)
         face_counts += np.bincount(targets.face_labels.numpy(), minlength=len(FACE_SEGMENTATION_CLASSES))
         edge_counts += np.bincount(targets.edge_labels.numpy(), minlength=len(EDGE_SEGMENTATION_CLASSES))
-    face_weights = torch.as_tensor(_class_weights(face_counts), dtype=torch.float32)
-    edge_weights = torch.as_tensor(_class_weights(edge_counts), dtype=torch.float32)
+    face_weights_np = _class_weights(face_counts, power=class_weight_power) * _face_weight_boosts()
+    face_weights_np = face_weights_np / max(float(face_weights_np.mean()), 1.0e-12)
+    face_weights = torch.as_tensor(face_weights_np, dtype=torch.float32)
+    edge_weights_np = _class_weights(edge_counts, power=class_weight_power) * _edge_weight_boosts()
+    edge_weights_np = edge_weights_np / max(float(edge_weights_np.mean()), 1.0e-12)
+    edge_weights = torch.as_tensor(edge_weights_np, dtype=torch.float32)
     losses: list[float] = []
     for _ in range(epochs):
         epoch_loss = 0.0
@@ -141,7 +184,10 @@ def train_entity_segmentation_from_dataset(
             "model_state": model.state_dict(),
             "face_feature_dim": first.face_features.shape[1],
             "edge_feature_dim": first.edge_features.shape[1],
+            "coedge_feature_dim": first.coedge_features.shape[1],
             "hidden_dim": hidden_dim,
+            "num_layers": num_layers,
+            "model_type": model_type,
             "face_classes": FACE_SEGMENTATION_CLASSES,
             "edge_classes": EDGE_SEGMENTATION_CLASSES,
         },
@@ -153,6 +199,8 @@ def train_entity_segmentation_from_dataset(
         "split": split,
         "sample_count": len(samples),
         "epochs": epochs,
+        "model_type": model_type,
+        "num_layers": num_layers,
         "loss_history": losses,
         "final_loss": losses[-1] if losses else None,
         "face_accuracy": train_eval["face_accuracy"],
@@ -161,7 +209,10 @@ def train_entity_segmentation_from_dataset(
         "edge_classes": list(EDGE_SEGMENTATION_CLASSES),
         "face_class_weights": {label: float(face_weights[index].item()) for index, label in enumerate(FACE_SEGMENTATION_CLASSES)},
         "edge_class_weights": {label: float(edge_weights[index].item()) for index, label in enumerate(EDGE_SEGMENTATION_CLASSES)},
+        "face_class_weight_boosts": {label: float(_face_weight_boosts()[index]) for index, label in enumerate(FACE_SEGMENTATION_CLASSES)},
+        "edge_class_weight_boosts": {label: float(_edge_weight_boosts()[index]) for index, label in enumerate(EDGE_SEGMENTATION_CLASSES)},
         "edge_loss_multiplier": edge_loss_multiplier,
+        "class_weight_power": class_weight_power,
         "face_metrics": train_eval["face_metrics"],
         "edge_metrics": train_eval["edge_metrics"],
         "model_path": (out / "model.pt").as_posix(),
@@ -190,9 +241,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--eval-split")
     parser.add_argument("--epochs", type=int, default=5)
     parser.add_argument("--hidden-dim", type=int, default=64)
+    parser.add_argument("--model", choices=("brepnet", "compact-debug"), default="brepnet")
+    parser.add_argument("--num-layers", type=int, default=3)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--edge-loss-multiplier", type=float, default=2.0)
+    parser.add_argument("--class-weight-power", type=float, default=0.75)
     return parser
 
 
@@ -209,6 +263,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             lr=args.lr,
             seed=args.seed,
             edge_loss_multiplier=args.edge_loss_multiplier,
+            model_type=args.model,
+            num_layers=args.num_layers,
+            class_weight_power=args.class_weight_power,
         )
     except Exception as exc:  # noqa: BLE001 - CLI boundary.
         print({"status": "FAILED", "message": str(exc)})

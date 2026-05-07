@@ -22,7 +22,7 @@ from cad_dataset_factory.cdf.brep.graph_extractor import (
     validate_brep_graph_structure,
 )
 
-SCHEMA_VERSION = "AMG_BREP_ENTITY_GRAPH_SM_V2"
+SCHEMA_VERSION = "AMG_BREP_ENTITY_GRAPH_SM_V3"
 NODE_TYPES = ["PART", "FACE", "EDGE", "COEDGE", "VERTEX"]
 EDGE_TYPES = [
     "PART_HAS_FACE",

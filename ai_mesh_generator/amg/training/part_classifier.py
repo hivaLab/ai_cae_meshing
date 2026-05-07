@@ -27,6 +27,22 @@ def _confusion_matrix(labels: list[str], predictions: list[str]) -> dict[str, di
     return matrix
 
 
+def _classification_report(labels: list[str], predictions: list[str]) -> dict:
+    matrix = _confusion_matrix(labels, predictions)
+    per_class: dict[str, dict[str, float | int]] = {}
+    f1_values: list[float] = []
+    for label in PART_CLASS_ORDER:
+        tp = matrix[label][label]
+        fp = sum(matrix[truth][label] for truth in PART_CLASS_ORDER) - tp
+        fn = sum(matrix[label][pred] for pred in PART_CLASS_ORDER) - tp
+        precision = tp / max(tp + fp, 1)
+        recall = tp / max(tp + fn, 1)
+        f1 = 2.0 * precision * recall / max(precision + recall, 1.0e-12)
+        f1_values.append(f1)
+        per_class[label] = {"precision": precision, "recall": recall, "f1": f1, "support": sum(matrix[label].values())}
+    return {"per_class": per_class, "macro_f1": float(np.mean(f1_values)), "confusion_matrix": matrix}
+
+
 def train_part_classifier_from_dataset(
     dataset_root: str | Path,
     output_dir: str | Path,
@@ -38,7 +54,8 @@ def train_part_classifier_from_dataset(
     uncertainty_threshold: float = 0.60,
 ) -> dict:
     samples = load_entity_samples(dataset_root, split=split)
-    model, metadata = train_part_classifier(samples, seed=seed, n_estimators=n_estimators)
+    eval_samples = load_entity_samples(dataset_root, split=eval_split) if eval_split else []
+    model, metadata = train_part_classifier(samples, seed=seed, n_estimators=n_estimators, validation_samples=eval_samples or None)
     labels = [sample.labels.part_class["part_class"] for sample in samples]
     predictions = [predict_part_class(model, sample, uncertainty_threshold=uncertainty_threshold) for sample in samples]
     pred_labels = [item.part_class for item in predictions]
@@ -53,14 +70,18 @@ def train_part_classifier_from_dataset(
         "sample_count": len(samples),
         "class_order": list(PART_CLASS_ORDER),
         "label_counts": dict(Counter(labels)),
+        "selected_model": metadata.selected_model,
+        "candidate_metrics": metadata.candidate_metrics or {},
+        "calibrated": metadata.calibrated,
+        "feature_importances": list(metadata.feature_importances),
         "training_accuracy": float(np.mean(np.asarray(labels) == np.asarray(pred_labels))),
+        "training_report": _classification_report(labels, pred_labels),
         "mean_confidence": float(np.mean(confidences)),
         "uncertainty_threshold": uncertainty_threshold,
         "uncertain_count": int(uncertain_count),
         "model_path": (out / "model.pkl").as_posix(),
     }
     if eval_split:
-        eval_samples = load_entity_samples(dataset_root, split=eval_split)
         eval_labels = [sample.labels.part_class["part_class"] for sample in eval_samples]
         eval_predictions = [predict_part_class(model, sample, uncertainty_threshold=uncertainty_threshold) for sample in eval_samples]
         eval_pred_labels = [item.part_class for item in eval_predictions]
@@ -72,6 +93,7 @@ def train_part_classifier_from_dataset(
             "sample_count": len(eval_samples),
             "label_counts": dict(Counter(eval_labels)),
             "accuracy": float(np.mean(np.asarray(eval_labels) == np.asarray(eval_pred_labels))),
+            "classification_report": _classification_report(eval_labels, eval_pred_labels),
             "mean_confidence": float(np.mean(eval_confidences)),
             "uncertain_count": int(eval_uncertain_count),
         }

@@ -45,7 +45,7 @@ def test_ansa_import_scope() -> None:
 
 
 def test_entity_graph_schema_has_no_target_or_quality_columns() -> None:
-    graph_schema = (ROOT / "contracts" / "AMG_BREP_ENTITY_GRAPH_SM_V2.schema.json").read_text(encoding="utf-8")
+    graph_schema = (ROOT / "contracts" / "AMG_BREP_ENTITY_GRAPH_SM_V3.schema.json").read_text(encoding="utf-8")
     forbidden = [
         "target_action_id",
         "target_edge_length_mm",

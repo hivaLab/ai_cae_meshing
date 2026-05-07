@@ -20,21 +20,11 @@ selection, quality-surrogate optimizer success, mock reports, or fabricated metr
 
 ## Current State
 
-Completed:
+Completed through:
 
-- `T-806B_ENTITY_IDENTITY_REBASE`
-- `T-809_DIRECT_BREP_SIZE_FIELD_MODEL`
-- `T-810_ENTITY_LOCAL_BDF_METRIC_EXTRACTION`
-- `T-806_ANSA_SIZE_FIELD_CONTROL_GATE`
-- `T-811_REAL_AI_SIZE_FIELD_GATE`
-- `T-812_DIVERSE_ENTITY_DATASET_AND_MODEL_VALIDATION`
-- `T-813_ENTITY_MATCHING_AND_QUALITY_EVIDENCE_COVERAGE`
-- `T-814_QUALITY_AWARE_SIZE_FIELD_LEARNING`
-- `T-815_FULL_HELD_OUT_AI_ANSA_GATE`
-- `T-816_PRIMARY_END_TO_END_COMMAND`
-- `T-817_SEGMENTATION_AND_SIZE_EFFICIENCY_IMPROVEMENT`
-- `T-818_DIVERSITY_FIRST_ENTITY_LEARNING_DATASET`
-- `T-819_BALANCED_ENTITY_SIZE_FIELD_REAL_GATE`
+```text
+T-820_PRODUCTION_PART_CLASSIFIER_AND_BREPNET_SEGMENTATION_UPGRADE
+```
 
 Latest regression:
 
@@ -48,24 +38,39 @@ python -m pytest
 
 ## Real Evidence To Preserve
 
-T-819 balanced real gate:
+T-820 generated-CAD model gate:
 
 ```text
-dataset: runs\t818_learning_balanced_dataset\dataset
+dataset: runs\t820_brepnet_production_models\dataset
 profile: sm_entity_v2_learning_balanced_v1
-sample_count: 112
-part_train/part_test: 84/28
-segmentation_train/segmentation_test: 84/28
-size_train/size_test: 26/8
-size sweep: attempted=130, completed=84, failed=46, blocked=0
-workflow: runs\t819_balanced_size_field_gate\workflow_v3\workflow_report.json
-workflow status: SUCCESS
-valid_mesh_count: 8/8
+sample_count: 224
+part selected model: ExtraTrees
 part_test accuracy: 1.0
-segmentation_test edge accuracy: 0.8769771528998243
-size-field target std: 3.0309552440652308 mm
-h_min_edge_fraction_max: 0.0
-hole divisions on flat-hole/combo samples: 32 practical divisions
+part per-class F1: 1.0 for all six classes
+segmentation model: BRepNetSegmentationModel
+segmentation_test face accuracy: 0.9836065573770492
+segmentation_test edge accuracy: 0.9850615114235501
+OUTER_BOUNDARY F1: 1.0
+HOLE_BOUNDARY F1: 1.0
+SLOT_BOUNDARY F1: 0.888888888888889
+CUTOUT_BOUNDARY F1: 0.8571428571428571
+FREE_EDGE F1: 1.0
+```
+
+T-820 downstream real ANSA smoke:
+
+```text
+sample: sample_000126
+AI size field: runs\t820_brepnet_production_models\inference\sample_000126\amg_size_field_ai.json
+ANSA evaluation: runs\t820_brepnet_production_models\ansa_eval\sample_000126
+execution accepted: true
+quality accepted: true
+num_hard_failed_elements: 0
+entity quality rows: 2/2 metric_available
+hard_fail rows: 0
+max boundary size error: 0.009267542288650711
+BDF bytes: 137913
+shell element count: 1300
 ```
 
 ## Next Task
@@ -73,26 +78,29 @@ hole divisions on flat-hole/combo samples: 32 practical divisions
 Implement:
 
 ```text
-T-820_BALANCED_PROFILE_GENERALIZATION_AND_FACE_CONTROL_PILOT
+T-821_RARE_FEATURE_SEGMENTATION_AND_FACE_SIZE_CONTROL_HARDENING
 ```
 
 ## Required Work
 
-1. Decide whether to run a larger balanced-profile multiple.
-   - Recommended development next size: 224 samples, not 10,000.
-   - Keep user-controlled counts.
-2. Improve remaining segmentation weakness.
-   - `OUTER_BOUNDARY` remains the weakest class.
-   - Add targeted geometry or model changes only if they improve held-out F1 and real gate behavior.
-3. Pilot optional face size controls.
-   - Keep edge controls as the required success path.
-   - Add face controls only for simple flat panels and bent webs where ANSA entity matching is reliable.
-4. Preserve the T-819 real gate criteria.
+1. Improve rare feature segmentation reliability.
+   - `SLOT_BOUNDARY`, `CUTOUT_BOUNDARY`, `SLOT_WALL`, and `CUTOUT_WALL` are still below
+     production-perfect per-class reliability.
+   - Add targeted geometry variation and harder held-out slot/cutout cases.
+   - Keep CDF labels learnable from geometry/topology; do not add label leakage columns.
+2. Add explicit segmentation acceptance gates.
+   - Fail if any active edge class has support but F1 remains near zero.
+   - Keep `OUTER_BOUNDARY` as a hard metric.
+3. Pilot optional face-size controls.
+   - Edge controls remain the required success path.
+   - Face controls may be added only for simple flat panels and bent webs where ANSA
+     entity matching is stable.
+4. Preserve the real ANSA criteria.
    - No baseline/reference mesh success path.
    - No label-size substitution.
    - No fabricated local metrics.
-   - Success requires real ANSA execution/quality reports, non-empty BDF, zero hard failed elements,
-     and entity-local metric availability.
+   - Success requires real ANSA execution/quality reports, non-empty BDF, zero hard
+     failed elements, and entity-local metric availability.
 
-If the next gate fails, keep T-820 `IN_PROGRESS` and record exact sample ids, semantic
+If the next gate fails, keep T-821 `IN_PROGRESS` and record exact sample ids, semantic
 confusions, size-field distributions, ANSA report paths, and failure reasons.

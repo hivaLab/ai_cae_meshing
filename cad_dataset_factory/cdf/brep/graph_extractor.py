@@ -24,12 +24,67 @@ EDGE_TYPES = [
 ]
 
 PART_FEATURE_COLUMNS = ["num_faces", "num_edges", "num_vertices", "num_coedges", "bbox_x", "bbox_y", "bbox_z"]
-FACE_FEATURE_COLUMNS = ["area", "bbox_x", "bbox_y", "bbox_z", "center_x", "center_y", "center_z", "normal_x", "normal_y", "normal_z", "num_edges", "num_wires"]
-EDGE_FEATURE_COLUMNS = ["curve_type_id", "length", "bbox_x", "bbox_y", "bbox_z", "center_x", "center_y", "center_z", "num_vertices"]
-COEDGE_FEATURE_COLUMNS = ["parent_face_index", "parent_edge_index", "wire_index"]
+FACE_FEATURE_COLUMNS = [
+    "area",
+    "bbox_x",
+    "bbox_y",
+    "bbox_z",
+    "center_x",
+    "center_y",
+    "center_z",
+    "normal_x",
+    "normal_y",
+    "normal_z",
+    "num_edges",
+    "num_wires",
+    "surface_type_id",
+    "is_plane",
+    "is_cylinder",
+    "is_cone",
+    "is_sphere",
+    "is_torus",
+    "is_other_surface",
+    "num_line_edges",
+    "num_circle_edges",
+    "num_arc_edges",
+    "num_other_curve_edges",
+    "min_edge_length",
+    "mean_edge_length",
+    "max_edge_length",
+    "inner_loop_count",
+]
+EDGE_FEATURE_COLUMNS = [
+    "curve_type_id",
+    "length",
+    "bbox_x",
+    "bbox_y",
+    "bbox_z",
+    "center_x",
+    "center_y",
+    "center_z",
+    "num_vertices",
+    "is_line",
+    "is_circle",
+    "is_arc",
+    "is_ellipse",
+    "is_bspline_or_other",
+    "is_closed_loop",
+    "dihedral_normal_dot",
+    "sharp_edge_hint",
+    "coedge_count",
+]
+COEDGE_FEATURE_COLUMNS = [
+    "parent_face_index",
+    "parent_edge_index",
+    "wire_index",
+    "coedge_position_in_wire",
+    "wire_length",
+    "is_outer_wire",
+]
 VERTEX_FEATURE_COLUMNS = ["x", "y", "z"]
 
 _CURVE_TYPE_IDS = {"LINE": 1, "CIRCLE": 2, "ARC": 3, "ELLIPSE": 4, "BSPLINE": 5}
+_SURFACE_TYPE_IDS = {"PLANE": 1, "CYLINDER": 2, "CONE": 3, "SPHERE": 4, "TORUS": 5, "BSPLINE": 6}
 
 
 class BrepGraphBuildError(ValueError):
@@ -102,6 +157,68 @@ def _edge_curve_type_id(edge: Any) -> int:
         return 0
 
 
+def _shape_geom_type_id(shape: Any, mapping: dict[str, int]) -> int:
+    try:
+        return mapping.get(str(shape.geomType()).upper(), 0)
+    except Exception:
+        return 0
+
+
+def _edge_is_closed(edge: Any) -> float:
+    for name in ("isClosed", "Closed"):
+        try:
+            value = getattr(edge, name)()
+            return 1.0 if bool(value) else 0.0
+        except Exception:
+            continue
+    return 0.0
+
+
+def _edge_one_hot(curve_type_id: int) -> list[float]:
+    return [
+        1.0 if curve_type_id == _CURVE_TYPE_IDS["LINE"] else 0.0,
+        1.0 if curve_type_id == _CURVE_TYPE_IDS["CIRCLE"] else 0.0,
+        1.0 if curve_type_id == _CURVE_TYPE_IDS["ARC"] else 0.0,
+        1.0 if curve_type_id == _CURVE_TYPE_IDS["ELLIPSE"] else 0.0,
+        1.0 if curve_type_id not in {_CURVE_TYPE_IDS["LINE"], _CURVE_TYPE_IDS["CIRCLE"], _CURVE_TYPE_IDS["ARC"], _CURVE_TYPE_IDS["ELLIPSE"]} else 0.0,
+    ]
+
+
+def _face_surface_flags(surface_type_id: int) -> list[float]:
+    return [
+        1.0 if surface_type_id == _SURFACE_TYPE_IDS["PLANE"] else 0.0,
+        1.0 if surface_type_id == _SURFACE_TYPE_IDS["CYLINDER"] else 0.0,
+        1.0 if surface_type_id == _SURFACE_TYPE_IDS["CONE"] else 0.0,
+        1.0 if surface_type_id == _SURFACE_TYPE_IDS["SPHERE"] else 0.0,
+        1.0 if surface_type_id == _SURFACE_TYPE_IDS["TORUS"] else 0.0,
+        1.0
+        if surface_type_id
+        not in {
+            _SURFACE_TYPE_IDS["PLANE"],
+            _SURFACE_TYPE_IDS["CYLINDER"],
+            _SURFACE_TYPE_IDS["CONE"],
+            _SURFACE_TYPE_IDS["SPHERE"],
+            _SURFACE_TYPE_IDS["TORUS"],
+        }
+        else 0.0,
+    ]
+
+
+def _face_curve_composition(face: Any) -> list[float]:
+    curve_type_ids = [_edge_curve_type_id(edge) for edge in face.Edges()]
+    lengths = [float(edge.Length()) for edge in face.Edges()]
+    return [
+        float(sum(curve_type_id == _CURVE_TYPE_IDS["LINE"] for curve_type_id in curve_type_ids)),
+        float(sum(curve_type_id == _CURVE_TYPE_IDS["CIRCLE"] for curve_type_id in curve_type_ids)),
+        float(sum(curve_type_id == _CURVE_TYPE_IDS["ARC"] for curve_type_id in curve_type_ids)),
+        float(sum(curve_type_id not in {_CURVE_TYPE_IDS["LINE"], _CURVE_TYPE_IDS["CIRCLE"], _CURVE_TYPE_IDS["ARC"]} for curve_type_id in curve_type_ids)),
+        float(min(lengths)) if lengths else 0.0,
+        float(sum(lengths) / len(lengths)) if lengths else 0.0,
+        float(max(lengths)) if lengths else 0.0,
+        float(max(0, len(list(face.Wires())) - 1)),
+    ]
+
+
 def _array(rows: list[list[float]], width: int, *, dtype: Any = np.float64) -> np.ndarray:
     if rows:
         return np.asarray(rows, dtype=dtype)
@@ -161,12 +278,14 @@ def extract_brep_graph(step_path: str | Path) -> BrepGraph:
         adj_part_has_face.append((0, face_node))
         for wire_index, wire in enumerate(face.Wires()):
             cycle: list[int] = []
-            for wire_edge in wire.Edges():
+            wire_edges = list(wire.Edges())
+            wire_length = len(wire_edges)
+            for position, wire_edge in enumerate(wire_edges):
                 edge_index = edge_index_by_hash[wire_edge.hashCode()]
                 coedge_index = len(coedge_rows)
                 coedge_node = coedge_offset + coedge_index
                 edge_node = edge_offset + edge_index
-                coedge_rows.append([float(face_index), float(edge_index), float(wire_index)])
+                coedge_rows.append([float(face_index), float(edge_index), float(wire_index), float(position), float(wire_length), 1.0 if wire_index == 0 else 0.0])
                 coedge_edge_indices.append(edge_index)
                 coedge_face_indices.append(face_index)
                 coedges_by_edge.setdefault(edge_index, []).append(coedge_index)
@@ -214,30 +333,51 @@ def extract_brep_graph(step_path: str | Path) -> BrepGraph:
         [[float(len(faces)), float(len(edges)), float(len(vertices)), float(len(coedge_rows)), float(bbox.xlen), float(bbox.ylen), float(bbox.zlen)]],
         dtype=np.float64,
     )
+    face_normals = [_face_normal(face) for face in faces]
+
+    def _edge_dihedral_features(edge_index: int) -> tuple[float, float]:
+        face_indices = sorted({coedge_face_indices[coedge_index] for coedge_index in coedges_by_edge.get(edge_index, [])})
+        if len(face_indices) < 2:
+            return 1.0, 0.0
+        vectors = [np.asarray(face_normals[index], dtype=np.float64) for index in face_indices[:2]]
+        norms = [float(np.linalg.norm(vector)) for vector in vectors]
+        if min(norms) <= 1.0e-12:
+            return 1.0, 0.0
+        dot = float(np.clip(abs(float(np.dot(vectors[0], vectors[1]) / (norms[0] * norms[1]))), 0.0, 1.0))
+        return dot, 1.0 if dot < 0.985 else 0.0
+
     face_features = _array(
         [
-            [
+            (lambda surface_type_id: [
                 float(face.Area()),
                 *_bbox_tuple(face),
                 *_shape_center(face),
                 *_face_normal(face),
                 float(len(face.Edges())),
                 float(len(face.Wires())),
-            ]
+                float(surface_type_id),
+                *_face_surface_flags(surface_type_id),
+                *_face_curve_composition(face),
+            ])(_shape_geom_type_id(face, _SURFACE_TYPE_IDS))
             for face in faces
         ],
         len(FACE_FEATURE_COLUMNS),
     )
     edge_features = _array(
         [
-            [
+            (lambda curve_type_id, dihedral: [
                 float(_edge_curve_type_id(edge)),
                 float(edge.Length()),
                 *_bbox_tuple(edge),
                 *_shape_center(edge),
                 float(len(edge.Vertices())),
-            ]
-            for edge in edges
+                *_edge_one_hot(curve_type_id),
+                _edge_is_closed(edge),
+                float(dihedral[0]),
+                float(dihedral[1]),
+                float(len(coedges_by_edge.get(edge_index, []))),
+            ])(_edge_curve_type_id(edge), _edge_dihedral_features(edge_index))
+            for edge_index, edge in enumerate(edges)
         ],
         len(EDGE_FEATURE_COLUMNS),
     )

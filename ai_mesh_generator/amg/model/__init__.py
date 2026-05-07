@@ -14,6 +14,7 @@ from ai_mesh_generator.amg.model.part_classifier import (
 from ai_mesh_generator.amg.model.segmentation import (
     EDGE_SEGMENTATION_CLASSES,
     FACE_SEGMENTATION_CLASSES,
+    BRepNetSegmentationModel,
     BrepSegmentationModel,
     EntityGraphTensors,
     SegmentationModelError,
@@ -40,6 +41,7 @@ from ai_mesh_generator.amg.model.size_field import (
 
 __all__ = [
     "BrepSegmentationModel",
+    "BRepNetSegmentationModel",
     "BrepSizeFieldModel",
     "EDGE_SEGMENTATION_CLASSES",
     "EntityGraphTensors",

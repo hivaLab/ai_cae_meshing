@@ -544,7 +544,7 @@ def _label_for_face(graph: EntityBrepGraph, face_index: int, part_class: str, fe
     if normal_z < 0.25:
         return FaceSemanticLabel.FLANGE
     if 0.25 <= normal_z <= 0.85:
-        return FaceSemanticLabel.BEND
+        return FaceSemanticLabel.SIDE_WALL
     return FaceSemanticLabel.BASE_PANEL
 
 
@@ -579,7 +579,12 @@ def _label_for_edge(
         return EdgeSemanticLabel.SLOT_BOUNDARY
     if part_class != "SM_FLAT_PANEL" and length > 20.0:
         return EdgeSemanticLabel.BEND_EDGE
-    return EdgeSemanticLabel.OUTER_BOUNDARY if edge_index % 2 == 0 else EdgeSemanticLabel.FREE_EDGE
+    coedge_rows = graph.arrays["coedge_features"]
+    edge_coedges = [row for row in coedge_rows if int(round(float(row[1]))) == edge_index]
+    is_outer_wire = any(row.shape[0] > 5 and float(row[5]) > 0.5 for row in edge_coedges)
+    if part_class == "SM_FLAT_PANEL":
+        return EdgeSemanticLabel.OUTER_BOUNDARY if is_outer_wire else EdgeSemanticLabel.FREE_EDGE
+    return EdgeSemanticLabel.FREE_EDGE
 
 
 def _clamp(value: float, lower: float, upper: float) -> float:
@@ -757,8 +762,8 @@ def validate_entity_dataset(dataset_root: str | Path, *, require_quality: bool =
     for sample_dir in sample_dirs:
         try:
             graph_schema = _read_json(sample_dir / "graph" / "graph_schema.json")
-            if graph_schema.get("schema_version") != "AMG_BREP_ENTITY_GRAPH_SM_V2":
-                raise CdfEntityPipelineError("graph_schema_invalid", "graph_schema.json must use AMG_BREP_ENTITY_GRAPH_SM_V2")
+            if graph_schema.get("schema_version") != "AMG_BREP_ENTITY_GRAPH_SM_V3":
+                raise CdfEntityPipelineError("graph_schema_invalid", "graph_schema.json must use AMG_BREP_ENTITY_GRAPH_SM_V3")
             graph_arrays = np.load(sample_dir / "graph" / "brep_graph.npz", allow_pickle=False)
             with graph_arrays:
                 for key in ("part_features", "face_features", "edge_features", "coedge_features", "vertex_features"):

@@ -34,6 +34,26 @@ class PartClassifierTrainingResult:
     sample_count: int
     feature_dim: int
     training_accuracy: float
+    selected_model: str = "RandomForest"
+    candidate_metrics: dict[str, dict[str, Any]] | None = None
+    calibrated: bool = False
+    feature_importances: tuple[float, ...] = ()
+
+
+@dataclass
+class PartClassifierEnsemble:
+    selected_model: str
+    model: Any
+    classes_: np.ndarray
+    calibrated: bool
+    candidate_metrics: dict[str, dict[str, Any]]
+    feature_importances_: np.ndarray
+
+    def predict(self, features: np.ndarray) -> np.ndarray:
+        return self.model.predict(features)
+
+    def predict_proba(self, features: np.ndarray) -> np.ndarray:
+        return self.model.predict_proba(features)
 
 
 @dataclass(frozen=True)
@@ -44,12 +64,18 @@ class PartClassPrediction:
     uncertain: bool
 
 
-def _load_sklearn() -> Any:
+def _load_sklearn() -> dict[str, Any]:
     try:
-        from sklearn.ensemble import RandomForestClassifier
+        from sklearn.calibration import CalibratedClassifierCV
+        from sklearn.ensemble import ExtraTreesClassifier, HistGradientBoostingClassifier, RandomForestClassifier
     except ModuleNotFoundError as exc:
         raise PartClassifierError("sklearn_unavailable", "scikit-learn is required for the part classifier") from exc
-    return RandomForestClassifier
+    return {
+        "RandomForest": RandomForestClassifier,
+        "ExtraTrees": ExtraTreesClassifier,
+        "HistGradientBoosting": HistGradientBoostingClassifier,
+        "CalibratedClassifierCV": CalibratedClassifierCV,
+    }
 
 
 def _graph_arrays(sample: Any) -> dict[str, np.ndarray] | None:
@@ -144,21 +170,109 @@ def extract_part_feature_matrix(samples: Sequence[Any]) -> tuple[np.ndarray, lis
     return features, labels
 
 
-def train_part_classifier(samples: Sequence[Any], *, seed: int = 1, n_estimators: int = 300) -> tuple[Any, PartClassifierTrainingResult]:
-    """Train a Random Forest classifier on part-level B-rep features."""
+def _class_counts(labels: Sequence[str]) -> dict[str, int]:
+    return {label: int(sum(1 for item in labels if item == label)) for label in PART_CLASS_ORDER}
 
-    RandomForestClassifier = _load_sklearn()
+
+def _safe_feature_importances(model: Any, width: int) -> np.ndarray:
+    importances = getattr(model, "feature_importances_", None)
+    if importances is None:
+        return np.zeros((width,), dtype=np.float64)
+    values = np.asarray(importances, dtype=np.float64)
+    if values.shape != (width,):
+        return np.zeros((width,), dtype=np.float64)
+    return values
+
+
+def _candidate_estimators(constructors: dict[str, Any], *, seed: int, n_estimators: int) -> dict[str, Any]:
+    return {
+        "RandomForest": constructors["RandomForest"](n_estimators=n_estimators, random_state=seed, class_weight="balanced"),
+        "ExtraTrees": constructors["ExtraTrees"](n_estimators=n_estimators, random_state=seed, class_weight="balanced"),
+        "HistGradientBoosting": constructors["HistGradientBoosting"](random_state=seed, learning_rate=0.06, max_iter=max(100, n_estimators // 2), l2_regularization=0.01),
+    }
+
+
+def _fit_calibrated_model(constructors: dict[str, Any], model: Any, features: np.ndarray, labels: list[str]) -> tuple[Any, bool]:
+    counts = _class_counts(labels)
+    active_counts = [count for count in counts.values() if count > 0]
+    if not active_counts or min(active_counts) < 3:
+        return model, False
+    try:
+        calibrated = constructors["CalibratedClassifierCV"](model, method="sigmoid", cv=3)
+        calibrated.fit(features, labels)
+        return calibrated, True
+    except Exception:
+        return model, False
+
+
+def train_part_classifier(
+    samples: Sequence[Any],
+    *,
+    seed: int = 1,
+    n_estimators: int = 300,
+    validation_samples: Sequence[Any] | None = None,
+) -> tuple[Any, PartClassifierTrainingResult]:
+    """Train a deterministic CAD-native ensemble and select the best tabular model."""
+
+    constructors = _load_sklearn()
     features, labels = extract_part_feature_matrix(samples)
-    model = RandomForestClassifier(n_estimators=n_estimators, random_state=seed, class_weight="balanced")
-    model.fit(features, labels)
-    predictions = model.predict(features)
+    if validation_samples:
+        validation_features, validation_labels = extract_part_feature_matrix(validation_samples)
+        selection_features = validation_features
+        selection_labels = np.asarray(validation_labels)
+        selection_source = "validation"
+    else:
+        selection_features = features
+        selection_labels = np.asarray(labels)
+        selection_source = "training"
+    candidate_metrics: dict[str, dict[str, Any]] = {}
+    fitted_models: dict[str, Any] = {}
+    for name, estimator in _candidate_estimators(constructors, seed=seed, n_estimators=n_estimators).items():
+        try:
+            estimator.fit(features, labels)
+            predictions = estimator.predict(selection_features)
+            probabilities = estimator.predict_proba(selection_features)
+            accuracy = float(np.mean(predictions == selection_labels))
+            confidence = float(np.mean(np.max(probabilities, axis=1))) if probabilities.size else 0.0
+            fitted_models[name] = estimator
+            candidate_metrics[name] = {
+                "status": "SUCCESS",
+                "selection_source": selection_source,
+                "accuracy": accuracy,
+                "mean_confidence": confidence,
+            }
+        except Exception as exc:  # noqa: BLE001 - keep alternative models available.
+            candidate_metrics[name] = {"status": "FAILED", "selection_source": selection_source, "error": str(exc), "accuracy": -1.0, "mean_confidence": 0.0}
+    if not fitted_models:
+        raise PartClassifierError("classifier_training_failed", "all candidate part classifiers failed to train")
+    selected_name = sorted(
+        fitted_models,
+        key=lambda name: (float(candidate_metrics[name]["accuracy"]), float(candidate_metrics[name]["mean_confidence"]), name),
+        reverse=True,
+    )[0]
+    selected_base = fitted_models[selected_name]
+    importances = _safe_feature_importances(selected_base, features.shape[1])
+    selected_model, calibrated = _fit_calibrated_model(constructors, selected_base, features, labels)
+    wrapper = PartClassifierEnsemble(
+        selected_model=selected_name,
+        model=selected_model,
+        classes_=np.asarray([str(value) for value in selected_model.classes_]),
+        calibrated=calibrated,
+        candidate_metrics=candidate_metrics,
+        feature_importances_=importances,
+    )
+    predictions = wrapper.predict(features)
     result = PartClassifierTrainingResult(
-        class_order=tuple(str(value) for value in model.classes_),
+        class_order=tuple(str(value) for value in wrapper.classes_),
         sample_count=int(features.shape[0]),
         feature_dim=int(features.shape[1]),
         training_accuracy=float(np.mean(predictions == np.asarray(labels))),
+        selected_model=selected_name,
+        candidate_metrics=candidate_metrics,
+        calibrated=calibrated,
+        feature_importances=tuple(float(value) for value in importances.tolist()),
     )
-    return model, result
+    return wrapper, result
 
 
 def predict_part_class(model: Any, sample: Any, *, uncertainty_threshold: float = 0.60) -> PartClassPrediction:

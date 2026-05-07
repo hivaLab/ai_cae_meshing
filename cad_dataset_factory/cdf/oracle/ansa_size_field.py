@@ -146,8 +146,8 @@ def build_size_field_payload(request: AnsaSizeFieldEvaluationRequest) -> dict[st
             raise AnsaSizeFieldEvaluationError(f"missing_{key}", f"required input does not exist: {paths[key]}")
     size_field = _validate_json(paths["size_field"], "AMG_SIZE_FIELD_SM_V2")
     graph_schema = _read_json(paths["graph_schema"])
-    if graph_schema.get("schema_version") != "AMG_BREP_ENTITY_GRAPH_SM_V2":
-        raise AnsaSizeFieldEvaluationError("graph_schema_invalid", "graph_schema.json must use AMG_BREP_ENTITY_GRAPH_SM_V2")
+    if graph_schema.get("schema_version") != "AMG_BREP_ENTITY_GRAPH_SM_V3":
+        raise AnsaSizeFieldEvaluationError("graph_schema_invalid", "graph_schema.json must use AMG_BREP_ENTITY_GRAPH_SM_V3")
     sample_id = sample_dir.name
     if size_field.get("sample_id") != sample_id:
         raise AnsaSizeFieldEvaluationError("sample_id_mismatch", f"size field sample_id must match {sample_id}")

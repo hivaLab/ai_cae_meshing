@@ -15,7 +15,7 @@
         "properties": {
           "face_signature_id": {"type": "string", "minLength": 1},
           "semantic_label": {
-            "enum": ["BASE_PANEL", "FLANGE", "BEND", "HOLE_WALL", "SLOT_WALL", "CUTOUT_WALL", "SIDE_WALL", "OTHER"]
+            "enum": ["BASE_PANEL", "FLANGE", "HOLE_WALL", "SLOT_WALL", "CUTOUT_WALL", "SIDE_WALL", "OTHER"]
           },
           "instance_id": {"type": "string"}
         },

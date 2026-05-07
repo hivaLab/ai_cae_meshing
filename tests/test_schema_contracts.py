@@ -14,7 +14,7 @@ def load_json(path: Path) -> dict:
 
 def test_v2_schema_files_are_valid_json() -> None:
     expected = {
-        "AMG_BREP_ENTITY_GRAPH_SM_V2.schema.json",
+        "AMG_BREP_ENTITY_GRAPH_SM_V3.schema.json",
         "AMG_SIZE_FIELD_SM_V2.schema.json",
         "CDF_PART_CLASS_LABEL_SM_V2.schema.json",
         "CDF_FACE_SEGMENTATION_SM_V2.schema.json",
@@ -68,4 +68,6 @@ def test_entity_label_enums_match_primary_contract() -> None:
         "OTHER",
     ]
     assert "HOLE_BOUNDARY" in edge["properties"]["labels"]["items"]["properties"]["semantic_label"]["enum"]
-    assert "BEND" in face["properties"]["labels"]["items"]["properties"]["semantic_label"]["enum"]
+    face_labels = face["properties"]["labels"]["items"]["properties"]["semantic_label"]["enum"]
+    assert face_labels == ["BASE_PANEL", "FLANGE", "HOLE_WALL", "SLOT_WALL", "CUTOUT_WALL", "SIDE_WALL", "OTHER"]
+    assert "BEND" not in face_labels

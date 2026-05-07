@@ -384,16 +384,68 @@ pytest: 75 passed
 No baseline/reference mesh, label-size substitution, fabricated metric, or mock ANSA
 output is counted as success.
 
-### T-820_BALANCED_PROFILE_GENERALIZATION_AND_FACE_CONTROL_PILOT
+### T-820_PRODUCTION_PART_CLASSIFIER_AND_BREPNET_SEGMENTATION_UPGRADE
+
+Status: `DONE`
+
+Replaced the weak primary model stack for the two upstream perception tasks:
+
+- Part classification now trains a CAD-native tabular ensemble and selects among
+  RandomForest, ExtraTrees, and HistGradientBoosting.
+- Face/edge segmentation now defaults to `BRepNetSegmentationModel`, a winged-edge
+  coedge message-passing model with `next/prev/mate` walks.
+- B-rep entity graph inputs now use `AMG_BREP_ENTITY_GRAPH_SM_V3` with richer geometry
+  columns for surface type, curve type, loop position, face curve composition, closed
+  loops, and dihedral hints.
+- Active face segmentation classes were reduced from 8 to 7 by removing zero-support
+  `BEND`; bend control remains represented by `BEND_EDGE`.
+- A non-learnable flat boundary label bug was removed: `OUTER_BOUNDARY` versus
+  `FREE_EDGE` no longer depends on edge index parity.
+
+Evidence:
+
+```text
+dataset: runs/t820_brepnet_production_models/dataset
+sample_count: 224
+part selected model: ExtraTrees
+part_test accuracy: 1.0
+part per-class F1: 1.0 for all six classes
+segmentation_test face accuracy: 0.9836065573770492
+segmentation_test edge accuracy: 0.9850615114235501
+OUTER_BOUNDARY F1: 1.0
+HOLE_BOUNDARY F1: 1.0
+SLOT_BOUNDARY F1: 0.888888888888889
+CUTOUT_BOUNDARY F1: 0.8571428571428571
+FREE_EDGE F1: 1.0
+pytest: 75 passed
+```
+
+Downstream real ANSA smoke evidence:
+
+```text
+sample: sample_000126
+status: COMPLETED
+execution accepted: true
+quality accepted: true
+num_hard_failed_elements: 0
+entity quality rows: 2/2 metric_available
+max boundary size error: 0.009267542288650711
+BDF bytes: 137913
+```
+
+Remaining caveat:
+
+Rare slot/cutout wall and boundary classes improved but are not yet production-perfect.
+
+### T-821_RARE_FEATURE_SEGMENTATION_AND_FACE_SIZE_CONTROL_HARDENING
 
 Status: `TODO`
 
-Extend the proven T-819 path without changing the primary objective:
+Next work:
 
-- Run a larger user-controlled balanced profile multiple, such as 224 samples, only if
-  the user wants broader evidence.
-- Improve OUTER_BOUNDARY segmentation, which remains the weakest class.
-- Pilot optional per-face size controls on simple flat panels and bent webs.
-- Keep edge controls as the required path and face controls as additive evidence.
-- Preserve real ANSA reports, non-empty BDFs, zero hard failed elements, and entity-local
+- Increase slot/cutout wall and boundary reliability without reintroducing deterministic
+  feature-label shortcuts into AMG.
+- Add targeted geometry variation and harder held-out cases for slot and cutout walls.
+- Pilot optional per-face size controls only where ANSA entity matching is reliable.
+- Keep real ANSA reports, non-empty BDFs, zero hard failed elements, and entity-local
   metrics as the only success criteria.

@@ -33,7 +33,6 @@ class PartClass(StrEnum):
 class FaceSemanticLabel(StrEnum):
     BASE_PANEL = "BASE_PANEL"
     FLANGE = "FLANGE"
-    BEND = "BEND"
     HOLE_WALL = "HOLE_WALL"
     SLOT_WALL = "SLOT_WALL"
     CUTOUT_WALL = "CUTOUT_WALL"

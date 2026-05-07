@@ -17,6 +17,7 @@ from ai_mesh_generator.amg.model.part_classifier import (
     train_part_classifier,
 )
 from ai_mesh_generator.amg.model.segmentation import (
+    BRepNetSegmentationModel,
     BrepSegmentationModel,
     build_entity_graph_tensors,
     build_segmentation_targets,
@@ -90,12 +91,20 @@ def _graph(scale: float = 1.0) -> EntityBrepGraph:
         ],
         dtype=np.float64,
     )
+    schema = entity_graph_schema_document()
+    face_features = np.pad(face_features, ((0, 0), (0, max(0, len(schema["face_feature_columns"]) - face_features.shape[1]))), constant_values=0.0)
+    edge_features = np.pad(edge_features, ((0, 0), (0, max(0, len(schema["edge_feature_columns"]) - edge_features.shape[1]))), constant_values=0.0)
+    coedge_features = np.asarray(
+        [[0.0, 0.0, 0.0, 0.0, 2.0, 1.0], [0.0, 1.0, 0.0, 1.0, 2.0, 1.0], [1.0, 1.0, 0.0, 0.0, 2.0, 1.0], [1.0, 2.0, 0.0, 1.0, 2.0, 1.0]],
+        dtype=np.float64,
+    )
+    coedge_features = np.pad(coedge_features, ((0, 0), (0, max(0, len(schema["coedge_feature_columns"]) - coedge_features.shape[1]))), constant_values=0.0)
     arrays = {
         "node_type_ids": np.arange(1 + 2 + 3 + 4 + 4, dtype=np.int64),
         "part_features": np.asarray([[2.0, 3.0, 4.0, 4.0, 10.0 * scale, 10.0, 1.0]], dtype=np.float64),
         "face_features": face_features,
         "edge_features": edge_features,
-        "coedge_features": np.asarray([[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [1.0, 1.0, 0.0], [1.0, 2.0, 0.0]], dtype=np.float64),
+        "coedge_features": coedge_features,
         "vertex_features": np.asarray([[0.0, 0.0, 0.0], [10.0, 0.0, 0.0], [10.0, 10.0, 0.0], [0.0, 10.0, 0.0]], dtype=np.float64),
     }
     edge_offset = 1 + arrays["face_features"].shape[0]
@@ -237,7 +246,7 @@ def _write_sample(root: Path, sample_id: str, part_class: PartClass, *, scale: f
 def test_new_entity_contract_schemas_validate_examples() -> None:
     for schema_name in (
         "AMG_SIZE_FIELD_SM_V2",
-        "AMG_BREP_ENTITY_GRAPH_SM_V2",
+        "AMG_BREP_ENTITY_GRAPH_SM_V3",
         "CDF_PART_CLASS_LABEL_SM_V2",
         "CDF_FACE_SEGMENTATION_SM_V2",
         "CDF_EDGE_SEGMENTATION_SM_V2",
@@ -258,7 +267,7 @@ def test_entity_label_models_reject_duplicates_and_unavailable_reason() -> None:
             sample_id="sample_000001",
             labels=(
                 FaceSegmentationLabel(face_signature_id="FACE_A", semantic_label=FaceSemanticLabel.BASE_PANEL),
-                FaceSegmentationLabel(face_signature_id="FACE_A", semantic_label=FaceSemanticLabel.BEND),
+                FaceSegmentationLabel(face_signature_id="FACE_A", semantic_label=FaceSemanticLabel.FLANGE),
             ),
         )
     with pytest.raises(ValueError):
@@ -303,8 +312,12 @@ def test_part_classifier_segmentation_and_direct_size_field_model() -> None:
     targets = build_segmentation_targets(samples[0])
     model = BrepSegmentationModel(tensors.face_features.shape[1], tensors.edge_features.shape[1], hidden_dim=16)
     output = model(tensors)
-    assert output.face_logits.shape == (2, 8)
+    assert output.face_logits.shape == (2, 7)
     assert output.edge_logits.shape == (3, 8)
+    brepnet = BRepNetSegmentationModel(tensors.face_features.shape[1], tensors.edge_features.shape[1], tensors.coedge_features.shape[1], hidden_dim=16, num_layers=2)
+    brepnet_output = brepnet(tensors)
+    assert brepnet_output.face_logits.shape == (2, 7)
+    assert brepnet_output.edge_logits.shape == (3, 8)
     assert targets.face_labels.shape == (2,)
     assert targets.edge_labels.shape == (3,)
 

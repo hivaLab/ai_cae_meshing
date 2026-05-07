@@ -303,13 +303,49 @@ This is a compact development gate. The held-out meshes are now much more effici
 the first uniform-fine closure, but segmentation still needs broader data and stronger
 generalization before production claims.
 
-### T-818_SCALE_ENTITY_DATA_AND_SEGMENTATION_GENERALIZATION
+### T-818_DIVERSITY_FIRST_ENTITY_LEARNING_DATASET
+
+Status: `DONE`
+
+Created a compact diversity-first learning dataset that targets the weak part-class and
+edge-segmentation classes directly instead of blindly increasing sample count.
+
+Implemented:
+
+- New CDF profile `sm_entity_v2_learning_balanced_v1`.
+- 112 samples with flat feature-rich cases, bent-family cases, and clean `OTHER` examples.
+- Purpose-specific splits: `part_train`, `part_test`, `segmentation_train`,
+  `segmentation_test`, plus compatibility `train`/`test`.
+- `label_coverage_report.json` with part/face/edge support by split.
+- `--eval-split` for `amg-train-part-classifier` and `amg-train-entity-segmentation`.
+- CAD-native summary features for the RandomForest part classifier.
+
+Evidence:
+
+```text
+dataset: runs/t818_learning_balanced_dataset/dataset
+sample_count: 112
+python -m pytest: 73 passed
+part_test accuracy: 1.0
+segmentation_test face accuracy: 0.9016393442622951
+segmentation_test edge accuracy: 0.8857644991212654
+SLOT_BOUNDARY F1: 0.7111
+OUTER_BOUNDARY F1: 0.2857
+FREE_EDGE F1: 0.8378
+CUTOUT_BOUNDARY F1: 0.5455
+```
+
+This closes the immediate diagnosis that the previous dataset had too little diversity
+and weak rare-class support. It does not by itself prove a better ANSA mesh; that is the
+next task.
+
+### T-819_BALANCED_ENTITY_SIZE_FIELD_REAL_GATE
 
 Status: `TODO`
 
-Scale the v2 entity dataset and validation loop without returning to fake success paths.
-The next goal is broader segmentation and size-field generalization across more clean
-sheet-metal variations, while preserving the T-817 efficiency criteria:
+Use the T-818 learning-balanced dataset for the real size-field gate. The goal is to
+verify that improved part classification and segmentation accuracy translate into better
+AI-predicted edge sizes and real ANSA meshes, while preserving T-817 efficiency criteria:
 
 - no baseline/reference mesh success path
 - real ANSA reports and non-empty BDFs
@@ -317,5 +353,13 @@ sheet-metal variations, while preserving the T-817 efficiency criteria:
 - hole divisions and far-field efficiency remain bounded
 - edge-size fields must not collapse to uniform h-min
 
-Next work should improve segmentation class balance, size-label construction, and
-efficiency-aware loss so real ANSA success does not rely on heavy over-refinement.
+Required work:
+
+- Run `local_efficiency_v1` or a successor sweep on the T-818 train split.
+- Train part classifier on `part_train`.
+- Train segmentation on `segmentation_train`.
+- Train size field with predicted context and quality evidence.
+- Run the real ANSA gate on a purposefully selected held-out set that includes flat
+  hole/slot/cutout/combo and bent families.
+- Count success only with real execution reports, quality reports, BDFs, and entity-local
+  metrics.

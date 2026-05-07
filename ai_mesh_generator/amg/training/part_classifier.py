@@ -32,6 +32,7 @@ def train_part_classifier_from_dataset(
     output_dir: str | Path,
     *,
     split: str | None = None,
+    eval_split: str | None = None,
     seed: int = 1,
     n_estimators: int = 100,
     uncertainty_threshold: float = 0.60,
@@ -58,6 +59,25 @@ def train_part_classifier_from_dataset(
         "uncertain_count": int(uncertain_count),
         "model_path": (out / "model.pkl").as_posix(),
     }
+    if eval_split:
+        eval_samples = load_entity_samples(dataset_root, split=eval_split)
+        eval_labels = [sample.labels.part_class["part_class"] for sample in eval_samples]
+        eval_predictions = [predict_part_class(model, sample, uncertainty_threshold=uncertainty_threshold) for sample in eval_samples]
+        eval_pred_labels = [item.part_class for item in eval_predictions]
+        eval_confidences = [item.confidence for item in eval_predictions]
+        eval_uncertain_count = sum(1 for item in eval_predictions if item.uncertain)
+        eval_metrics = {
+            "schema": "AMG_PART_CLASSIFIER_EVAL_METRICS_V1",
+            "split": eval_split,
+            "sample_count": len(eval_samples),
+            "label_counts": dict(Counter(eval_labels)),
+            "accuracy": float(np.mean(np.asarray(eval_labels) == np.asarray(eval_pred_labels))),
+            "mean_confidence": float(np.mean(eval_confidences)),
+            "uncertain_count": int(eval_uncertain_count),
+        }
+        metrics["evaluation"] = eval_metrics
+        write_json(out / "eval_metrics.json", eval_metrics)
+        write_json(out / "eval_confusion_matrix.json", {"schema": "AMG_PART_CLASSIFIER_CONFUSION_V1", "split": eval_split, "matrix": _confusion_matrix(eval_labels, eval_pred_labels)})
     write_json(out / "metrics.json", metrics)
     write_json(out / "confusion_matrix.json", {"schema": "AMG_PART_CLASSIFIER_CONFUSION_V1", "matrix": _confusion_matrix(labels, pred_labels)})
     return metrics
@@ -68,6 +88,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dataset", required=True)
     parser.add_argument("--out", required=True)
     parser.add_argument("--split")
+    parser.add_argument("--eval-split")
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--n-estimators", type=int, default=100)
     parser.add_argument("--uncertainty-threshold", type=float, default=0.60)
@@ -81,6 +102,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.dataset,
             args.out,
             split=args.split,
+            eval_split=args.eval_split,
             seed=args.seed,
             n_estimators=args.n_estimators,
             uncertainty_threshold=args.uncertainty_threshold,

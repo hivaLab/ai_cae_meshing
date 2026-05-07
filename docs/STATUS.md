@@ -21,18 +21,21 @@ clean STEP CAD
 
 ## Latest Completed Work
 
-`T-817_SEGMENTATION_AND_SIZE_EFFICIENCY_IMPROVEMENT` is complete.
+`T-818_DIVERSITY_FIRST_ENTITY_LEARNING_DATASET` is complete.
 
 What changed:
 
-- Added efficiency-aware CDF size labeling and `local_efficiency_v1` sweep variants.
-- Added class-balanced segmentation training with per-class confusion/F1 metrics.
-- Trained size-field models with predicted part/segmentation context, matching inference.
-- Added geometry-aware size-field projection so feature-local edges are refined while
-  global far-field edges use the global size instead of explicit fine edge controls.
-- Filtered unmeasurable midsurface duplicate curves out of ANSA edge controls.
-- Added efficiency gate reporting for far-field size, hole divisions, shell element
-  count, h-min fraction, and semantic size statistics.
+- Added CDF profile `sm_entity_v2_learning_balanced_v1`.
+- Generated a compact 112-sample diversity-first dataset for part classification and
+  face/edge segmentation.
+- Added clean `OTHER` CAD examples so the sixth part-class output is trainable.
+- Added purpose-specific splits: `part_train`, `part_test`, `segmentation_train`,
+  and `segmentation_test`.
+- Added `label_coverage_report.json` with per-split part, face, edge, and profile-case
+  support.
+- Added explicit `--eval-split` evaluation to part-classifier and segmentation training.
+- Expanded the part-classifier input from raw part bbox/counts to CAD-native graph summary
+  features so flat feature-rich plates and bent families are distinguishable.
 
 Regression:
 
@@ -43,68 +46,72 @@ python -m pytest
 Result:
 
 ```text
-72 passed
+73 passed
 ```
 
-## Real ANSA Evidence
+## T-818 Learning Evidence
 
-Workflow:
+Dataset:
 
 ```text
-runs/t817_efficiency_validation/workflow_v7/workflow_report.json
+runs/t818_learning_balanced_dataset/dataset
+profile: sm_entity_v2_learning_balanced_v1
+sample_count: 112
+part split: part_train=84, part_test=28
+segmentation split: segmentation_train=84, segmentation_test=28
 ```
 
-Summary:
+Part classifier:
 
 ```text
-attempted_count: 8
-valid_mesh_count: 8
-success_count: 8
-status_counts: SUCCESS=8
-num_hard_failed_elements: 0 for every sample
-entity-local metrics: available for every controlled entity
-h_min_edge_fraction_max: 0.0
-edge_size_std_mean: 0.02807221164244637
+part_test accuracy: 1.0
+part_test classes: SM_FLAT_PANEL, SM_SINGLE_FLANGE, SM_L_BRACKET,
+  SM_U_CHANNEL, SM_HAT_CHANNEL, OTHER
 ```
 
-Flat-hole efficiency evidence:
+Segmentation:
 
 ```text
-sample: sample_000025
-status: SUCCESS
-hole boundary divisions: 32
-far-field edge mean: 3.0 mm
-shell element count: 1191
-previous uniform-fine reference: 113171 shell elements
+segmentation_test face accuracy: 0.9016393442622951
+segmentation_test edge accuracy: 0.8857644991212654
+SLOT_BOUNDARY F1: 0.7111
+OUTER_BOUNDARY F1: 0.2857
+FREE_EDGE F1: 0.8378
+CUTOUT_BOUNDARY F1: 0.5455
+HOLE_BOUNDARY F1: 0.8333
+BEND_EDGE F1: 0.9282
+INTERNAL F1: 0.9867
 ```
 
-Coverage:
+Reference comparison:
 
 ```text
-flat: sample_000025, sample_000026, sample_000027, sample_000028
-bent: sample_000029, sample_000030, sample_000031, sample_000032
-families: SM_FLAT_PANEL, SM_SINGLE_FLANGE, SM_L_BRACKET, SM_U_CHANNEL, SM_HAT_CHANNEL
+T-817 held-out edge accuracy: 0.6832
+T-818 segmentation_test edge accuracy: 0.8858
+Previously weak classes SLOT_BOUNDARY, OUTER_BOUNDARY, FREE_EDGE, and
+CUTOUT_BOUNDARY now have nonzero and improved F1.
 ```
 
 ## Active Task
 
-`T-818_SCALE_ENTITY_DATA_AND_SEGMENTATION_GENERALIZATION`
+`T-819_BALANCED_ENTITY_SIZE_FIELD_REAL_GATE`
 
 Why:
 
-- The compact end-to-end AI meshing tool now works on 8 held-out samples with real ANSA.
-- T-817 fixed the most visible uniform fine-mesh collapse for the simple flat-hole case.
-- The next bottleneck is broader generalization, not another fallback or benchmark wrapper.
-- Edge segmentation still has weak rare-class coverage, especially slot/free/outer
-  distinctions in mixed flat features.
+- T-818 fixed the immediate part-class and segmentation dataset weakness.
+- The next step is to connect this stronger dataset back into the real ANSA size-field
+  gate.
+- We need to verify that improved segmentation actually improves AI-predicted edge sizes
+  and preserves the T-817 efficiency criteria under real ANSA.
 
 ## Known Gaps
 
 1. The proof is compact; it is not yet production-scale generalization.
 2. Face size controls remain optional; edge controls are the required path.
-3. Rare edge classes still need more data and stronger validation.
-4. Some semantic labels for slot/cutout side edges are still imperfect, although the
-   efficiency gate no longer lets those labels corrupt far-field metrics.
+3. OUTER_BOUNDARY remains the weakest edge class and needs more targeted geometry or
+   model work.
+4. T-818 did not run a real ANSA size-field gate; it focused on learning data and
+   classifier/segmentation accuracy.
 5. The system assumes clean constant-thickness sheet-metal CAD; defeaturing remains out of scope.
 
 ## Verified ANSA Path

@@ -61,11 +61,39 @@ def _segmentation_stats(confusion: np.ndarray, classes: tuple[str, ...]) -> dict
     }
 
 
+def _evaluate_segmentation_model(samples: list, model: BrepSegmentationModel, torch_module) -> dict:
+    face_total = edge_total = face_correct = edge_correct = 0
+    face_confusion = np.zeros((len(FACE_SEGMENTATION_CLASSES), len(FACE_SEGMENTATION_CLASSES)), dtype=np.int64)
+    edge_confusion = np.zeros((len(EDGE_SEGMENTATION_CLASSES), len(EDGE_SEGMENTATION_CLASSES)), dtype=np.int64)
+    with torch_module.no_grad():
+        for sample in samples:
+            tensors = build_entity_graph_tensors(sample)
+            targets = build_segmentation_targets(sample)
+            output = model(tensors)
+            face_pred = output.face_logits.argmax(dim=-1)
+            edge_pred = output.edge_logits.argmax(dim=-1)
+            face_correct += int((face_pred == targets.face_labels).sum().item())
+            edge_correct += int((edge_pred == targets.edge_labels).sum().item())
+            face_total += int(targets.face_labels.numel())
+            edge_total += int(targets.edge_labels.numel())
+            for target, prediction in zip(targets.face_labels.cpu().numpy(), face_pred.cpu().numpy(), strict=True):
+                face_confusion[int(target), int(prediction)] += 1
+            for target, prediction in zip(targets.edge_labels.cpu().numpy(), edge_pred.cpu().numpy(), strict=True):
+                edge_confusion[int(target), int(prediction)] += 1
+    return {
+        "face_accuracy": float(face_correct / max(face_total, 1)),
+        "edge_accuracy": float(edge_correct / max(edge_total, 1)),
+        "face_metrics": _segmentation_stats(face_confusion, FACE_SEGMENTATION_CLASSES),
+        "edge_metrics": _segmentation_stats(edge_confusion, EDGE_SEGMENTATION_CLASSES),
+    }
+
+
 def train_entity_segmentation_from_dataset(
     dataset_root: str | Path,
     output_dir: str | Path,
     *,
     split: str | None = None,
+    eval_split: str | None = None,
     epochs: int = 5,
     hidden_dim: int = 64,
     lr: float = 1e-3,
@@ -104,24 +132,7 @@ def train_entity_segmentation_from_dataset(
             epoch_loss += float(loss.detach().cpu())
         losses.append(epoch_loss / len(samples))
 
-    face_total = edge_total = face_correct = edge_correct = 0
-    face_confusion = np.zeros((len(FACE_SEGMENTATION_CLASSES), len(FACE_SEGMENTATION_CLASSES)), dtype=np.int64)
-    edge_confusion = np.zeros((len(EDGE_SEGMENTATION_CLASSES), len(EDGE_SEGMENTATION_CLASSES)), dtype=np.int64)
-    with torch.no_grad():
-        for sample in samples:
-            tensors = build_entity_graph_tensors(sample)
-            targets = build_segmentation_targets(sample)
-            output = model(tensors)
-            face_pred = output.face_logits.argmax(dim=-1)
-            edge_pred = output.edge_logits.argmax(dim=-1)
-            face_correct += int((face_pred == targets.face_labels).sum().item())
-            edge_correct += int((edge_pred == targets.edge_labels).sum().item())
-            face_total += int(targets.face_labels.numel())
-            edge_total += int(targets.edge_labels.numel())
-            for target, prediction in zip(targets.face_labels.cpu().numpy(), face_pred.cpu().numpy(), strict=True):
-                face_confusion[int(target), int(prediction)] += 1
-            for target, prediction in zip(targets.edge_labels.cpu().numpy(), edge_pred.cpu().numpy(), strict=True):
-                edge_confusion[int(target), int(prediction)] += 1
+    train_eval = _evaluate_segmentation_model(samples, model, torch)
 
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -144,17 +155,27 @@ def train_entity_segmentation_from_dataset(
         "epochs": epochs,
         "loss_history": losses,
         "final_loss": losses[-1] if losses else None,
-        "face_accuracy": float(face_correct / max(face_total, 1)),
-        "edge_accuracy": float(edge_correct / max(edge_total, 1)),
+        "face_accuracy": train_eval["face_accuracy"],
+        "edge_accuracy": train_eval["edge_accuracy"],
         "face_classes": list(FACE_SEGMENTATION_CLASSES),
         "edge_classes": list(EDGE_SEGMENTATION_CLASSES),
         "face_class_weights": {label: float(face_weights[index].item()) for index, label in enumerate(FACE_SEGMENTATION_CLASSES)},
         "edge_class_weights": {label: float(edge_weights[index].item()) for index, label in enumerate(EDGE_SEGMENTATION_CLASSES)},
         "edge_loss_multiplier": edge_loss_multiplier,
-        "face_metrics": _segmentation_stats(face_confusion, FACE_SEGMENTATION_CLASSES),
-        "edge_metrics": _segmentation_stats(edge_confusion, EDGE_SEGMENTATION_CLASSES),
+        "face_metrics": train_eval["face_metrics"],
+        "edge_metrics": train_eval["edge_metrics"],
         "model_path": (out / "model.pt").as_posix(),
     }
+    if eval_split:
+        eval_samples = load_entity_samples(dataset_root, split=eval_split)
+        eval_metrics = {
+            "schema": "AMG_ENTITY_SEGMENTATION_EVAL_METRICS_V1",
+            "split": eval_split,
+            "sample_count": len(eval_samples),
+            **_evaluate_segmentation_model(eval_samples, model, torch),
+        }
+        metrics["evaluation"] = eval_metrics
+        write_json(out / "eval_metrics.json", eval_metrics)
     if not np.isfinite(metrics["final_loss"]):
         raise SegmentationTrainingError("non-finite segmentation loss")
     write_json(out / "metrics.json", metrics)
@@ -166,6 +187,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dataset", required=True)
     parser.add_argument("--out", required=True)
     parser.add_argument("--split")
+    parser.add_argument("--eval-split")
     parser.add_argument("--epochs", type=int, default=5)
     parser.add_argument("--hidden-dim", type=int, default=64)
     parser.add_argument("--lr", type=float, default=1e-3)
@@ -181,6 +203,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.dataset,
             args.out,
             split=args.split,
+            eval_split=args.eval_split,
             epochs=args.epochs,
             hidden_dim=args.hidden_dim,
             lr=args.lr,

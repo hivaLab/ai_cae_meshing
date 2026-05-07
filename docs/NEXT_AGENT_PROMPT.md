@@ -33,6 +33,7 @@ Completed:
 - `T-815_FULL_HELD_OUT_AI_ANSA_GATE`
 - `T-816_PRIMARY_END_TO_END_COMMAND`
 - `T-817_SEGMENTATION_AND_SIZE_EFFICIENCY_IMPROVEMENT`
+- `T-818_DIVERSITY_FIRST_ENTITY_LEARNING_DATASET`
 
 Latest regression:
 
@@ -41,40 +42,41 @@ python -m pytest
 ```
 
 ```text
-72 passed
+73 passed
 ```
 
-## Real Evidence To Preserve
+## Learning Evidence To Preserve
 
-T-817 efficiency workflow:
+T-818 diversity-first dataset:
 
 ```text
-workflow: runs\t817_efficiency_validation\workflow_v7\workflow_report.json
-attempted_count: 8
-valid_mesh_count: 8
-success_count: 8
-status_counts: SUCCESS=8
-num_hard_failed_elements: 0 for every sample
-h_min_edge_fraction_max: 0.0
-edge_size_std_mean: 0.02807221164244637
+dataset: runs\t818_learning_balanced_dataset\dataset
+profile: sm_entity_v2_learning_balanced_v1
+sample_count: 112
+part_train/part_test: 84/28
+segmentation_train/segmentation_test: 84/28
 ```
 
-Flat-hole sample evidence:
+T-818 part classifier:
 
 ```text
-sample: sample_000025
-hole boundary divisions: 32
-far-field edge mean: 3.0 mm
-shell element count: 1191
-previous uniform-fine reference: 113171 shell elements
+part_test accuracy: 1.0
+classes present: SM_FLAT_PANEL, SM_SINGLE_FLANGE, SM_L_BRACKET,
+  SM_U_CHANNEL, SM_HAT_CHANNEL, OTHER
 ```
 
-Coverage:
+T-818 segmentation:
 
 ```text
-flat: sample_000025, sample_000026, sample_000027, sample_000028
-bent: sample_000029, sample_000030, sample_000031, sample_000032
-families: SM_FLAT_PANEL, SM_SINGLE_FLANGE, SM_L_BRACKET, SM_U_CHANNEL, SM_HAT_CHANNEL
+segmentation_test face accuracy: 0.9016393442622951
+segmentation_test edge accuracy: 0.8857644991212654
+SLOT_BOUNDARY F1: 0.7111
+OUTER_BOUNDARY F1: 0.2857
+FREE_EDGE F1: 0.8378
+CUTOUT_BOUNDARY F1: 0.5455
+HOLE_BOUNDARY F1: 0.8333
+BEND_EDGE F1: 0.9282
+INTERNAL F1: 0.9867
 ```
 
 ## Next Task
@@ -82,27 +84,28 @@ families: SM_FLAT_PANEL, SM_SINGLE_FLANGE, SM_L_BRACKET, SM_U_CHANNEL, SM_HAT_CH
 Implement:
 
 ```text
-T-818_SCALE_ENTITY_DATA_AND_SEGMENTATION_GENERALIZATION
+T-819_BALANCED_ENTITY_SIZE_FIELD_REAL_GATE
 ```
 
 ## Required Work
 
-1. Scale the compact v2 dataset without changing the primary objective.
-   - Keep user-controlled sample counts.
-   - Preserve case-stratified train/test coverage.
-   - Add more clean variations for holes, slots, cutouts, bends, flanges, thickness,
-     clearances, and part dimensions.
-2. Strengthen edge segmentation generalization.
-   - Improve rare-class coverage for `SLOT_BOUNDARY`, `OUTER_BOUNDARY`, and `FREE_EDGE`.
-   - Keep per-class confusion/F1 metrics as hard evidence.
-3. Preserve T-817 efficiency criteria.
-   - Hole divisions should remain in the practical range.
-   - Far-field size should remain coarse enough for efficient analysis.
-   - Edge-size fields must not collapse to uniform h-min.
-4. Run a real ANSA gate on a larger but still development-sized held-out split.
+1. Reconnect the T-818 balanced dataset to size-field learning.
+   - Run efficiency-aware size sweeps on the T-818 train split.
+   - Preserve pass, near-fail, fail, and blocked evidence.
+   - Do not fabricate local quality metrics.
+2. Train the three primary AMG models on the purpose-specific splits.
+   - Part classifier: `part_train`, evaluate `part_test`.
+   - Segmentation: `segmentation_train`, evaluate `segmentation_test`.
+   - Size field: predicted part/segmentation context, quality evidence only on label side.
+3. Run a real ANSA held-out size-field gate.
+   - Include flat hole, slot, cutout/combo and bent-family samples.
    - Count success only with real execution reports, real quality reports, non-empty BDF,
      zero hard failed elements, and available entity-local metrics.
+4. Preserve T-817 efficiency criteria.
+   - Hole divisions practical.
+   - Far-field edges remain coarse enough for efficient analysis.
+   - Edge-size fields must not collapse to uniform h-min.
 
-If the larger gate fails, keep T-818 `IN_PROGRESS` and record exact sample ids, semantic
+If the real gate fails, keep T-819 `IN_PROGRESS` and record exact sample ids, semantic
 confusions, size-field distributions, ANSA report paths, and failure reasons. Do not hide
-failure with baseline meshes or deterministic fallbacks.
+failure with baseline meshes, label-size substitution, or deterministic fallbacks.

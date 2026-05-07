@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from pathlib import Path
 
 import pytest
+import numpy as np
 from jsonschema import Draft202012Validator
 
 from ai_mesh_generator.amg.inference.size_field_gate import build_ai_size_field_gate_report, write_ai_size_field_gate_report
@@ -62,14 +63,18 @@ def test_primary_training_and_direct_size_field_commands_write_artifacts() -> No
     dataset = _fixture_dataset("training")
     out = _tmp("outputs")
     assert [sample.sample_id for sample in load_entity_samples(dataset, split="test")] == ["sample_000004"]
-    classifier_metrics = train_part_classifier_from_dataset(dataset, out / "part_classifier", split="train", seed=11, n_estimators=20, uncertainty_threshold=0.0)
+    classifier_metrics = train_part_classifier_from_dataset(dataset, out / "part_classifier", split="train", eval_split="test", seed=11, n_estimators=20, uncertainty_threshold=0.0)
     assert classifier_metrics["sample_count"] == 3
+    assert classifier_metrics["evaluation"]["sample_count"] == 1
     assert (out / "part_classifier" / "model.pkl").is_file()
     assert (out / "part_classifier" / "confusion_matrix.json").is_file()
+    assert (out / "part_classifier" / "eval_metrics.json").is_file()
 
-    segmentation_metrics = train_entity_segmentation_from_dataset(dataset, out / "segmentation", split="train", epochs=20, hidden_dim=16, seed=11)
+    segmentation_metrics = train_entity_segmentation_from_dataset(dataset, out / "segmentation", split="train", eval_split="test", epochs=20, hidden_dim=16, seed=11)
     assert segmentation_metrics["sample_count"] == 3
+    assert segmentation_metrics["evaluation"]["sample_count"] == 1
     assert (out / "segmentation" / "model.pt").is_file()
+    assert (out / "segmentation" / "eval_metrics.json").is_file()
 
     size_metrics = train_size_field_model(dataset, out / "size_field_model", split="train", epochs=5, hidden_dim=16, seed=11)
     assert size_metrics["target_row_count"] >= 4
@@ -274,6 +279,38 @@ def test_diverse_quality_profile_requires_coverage_and_writes_stratified_splits(
     index = json.loads((dataset / "dataset_index.json").read_text(encoding="utf-8"))
     cases = {record["profile_case"] for record in index["samples"] if record["sample_id"] in test_ids}
     assert cases == {"flat_hole", "flat_slot", "flat_cutout", "flat_combo", "single_flange", "l_bracket", "u_channel", "hat_channel"}
+
+
+@pytest.mark.cad_kernel
+def test_learning_balanced_profile_writes_purpose_specific_splits_and_coverage() -> None:
+    pytest.importorskip("cadquery")
+    dataset = _tmp("generated_learning_balanced")
+    with pytest.raises(Exception) as excinfo:
+        generate_entity_dataset(dataset, count=56, seed=818, profile="sm_entity_v2_learning_balanced_v1")
+    assert "invalid_profile_count" in str(excinfo.value)
+
+    result = generate_entity_dataset(dataset, count=112, seed=818, profile="sm_entity_v2_learning_balanced_v1")
+    assert result.status == "SUCCESS"
+    for split_name in ("train", "test", "part_train", "part_test", "segmentation_train", "segmentation_test"):
+        assert (dataset / "splits" / f"{split_name}.txt").is_file()
+
+    index = json.loads((dataset / "dataset_index.json").read_text(encoding="utf-8"))
+    assert index["profile"] == "sm_entity_v2_learning_balanced_v1"
+    assert index["sample_count"] == 112
+    assert index["profile_case_counts"]["other_block"] == 8
+    assert index["profile_case_counts"]["flat_slot_long"] == 5
+
+    coverage = json.loads((dataset / "label_coverage_report.json").read_text(encoding="utf-8"))
+    required_parts = {"SM_FLAT_PANEL", "SM_SINGLE_FLANGE", "SM_L_BRACKET", "SM_U_CHANNEL", "SM_HAT_CHANNEL", "OTHER"}
+    required_edges = {"OUTER_BOUNDARY", "HOLE_BOUNDARY", "SLOT_BOUNDARY", "CUTOUT_BOUNDARY", "BEND_EDGE", "FREE_EDGE", "INTERNAL"}
+    for split_name in ("part_train", "part_test"):
+        assert required_parts <= set(coverage["splits"][split_name]["part_class_counts"])
+    for split_name in ("segmentation_train", "segmentation_test"):
+        assert required_edges <= set(coverage["splits"][split_name]["edge_semantic_counts"])
+
+    sample = dataset / "samples" / "sample_000001"
+    with np.load(sample / "graph" / "brep_graph.npz", allow_pickle=False) as arrays:
+        assert all("target" not in key.lower() and "label" not in key.lower() and "quality" not in key.lower() for key in arrays.files)
 
 
 def test_entity_size_field_workflow_uses_file_contract_for_ansa(monkeypatch) -> None:

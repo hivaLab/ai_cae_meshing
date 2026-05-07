@@ -52,16 +52,76 @@ def _load_sklearn() -> Any:
     return RandomForestClassifier
 
 
-def _part_features(sample: Any) -> np.ndarray:
+def _graph_arrays(sample: Any) -> dict[str, np.ndarray] | None:
     if hasattr(sample, "graph"):
-        rows = np.asarray(sample.graph.arrays["part_features"], dtype=np.float64)
-    elif isinstance(sample, dict):
-        rows = np.asarray(sample["part_features"], dtype=np.float64)
-    else:
-        rows = np.asarray(sample.arrays["part_features"], dtype=np.float64)
+        return {key: np.asarray(value, dtype=np.float64) for key, value in sample.graph.arrays.items()}
+    if isinstance(sample, dict):
+        if "arrays" in sample and isinstance(sample["arrays"], dict):
+            return {key: np.asarray(value, dtype=np.float64) for key, value in sample["arrays"].items()}
+        if "part_features" in sample:
+            return {"part_features": np.asarray(sample["part_features"], dtype=np.float64)}
+    if hasattr(sample, "arrays"):
+        return {key: np.asarray(value, dtype=np.float64) for key, value in sample.arrays.items()}
+    return None
+
+
+def _part_features(sample: Any) -> np.ndarray:
+    arrays = _graph_arrays(sample)
+    if arrays is None or "part_features" not in arrays:
+        raise PartClassifierError("malformed_part_features", "sample does not expose part_features")
+    rows = np.asarray(arrays["part_features"], dtype=np.float64)
     if rows.ndim != 2 or rows.shape[0] != 1:
         raise PartClassifierError("malformed_part_features", "part_features must have shape (1, P)")
-    return rows[0]
+    base = rows[0]
+    if "face_features" not in arrays or "edge_features" not in arrays:
+        return base
+
+    face = np.asarray(arrays["face_features"], dtype=np.float64)
+    edge = np.asarray(arrays["edge_features"], dtype=np.float64)
+    if face.ndim != 2 or edge.ndim != 2:
+        return base
+
+    face_area = face[:, 0] if face.shape[1] > 0 and face.shape[0] else np.asarray([], dtype=np.float64)
+    normal_z = np.abs(face[:, 9]) if face.shape[1] > 9 and face.shape[0] else np.asarray([], dtype=np.float64)
+    face_wires = face[:, 11] if face.shape[1] > 11 and face.shape[0] else np.asarray([], dtype=np.float64)
+    curve_type = edge[:, 0].round().astype(int) if edge.shape[1] > 0 and edge.shape[0] else np.asarray([], dtype=int)
+    edge_length = edge[:, 1] if edge.shape[1] > 1 and edge.shape[0] else np.asarray([], dtype=np.float64)
+    edge_bbox = edge[:, 2:5] if edge.shape[1] > 4 and edge.shape[0] else np.empty((0, 3), dtype=np.float64)
+
+    total_area = float(face_area.sum()) if face_area.size else 0.0
+    derived = np.asarray(
+        [
+            float(np.mean(face_area)) if face_area.size else 0.0,
+            float(np.std(face_area)) if face_area.size else 0.0,
+            float(np.max(face_area)) if face_area.size else 0.0,
+            float(np.max(face_area) / max(total_area, 1.0e-9)) if face_area.size else 0.0,
+            float(np.sum(normal_z > 0.85)),
+            float(np.sum((normal_z >= 0.25) & (normal_z <= 0.85))),
+            float(np.sum(normal_z < 0.25)),
+            float(np.sum(face_wires > 1.0)),
+            float(np.sum(curve_type == 1)),
+            float(np.sum(curve_type == 2)),
+            float(np.sum(curve_type == 3)),
+            float(np.sum(curve_type >= 4)),
+            float(np.mean(edge_length)) if edge_length.size else 0.0,
+            float(np.std(edge_length)) if edge_length.size else 0.0,
+            float(np.min(edge_length)) if edge_length.size else 0.0,
+            float(np.max(edge_length)) if edge_length.size else 0.0,
+            float(np.sum(np.all(edge_bbox[:, :2] < 1.0e-6, axis=1) & (edge_bbox[:, 2] > 1.0e-6))) if edge_bbox.size else 0.0,
+            float(np.sum(edge_bbox[:, 2] < 1.0e-6)) if edge_bbox.size else 0.0,
+        ],
+        dtype=np.float64,
+    )
+    bbox = base[4:7] if base.shape[0] >= 7 else np.asarray([0.0, 0.0, 0.0], dtype=np.float64)
+    sorted_bbox = np.sort(np.abs(bbox))
+    ratios = np.asarray(
+        [
+            float(sorted_bbox[0] / max(sorted_bbox[-1], 1.0e-9)) if sorted_bbox.shape[0] == 3 else 0.0,
+            float(sorted_bbox[1] / max(sorted_bbox[-1], 1.0e-9)) if sorted_bbox.shape[0] == 3 else 0.0,
+        ],
+        dtype=np.float64,
+    )
+    return np.concatenate([base, derived, ratios])
 
 
 def _part_label(sample: Any) -> str:

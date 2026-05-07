@@ -135,7 +135,7 @@ cases.
 Real result:
 
 ```text
-dataset: runs/t812_diverse_entity_validation/dataset
+local artifact: removed during post-T817 cleanup; numeric evidence retained below
 profile: sm_entity_v2_diverse_quality
 sample count: 32
 train/test split: 24/8, case-stratified
@@ -204,7 +204,7 @@ standard deviation, h-min fraction, and `FAILED_LEARNING_SIGNAL` when targets co
 Real evidence:
 
 ```text
-training output: runs/t813_entity_matching_closure/size_field
+local artifact: removed during post-T817 cleanup; numeric evidence retained below
 split: train
 sample_count: 24
 trained_sample_count: 8
@@ -224,7 +224,7 @@ Ran AI-predicted size fields through real ANSA on the entire 8-sample test split
 Real evidence:
 
 ```text
-workflow: runs/t816_entity_ai_meshing_gate_v2/workflow_report.json
+local artifact: removed during post-T817 cleanup; numeric evidence retained below
 attempted_count: 8
 valid_mesh_count: 8
 status_counts: SUCCESS=8

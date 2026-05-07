@@ -210,6 +210,37 @@ def _write_learning_balanced_splits(root: Path, records: list[dict[str, Any]]) -
     _write_split(root / "splits" / "train.txt", segmentation_train)
     _write_split(root / "splits" / "test.txt", segmentation_test)
 
+    by_case = _sample_id_by_case(records)
+    size_train: list[str] = []
+    for case in (
+        "flat_hole_small",
+        "flat_hole_large",
+        "flat_multi_hole",
+        "flat_slot_short",
+        "flat_slot_long",
+        "flat_cutout_square",
+        "flat_cutout_rect",
+        "flat_combo_sparse",
+        "flat_combo_dense",
+    ):
+        size_train.extend(by_case.get(case, [])[:2])
+    for case in ("single_flange", "l_bracket", "u_channel", "hat_channel"):
+        size_train.extend(by_case.get(case, [])[:2])
+    size_test_cases = (
+        "flat_hole_large",
+        "flat_slot_long",
+        "flat_cutout_rect",
+        "flat_combo_dense",
+        "single_flange",
+        "l_bracket",
+        "u_channel",
+        "hat_channel",
+    )
+    size_test = [by_case[case][-1] for case in size_test_cases if by_case.get(case)]
+    size_train = [sample_id for sample_id in size_train if sample_id not in set(size_test)]
+    _write_split(root / "splits" / "size_train.txt", size_train)
+    _write_split(root / "splits" / "size_test.txt", size_test)
+
 
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
@@ -310,6 +341,16 @@ def _write_label_coverage_report(root: Path, profile: str, records: list[dict[st
             missing = sorted(set(REQUIRED_SEGMENTATION_EDGE_CLASSES) - observed)
             if missing:
                 raise CdfEntityPipelineError("segmentation_split_coverage_failed", f"{split_name} missing edge classes: {missing}")
+        size_train_parts = set(split_reports.get("size_train", {}).get("part_class_counts", {}))
+        if "OTHER" in size_train_parts:
+            raise CdfEntityPipelineError("size_split_coverage_failed", "size_train must exclude OTHER samples")
+        required_size_parts = {"SM_FLAT_PANEL", "SM_SINGLE_FLANGE", "SM_L_BRACKET", "SM_U_CHANNEL", "SM_HAT_CHANNEL"}
+        missing_size_parts = sorted(required_size_parts - set(split_reports.get("size_test", {}).get("part_class_counts", {})))
+        if missing_size_parts:
+            raise CdfEntityPipelineError("size_split_coverage_failed", f"size_test missing part classes: {missing_size_parts}")
+        missing_size_edges = sorted(set(REQUIRED_SEGMENTATION_EDGE_CLASSES) - set(split_reports.get("size_test", {}).get("edge_semantic_counts", {})))
+        if missing_size_edges:
+            raise CdfEntityPipelineError("size_split_coverage_failed", f"size_test missing edge classes: {missing_size_edges}")
     _write_json(root / "label_coverage_report.json", report)
 
 
@@ -695,6 +736,8 @@ def generate_entity_dataset(out_dir: str | Path, *, count: int, seed: int = 1, p
                 "part_test": "splits/part_test.txt",
                 "segmentation_train": "splits/segmentation_train.txt",
                 "segmentation_test": "splits/segmentation_test.txt",
+                "size_train": "splits/size_train.txt",
+                "size_test": "splits/size_test.txt",
             }
         )
         _write_json(root / "dataset_index.json", index)

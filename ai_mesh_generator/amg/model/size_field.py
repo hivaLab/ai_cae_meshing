@@ -528,7 +528,11 @@ def _project_semantic_edge_size(value: float, record: dict[str, Any], semantic: 
     fingerprint = record.get("fingerprint") if isinstance(record.get("fingerprint"), dict) else {}
     length = float(fingerprint.get("length_mm", 0.0) or 0.0)
     curve_type = int(fingerprint.get("curve_type_id", 0) or 0)
-    if curve_type in {2, 3} and length > 0 and semantic not in {"SLOT_BOUNDARY", "CUTOUT_BOUNDARY"}:
+    bbox = fingerprint.get("bbox_mm") if isinstance(fingerprint.get("bbox_mm"), list) else []
+    bbox_x = abs(float(bbox[0])) if len(bbox) > 0 else 0.0
+    bbox_y = abs(float(bbox[1])) if len(bbox) > 1 else 0.0
+    roundish_curve = max(bbox_x, bbox_y) > 0.0 and abs(bbox_x - bbox_y) <= 0.25 * max(bbox_x, bbox_y)
+    if curve_type in {2, 3} and length > 0 and (semantic == "HOLE_BOUNDARY" or roundish_curve):
         preferred = max(h_min_mm, min(1.5, length / 32.0))
         lower = max(h_min_mm, length / 48.0)
         upper = max(lower, min(1.5, length / 24.0))

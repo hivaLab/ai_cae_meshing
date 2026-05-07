@@ -133,6 +133,10 @@ def run_entity_size_field_gate_workflow(
     out: str | Path,
     train_split: str = "train",
     test_split: str = "test",
+    part_split: str | None = None,
+    part_eval_split: str | None = None,
+    segmentation_split: str | None = None,
+    segmentation_eval_split: str | None = None,
     epochs_segmentation: int = 30,
     epochs_size_field: int = 40,
     seed: int = 1,
@@ -152,12 +156,16 @@ def run_entity_size_field_gate_workflow(
         sample_dirs = sample_dirs[:limit]
     if not sample_dirs:
         raise EntitySizeFieldWorkflowError("empty_test_split", f"no samples found in split {test_split}")
+    part_split = part_split or ("part_train" if (dataset_root / "splits" / "part_train.txt").is_file() else train_split)
+    part_eval_split = part_eval_split or ("part_test" if (dataset_root / "splits" / "part_test.txt").is_file() else None)
+    segmentation_split = segmentation_split or ("segmentation_train" if (dataset_root / "splits" / "segmentation_train.txt").is_file() else train_split)
+    segmentation_eval_split = segmentation_eval_split or ("segmentation_test" if (dataset_root / "splits" / "segmentation_test.txt").is_file() else None)
 
     part_dir = output_root / "part_classifier"
     seg_dir = output_root / "segmentation"
     size_dir = output_root / "size_field"
-    part_metrics = train_part_classifier_from_dataset(dataset_root, part_dir, split=train_split, seed=seed, uncertainty_threshold=0.0)
-    segmentation_metrics = train_entity_segmentation_from_dataset(dataset_root, seg_dir, split=train_split, epochs=epochs_segmentation, seed=seed)
+    part_metrics = train_part_classifier_from_dataset(dataset_root, part_dir, split=part_split, eval_split=part_eval_split, seed=seed, uncertainty_threshold=0.0)
+    segmentation_metrics = train_entity_segmentation_from_dataset(dataset_root, seg_dir, split=segmentation_split, eval_split=segmentation_eval_split, epochs=epochs_segmentation, seed=seed)
     size_metrics = train_size_field_model(
         dataset_root,
         size_dir,
@@ -240,6 +248,10 @@ def run_entity_size_field_gate_workflow(
         "output_root": output_root.as_posix(),
         "train_split": train_split,
         "test_split": test_split,
+        "part_split": part_split,
+        "part_eval_split": part_eval_split,
+        "segmentation_split": segmentation_split,
+        "segmentation_eval_split": segmentation_eval_split,
         "model_metrics": {
             "part_classifier": part_metrics,
             "segmentation": segmentation_metrics,
@@ -261,6 +273,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--out", required=True)
     parser.add_argument("--train-split", default="train")
     parser.add_argument("--test-split", default="test")
+    parser.add_argument("--part-split")
+    parser.add_argument("--part-eval-split")
+    parser.add_argument("--segmentation-split")
+    parser.add_argument("--segmentation-eval-split")
     parser.add_argument("--epochs-segmentation", type=int, default=30)
     parser.add_argument("--epochs-size-field", type=int, default=40)
     parser.add_argument("--seed", type=int, default=1)
@@ -279,6 +295,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             out=args.out,
             train_split=args.train_split,
             test_split=args.test_split,
+            part_split=args.part_split,
+            part_eval_split=args.part_eval_split,
+            segmentation_split=args.segmentation_split,
+            segmentation_eval_split=args.segmentation_eval_split,
             epochs_segmentation=args.epochs_segmentation,
             epochs_size_field=args.epochs_size_field,
             seed=args.seed,

@@ -291,7 +291,7 @@ def test_learning_balanced_profile_writes_purpose_specific_splits_and_coverage()
 
     result = generate_entity_dataset(dataset, count=112, seed=818, profile="sm_entity_v2_learning_balanced_v1")
     assert result.status == "SUCCESS"
-    for split_name in ("train", "test", "part_train", "part_test", "segmentation_train", "segmentation_test"):
+    for split_name in ("train", "test", "part_train", "part_test", "segmentation_train", "segmentation_test", "size_train", "size_test"):
         assert (dataset / "splits" / f"{split_name}.txt").is_file()
 
     index = json.loads((dataset / "dataset_index.json").read_text(encoding="utf-8"))
@@ -307,6 +307,9 @@ def test_learning_balanced_profile_writes_purpose_specific_splits_and_coverage()
         assert required_parts <= set(coverage["splits"][split_name]["part_class_counts"])
     for split_name in ("segmentation_train", "segmentation_test"):
         assert required_edges <= set(coverage["splits"][split_name]["edge_semantic_counts"])
+    assert "OTHER" not in coverage["splits"]["size_train"]["part_class_counts"]
+    assert {"SM_FLAT_PANEL", "SM_SINGLE_FLANGE", "SM_L_BRACKET", "SM_U_CHANNEL", "SM_HAT_CHANNEL"} <= set(coverage["splits"]["size_test"]["part_class_counts"])
+    assert required_edges <= set(coverage["splits"]["size_test"]["edge_semantic_counts"])
 
     sample = dataset / "samples" / "sample_000001"
     with np.load(sample / "graph" / "brep_graph.npz", allow_pickle=False) as arrays:
@@ -365,5 +368,50 @@ def test_entity_size_field_workflow_uses_file_contract_for_ansa(monkeypatch) -> 
     assert calls
     assert calls[0][2:5] == ["cad_dataset_factory.cdf.entity_cli", "ansa-evaluate-size-field", "--sample-dir"]
     assert (out / "workflow_report.json").is_file()
+    assert report["part_split"] == "train"
+    assert report["segmentation_split"] == "train"
     assert report["gate"]["attempted_count"] == 1
     assert report["gate"]["valid_mesh_count"] == 1
+
+
+def test_entity_size_field_workflow_prefers_purpose_specific_splits(monkeypatch) -> None:
+    dataset = _fixture_dataset("workflow_dataset_purpose_splits")
+    for split_name in ("part_train", "part_test", "segmentation_train", "segmentation_test", "size_train", "size_test"):
+        source = "train" if split_name.endswith("train") else "test"
+        (dataset / "splits" / f"{split_name}.txt").write_text((dataset / "splits" / f"{source}.txt").read_text(encoding="utf-8"), encoding="utf-8")
+    out = _tmp("workflow_out_purpose_splits")
+
+    def fake_run(command, capture_output, text, timeout, check):  # noqa: ANN001
+        out_dir = Path(command[command.index("--out") + 1])
+        size_field = json.loads(Path(command[command.index("--size-field") + 1]).read_text(encoding="utf-8"))
+        first_edge = size_field["edge_sizes"][0]
+        out_dir.joinpath("reports").mkdir(parents=True, exist_ok=True)
+        out_dir.joinpath("quality_evaluations", "evaluation_000001").mkdir(parents=True, exist_ok=True)
+        out_dir.joinpath("meshes").mkdir(parents=True, exist_ok=True)
+        out_dir.joinpath("reports", "ansa_execution_report.json").write_text(json.dumps({"accepted": True, "sample_id": "sample_000004"}), encoding="utf-8")
+        out_dir.joinpath("reports", "ansa_quality_report.json").write_text(json.dumps({"accepted": True, "mesh_stats": {"shell_element_count": 12}, "quality": {"num_hard_failed_elements": 0}}), encoding="utf-8")
+        out_dir.joinpath("quality_evaluations", "evaluation_000001", "entity_quality_labels.json").write_text(
+            json.dumps({"entity_quality": [{"entity_signature_id": first_edge["edge_signature_id"], "metric_available": True, "hard_fail": False, "measured_boundary_size_error": 0.1}]}),
+            encoding="utf-8",
+        )
+        out_dir.joinpath("meshes", "ansa_size_field_mesh.bdf").write_text("$ workflow unit-test bdf\n", encoding="utf-8")
+        return SimpleNamespace(returncode=0, stdout='{"status":"COMPLETED"}', stderr="")
+
+    monkeypatch.setattr("ai_mesh_generator.amg.workflow.entity_size_field_gate.subprocess.run", fake_run)
+    report = run_entity_size_field_gate_workflow(
+        dataset=dataset,
+        ansa_executable=str(ROOT / "fake_ansa64.bat"),
+        out=out,
+        train_split="size_train",
+        test_split="size_test",
+        epochs_segmentation=2,
+        epochs_size_field=2,
+        seed=32,
+        timeout_sec=30,
+    )
+    assert report["train_split"] == "size_train"
+    assert report["test_split"] == "size_test"
+    assert report["part_split"] == "part_train"
+    assert report["part_eval_split"] == "part_test"
+    assert report["segmentation_split"] == "segmentation_train"
+    assert report["segmentation_eval_split"] == "segmentation_test"

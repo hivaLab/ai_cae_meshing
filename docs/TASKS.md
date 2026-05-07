@@ -341,7 +341,7 @@ next task.
 
 ### T-819_BALANCED_ENTITY_SIZE_FIELD_REAL_GATE
 
-Status: `TODO`
+Status: `DONE`
 
 Use the T-818 learning-balanced dataset for the real size-field gate. The goal is to
 verify that improved part classification and segmentation accuracy translate into better
@@ -355,11 +355,45 @@ AI-predicted edge sizes and real ANSA meshes, while preserving T-817 efficiency 
 
 Required work:
 
-- Run `local_efficiency_v1` or a successor sweep on the T-818 train split.
-- Train part classifier on `part_train`.
-- Train segmentation on `segmentation_train`.
-- Train size field with predicted context and quality evidence.
-- Run the real ANSA gate on a purposefully selected held-out set that includes flat
-  hole/slot/cutout/combo and bent families.
-- Count success only with real execution reports, quality reports, BDFs, and entity-local
-  metrics.
+- Added `size_train` and `size_test` splits to `sm_entity_v2_learning_balanced_v1`.
+- Ran `local_efficiency_v1` real ANSA sweep on `size_train`.
+- Trained part classifier on `part_train`, segmentation on `segmentation_train`, and
+  size field on `size_train` with predicted context and real quality evidence.
+- Ran the real ANSA gate on `size_test`.
+- Counted success only with real execution reports, quality reports, BDFs, and
+  entity-local metrics.
+
+Evidence:
+
+```text
+dataset: runs/t818_learning_balanced_dataset/dataset
+size_train/size_test: 26/8
+size sweep: attempted=130, completed=84, failed=46, blocked=0
+workflow: runs/t819_balanced_size_field_gate/workflow_v3/workflow_report.json
+workflow status: SUCCESS
+valid_mesh_count: 8/8
+part_test accuracy: 1.0
+segmentation_test edge accuracy: 0.8769771528998243
+size-field trained samples: 26/26
+size-field target std: 3.0309552440652308 mm
+h_min_edge_fraction_max: 0.0
+hole divisions on flat-hole/combo samples: 32 practical divisions
+pytest: 75 passed
+```
+
+No baseline/reference mesh, label-size substitution, fabricated metric, or mock ANSA
+output is counted as success.
+
+### T-820_BALANCED_PROFILE_GENERALIZATION_AND_FACE_CONTROL_PILOT
+
+Status: `TODO`
+
+Extend the proven T-819 path without changing the primary objective:
+
+- Run a larger user-controlled balanced profile multiple, such as 224 samples, only if
+  the user wants broader evidence.
+- Improve OUTER_BOUNDARY segmentation, which remains the weakest class.
+- Pilot optional per-face size controls on simple flat panels and bent webs.
+- Keep edge controls as the required path and face controls as additive evidence.
+- Preserve real ANSA reports, non-empty BDFs, zero hard failed elements, and entity-local
+  metrics as the only success criteria.

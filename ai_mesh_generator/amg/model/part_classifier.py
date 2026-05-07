@@ -144,7 +144,7 @@ def extract_part_feature_matrix(samples: Sequence[Any]) -> tuple[np.ndarray, lis
     return features, labels
 
 
-def train_part_classifier(samples: Sequence[Any], *, seed: int = 1, n_estimators: int = 80) -> tuple[Any, PartClassifierTrainingResult]:
+def train_part_classifier(samples: Sequence[Any], *, seed: int = 1, n_estimators: int = 300) -> tuple[Any, PartClassifierTrainingResult]:
     """Train a Random Forest classifier on part-level B-rep features."""
 
     RandomForestClassifier = _load_sklearn()

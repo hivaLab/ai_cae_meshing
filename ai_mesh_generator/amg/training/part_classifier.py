@@ -34,7 +34,7 @@ def train_part_classifier_from_dataset(
     split: str | None = None,
     eval_split: str | None = None,
     seed: int = 1,
-    n_estimators: int = 100,
+    n_estimators: int = 300,
     uncertainty_threshold: float = 0.60,
 ) -> dict:
     samples = load_entity_samples(dataset_root, split=split)
@@ -90,7 +90,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--split")
     parser.add_argument("--eval-split")
     parser.add_argument("--seed", type=int, default=1)
-    parser.add_argument("--n-estimators", type=int, default=100)
+    parser.add_argument("--n-estimators", type=int, default=300)
     parser.add_argument("--uncertainty-threshold", type=float, default=0.60)
     return parser
 

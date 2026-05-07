@@ -34,6 +34,7 @@ Completed:
 - `T-816_PRIMARY_END_TO_END_COMMAND`
 - `T-817_SEGMENTATION_AND_SIZE_EFFICIENCY_IMPROVEMENT`
 - `T-818_DIVERSITY_FIRST_ENTITY_LEARNING_DATASET`
+- `T-819_BALANCED_ENTITY_SIZE_FIELD_REAL_GATE`
 
 Latest regression:
 
@@ -42,12 +43,12 @@ python -m pytest
 ```
 
 ```text
-73 passed
+75 passed
 ```
 
-## Learning Evidence To Preserve
+## Real Evidence To Preserve
 
-T-818 diversity-first dataset:
+T-819 balanced real gate:
 
 ```text
 dataset: runs\t818_learning_balanced_dataset\dataset
@@ -55,28 +56,16 @@ profile: sm_entity_v2_learning_balanced_v1
 sample_count: 112
 part_train/part_test: 84/28
 segmentation_train/segmentation_test: 84/28
-```
-
-T-818 part classifier:
-
-```text
+size_train/size_test: 26/8
+size sweep: attempted=130, completed=84, failed=46, blocked=0
+workflow: runs\t819_balanced_size_field_gate\workflow_v3\workflow_report.json
+workflow status: SUCCESS
+valid_mesh_count: 8/8
 part_test accuracy: 1.0
-classes present: SM_FLAT_PANEL, SM_SINGLE_FLANGE, SM_L_BRACKET,
-  SM_U_CHANNEL, SM_HAT_CHANNEL, OTHER
-```
-
-T-818 segmentation:
-
-```text
-segmentation_test face accuracy: 0.9016393442622951
-segmentation_test edge accuracy: 0.8857644991212654
-SLOT_BOUNDARY F1: 0.7111
-OUTER_BOUNDARY F1: 0.2857
-FREE_EDGE F1: 0.8378
-CUTOUT_BOUNDARY F1: 0.5455
-HOLE_BOUNDARY F1: 0.8333
-BEND_EDGE F1: 0.9282
-INTERNAL F1: 0.9867
+segmentation_test edge accuracy: 0.8769771528998243
+size-field target std: 3.0309552440652308 mm
+h_min_edge_fraction_max: 0.0
+hole divisions on flat-hole/combo samples: 32 practical divisions
 ```
 
 ## Next Task
@@ -84,28 +73,26 @@ INTERNAL F1: 0.9867
 Implement:
 
 ```text
-T-819_BALANCED_ENTITY_SIZE_FIELD_REAL_GATE
+T-820_BALANCED_PROFILE_GENERALIZATION_AND_FACE_CONTROL_PILOT
 ```
 
 ## Required Work
 
-1. Reconnect the T-818 balanced dataset to size-field learning.
-   - Run efficiency-aware size sweeps on the T-818 train split.
-   - Preserve pass, near-fail, fail, and blocked evidence.
-   - Do not fabricate local quality metrics.
-2. Train the three primary AMG models on the purpose-specific splits.
-   - Part classifier: `part_train`, evaluate `part_test`.
-   - Segmentation: `segmentation_train`, evaluate `segmentation_test`.
-   - Size field: predicted part/segmentation context, quality evidence only on label side.
-3. Run a real ANSA held-out size-field gate.
-   - Include flat hole, slot, cutout/combo and bent-family samples.
-   - Count success only with real execution reports, real quality reports, non-empty BDF,
-     zero hard failed elements, and available entity-local metrics.
-4. Preserve T-817 efficiency criteria.
-   - Hole divisions practical.
-   - Far-field edges remain coarse enough for efficient analysis.
-   - Edge-size fields must not collapse to uniform h-min.
+1. Decide whether to run a larger balanced-profile multiple.
+   - Recommended development next size: 224 samples, not 10,000.
+   - Keep user-controlled counts.
+2. Improve remaining segmentation weakness.
+   - `OUTER_BOUNDARY` remains the weakest class.
+   - Add targeted geometry or model changes only if they improve held-out F1 and real gate behavior.
+3. Pilot optional face size controls.
+   - Keep edge controls as the required success path.
+   - Add face controls only for simple flat panels and bent webs where ANSA entity matching is reliable.
+4. Preserve the T-819 real gate criteria.
+   - No baseline/reference mesh success path.
+   - No label-size substitution.
+   - No fabricated local metrics.
+   - Success requires real ANSA execution/quality reports, non-empty BDF, zero hard failed elements,
+     and entity-local metric availability.
 
-If the real gate fails, keep T-819 `IN_PROGRESS` and record exact sample ids, semantic
-confusions, size-field distributions, ANSA report paths, and failure reasons. Do not hide
-failure with baseline meshes, label-size substitution, or deterministic fallbacks.
+If the next gate fails, keep T-820 `IN_PROGRESS` and record exact sample ids, semantic
+confusions, size-field distributions, ANSA report paths, and failure reasons.

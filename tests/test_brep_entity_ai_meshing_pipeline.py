@@ -23,6 +23,7 @@ from ai_mesh_generator.amg.model.segmentation import (
 )
 from ai_mesh_generator.amg.model.size_field import (
     BrepSizeFieldModel,
+    SizeFieldOutput,
     build_size_field_document,
     build_size_field_graph_tensors,
     build_size_field_targets,
@@ -317,3 +318,29 @@ def test_part_classifier_segmentation_and_direct_size_field_model() -> None:
     assert document["schema_version"] == "AMG_SIZE_FIELD_SM_V2"
     assert [row["edge_signature_id"] for row in document["edge_sizes"]] == ["EDGE_SIG_000002_HOLE"]
     Draft202012Validator(_load_schema("AMG_SIZE_FIELD_SM_V2")).validate(document)
+
+
+def test_size_field_projection_keeps_round_curve_resolution_when_segmentation_misclassifies() -> None:
+    torch = pytest.importorskip("torch")
+    sample = load_entity_dataset_sample(_write_sample(_workspace_tmp("round_curve_projection"), "sample_000001", PartClass.SM_FLAT_PANEL, scale=16.0))
+    output = SizeFieldOutput(
+        edge_log_h=torch.log(torch.tensor([3.0, 3.0, 3.0], dtype=torch.float32)),
+        face_log_h=torch.zeros((2,), dtype=torch.float32),
+        edge_uncertainty=torch.zeros((3,), dtype=torch.float32),
+        face_uncertainty=torch.zeros((2,), dtype=torch.float32),
+    )
+    probabilities = np.zeros((3, 8), dtype=np.float32)
+    probabilities[0, 0] = 1.0
+    probabilities[1, 2] = 1.0  # Deliberately misclassify the round hole edge as SLOT_BOUNDARY.
+    probabilities[2, 5] = 1.0
+    document = build_size_field_document(
+        sample,
+        output,
+        h0_mm=3.0,
+        h_min_mm=0.5,
+        h_max_mm=8.0,
+        growth_rate=1.25,
+        edge_segmentation_probabilities=probabilities,
+    )
+    hole_size = next(row["target_size_mm"] for row in document["edge_sizes"] if row["edge_signature_id"] == "EDGE_SIG_000002_HOLE")
+    assert hole_size <= 32.0 / 24.0

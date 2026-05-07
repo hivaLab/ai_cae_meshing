@@ -264,17 +264,58 @@ called through the CLI/file contract.
 
 ### T-817_SEGMENTATION_AND_SIZE_EFFICIENCY_IMPROVEMENT
 
-Status: `TODO`
+Status: `DONE`
 
 Improve mesh efficiency and segmentation fidelity after the first full AI-to-ANSA closure.
 
-Motivation:
+Implemented:
 
-- The full gate succeeds on 8/8 held-out samples, but predicted edge sizes are still
-  conservative: most controlled edges stay near `0.5..0.625 mm`.
-- `h_min_edge_fraction_max` is `0.9615`, so one flat combo case is almost all h-min.
-- Edge segmentation train accuracy is only about `0.70`, and flat samples still show
-  semantically suspicious edge histograms such as `BEND_EDGE` predictions.
+- Efficiency-aware CDF size labels and `local_efficiency_v1` size sweeps.
+- Class-balanced segmentation loss with per-class precision/recall/F1/confusion matrices.
+- Predicted-context size-field training using the trained part classifier and segmentation
+  model instead of label segmentation.
+- Geometry-aware size-field projection that controls feature-local edges, avoids global
+  far-field over-refinement, and filters unmeasurable midsurface duplicate curves.
+- Efficiency-aware gate reporting for far-field size, hole divisions, shell count,
+  h-min fraction, and per-semantic size statistics.
+
+Real result:
+
+```text
+workflow: runs/t817_efficiency_validation/workflow_v7/workflow_report.json
+attempted_count: 8
+valid_mesh_count: 8
+status_counts: SUCCESS=8
+num_hard_failed_elements: 0 for every sample
+h_min_edge_fraction_max: 0.0
+edge_size_std_mean: 0.02807221164244637
+flat-hole sample_000025:
+  hole boundary divisions: 32
+  far-field edge mean: 3.0 mm
+  shell element count: 1191
+  previous uniform-fine reference: 113171 elements
+pytest: 72 passed
+```
+
+Remaining caveat:
+
+This is a compact development gate. The held-out meshes are now much more efficient than
+the first uniform-fine closure, but segmentation still needs broader data and stronger
+generalization before production claims.
+
+### T-818_SCALE_ENTITY_DATA_AND_SEGMENTATION_GENERALIZATION
+
+Status: `TODO`
+
+Scale the v2 entity dataset and validation loop without returning to fake success paths.
+The next goal is broader segmentation and size-field generalization across more clean
+sheet-metal variations, while preserving the T-817 efficiency criteria:
+
+- no baseline/reference mesh success path
+- real ANSA reports and non-empty BDFs
+- all controlled entities have local metrics
+- hole divisions and far-field efficiency remain bounded
+- edge-size fields must not collapse to uniform h-min
 
 Next work should improve segmentation class balance, size-label construction, and
 efficiency-aware loss so real ANSA success does not rely on heavy over-refinement.

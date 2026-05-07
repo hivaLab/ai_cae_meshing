@@ -315,5 +315,5 @@ def test_part_classifier_segmentation_and_direct_size_field_model() -> None:
     assert size_targets.edge_mask.tolist() == [False, True, False]
     document = build_size_field_document(samples[0], size_output, h0_mm=2.0, h_min_mm=0.5, h_max_mm=4.0, growth_rate=1.25)
     assert document["schema_version"] == "AMG_SIZE_FIELD_SM_V2"
-    assert len(document["edge_sizes"]) == 3
+    assert [row["edge_signature_id"] for row in document["edge_sizes"]] == ["EDGE_SIG_000002_HOLE"]
     Draft202012Validator(_load_schema("AMG_SIZE_FIELD_SM_V2")).validate(document)

@@ -46,6 +46,14 @@ SWEEP_FACTORS: tuple[tuple[str, float | None], ...] = (
     ("coarse", 3.0),
 )
 
+EFFICIENCY_VARIANTS = (
+    "h_min_overrefined",
+    "feature_fine_far_nominal",
+    "balanced",
+    "far_coarse",
+    "coarse_stress_test",
+)
+
 
 def _read_json(path: Path) -> dict[str, Any]:
     loaded = json.loads(path.read_text(encoding="utf-8"))
@@ -91,20 +99,60 @@ def _variant_target(base_target: float, global_mesh: dict[str, Any], factor: flo
     return max(h_min, min(h_max, max(base_target * factor, h0 * factor if factor > 1.0 else base_target * factor)))
 
 
+def _edge_semantics(sample_path: Path) -> dict[str, str]:
+    path = sample_path / "labels" / "edge_segmentation.json"
+    if not path.is_file():
+        return {}
+    document = _read_json(path)
+    return {str(item["edge_signature_id"]): str(item["semantic_label"]) for item in document.get("labels", []) if isinstance(item, dict)}
+
+
+def _is_feature_boundary(semantic: str) -> bool:
+    return semantic in {"HOLE_BOUNDARY", "SLOT_BOUNDARY", "CUTOUT_BOUNDARY"}
+
+
+def _efficiency_variant_target(base_target: float, global_mesh: dict[str, Any], semantic: str, variant: str) -> float:
+    h_min = float(global_mesh["h_min_mm"])
+    h_max = float(global_mesh["h_max_mm"])
+    h0 = float(global_mesh["h0_mm"])
+    if variant == "h_min_overrefined":
+        return h_min
+    if variant == "feature_fine_far_nominal":
+        return max(h_min, min(h_max, base_target * 0.75 if _is_feature_boundary(semantic) else h0))
+    if variant == "balanced":
+        return max(h_min, min(h_max, base_target if _is_feature_boundary(semantic) or semantic == "BEND_EDGE" else h0))
+    if variant == "far_coarse":
+        far = min(h_max, h0 * 1.5)
+        return max(h_min, min(h_max, base_target if _is_feature_boundary(semantic) or semantic == "BEND_EDGE" else far))
+    if variant == "coarse_stress_test":
+        if _is_feature_boundary(semantic):
+            return max(h_min, min(h_max, max(base_target * 2.0, h0)))
+        return h_max
+    raise EntitySizeSweepError("unsupported_efficiency_variant", f"unknown efficiency variant: {variant}")
+
+
 def build_size_sweep_variants(sample_dir: str | Path, *, preset: str = "local_quality_v1") -> tuple[SizeSweepVariant, ...]:
     """Build schema-valid size-field variants without running ANSA."""
 
-    if preset != "local_quality_v1":
-        raise EntitySizeSweepError("unsupported_preset", "only local_quality_v1 is supported")
+    if preset not in {"local_quality_v1", "local_efficiency_v1"}:
+        raise EntitySizeSweepError("unsupported_preset", "supported presets: local_quality_v1, local_efficiency_v1")
     sample_path = Path(sample_dir)
     base = _read_json(sample_path / "labels" / "mesh_size_field.json")
     global_mesh = dict(base["global_mesh"])
+    semantics = _edge_semantics(sample_path)
     variants: list[SizeSweepVariant] = []
-    for index, (variant_name, factor) in enumerate(SWEEP_FACTORS, start=1):
+    names = tuple(name for name, _factor in SWEEP_FACTORS) if preset == "local_quality_v1" else EFFICIENCY_VARIANTS
+    for index, variant_name in enumerate(names, start=1):
+        factor = dict(SWEEP_FACTORS).get(variant_name)
         evaluation_id = f"sweep_{index:02d}_{variant_name}"
         edge_sizes = []
         for edge in base.get("edge_sizes", []):
-            target = _variant_target(float(edge["target_size_mm"]), global_mesh, factor)
+            semantic = semantics.get(str(edge["edge_signature_id"]), "OTHER")
+            target = (
+                _variant_target(float(edge["target_size_mm"]), global_mesh, factor)
+                if preset == "local_quality_v1"
+                else _efficiency_variant_target(float(edge["target_size_mm"]), global_mesh, semantic, variant_name)
+            )
             edge_sizes.append(
                 {
                     "edge_signature_id": edge["edge_signature_id"],
@@ -122,7 +170,7 @@ def build_size_sweep_variants(sample_dir: str | Path, *, preset: str = "local_qu
             "face_sizes": [
                 {
                     "face_signature_id": face["face_signature_id"],
-                    "target_size_mm": _variant_target(float(face["target_size_mm"]), global_mesh, factor),
+                    "target_size_mm": _variant_target(float(face["target_size_mm"]), global_mesh, factor if preset == "local_quality_v1" else 1.0),
                     "source": f"cdf_entity_size_sweep:{variant_name}",
                 }
                 for face in base.get("face_sizes", [])

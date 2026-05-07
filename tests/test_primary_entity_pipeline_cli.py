@@ -229,7 +229,18 @@ def test_size_sweep_variants_and_quality_aware_targets_prefer_non_hmin() -> None
     sample = load_entity_samples(dataset, split="train", require_quality=True)[0]
     targets = build_size_field_targets(sample, prefer_quality_evidence=True)
     assert targets.edge_mask[1]
-    assert targets.edge_log_h[1].item() == pytest.approx(__import__("math").log(1.5), rel=1e-6)
+    assert __import__("math").exp(targets.edge_log_h[1].item()) > 0.5
+
+    efficiency_variants = write_size_sweep_variants(sample_dir, preset="local_efficiency_v1")
+    assert [variant.variant for variant in efficiency_variants] == [
+        "h_min_overrefined",
+        "feature_fine_far_nominal",
+        "balanced",
+        "far_coarse",
+        "coarse_stress_test",
+    ]
+    for variant in efficiency_variants:
+        Draft202012Validator(schema).validate(json.loads(variant.size_field_path.read_text(encoding="utf-8")))
 
 
 @pytest.mark.cad_kernel

@@ -32,6 +32,7 @@ Completed:
 - `T-814_QUALITY_AWARE_SIZE_FIELD_LEARNING`
 - `T-815_FULL_HELD_OUT_AI_ANSA_GATE`
 - `T-816_PRIMARY_END_TO_END_COMMAND`
+- `T-817_SEGMENTATION_AND_SIZE_EFFICIENCY_IMPROVEMENT`
 
 Latest regression:
 
@@ -45,50 +46,35 @@ python -m pytest
 
 ## Real Evidence To Preserve
 
-Slot matching repair:
+T-817 efficiency workflow:
 
 ```text
-dataset: runs\t812_diverse_entity_validation\dataset
-fixed flat slot samples: sample_000002, sample_000010, sample_000018
-per sample sweep: 4 attempted, 3 completed, 1 mesh-quality failed, 0 blocked
-```
-
-Quality-aware training:
-
-```text
-output: runs\t813_entity_matching_closure\size_field
-sample_count: 24
-trained_sample_count: 8
-skipped_sample_count: 16
-edge target count: 110
-edge target min/mean/max/std: 0.7875 / 3.1177 / 8.0 / 2.1553 mm
-h_min edge fraction: 0.0
-learning_signal_status: SUCCESS
-```
-
-Full AI-to-ANSA workflow:
-
-```text
-workflow: runs\t816_entity_ai_meshing_gate_v2\workflow_report.json
+workflow: runs\t817_efficiency_validation\workflow_v7\workflow_report.json
 attempted_count: 8
 valid_mesh_count: 8
-status: SUCCESS
-families: SM_FLAT_PANEL, SM_SINGLE_FLANGE, SM_L_BRACKET, SM_U_CHANNEL, SM_HAT_CHANNEL
+success_count: 8
+status_counts: SUCCESS=8
 num_hard_failed_elements: 0 for every sample
-entity-local metrics: available for every controlled entity
-BDF outputs: non-empty for every sample
+h_min_edge_fraction_max: 0.0
+edge_size_std_mean: 0.02807221164244637
 ```
 
-Important caveat:
-
-The compact tool now works end to end, but mesh efficiency and semantic quality are not
-yet strong enough. Predicted edge sizes are still conservative:
+Flat-hole sample evidence:
 
 ```text
-predicted edge size std min/mean on held-out samples: 0.000531993286870984 / 0.03425069807954155
-max h_min edge fraction: 0.9615384615384616
-edge segmentation training accuracy: about 0.70
-face segmentation training accuracy: about 0.956
+sample: sample_000025
+hole boundary divisions: 32
+far-field edge mean: 3.0 mm
+shell element count: 1191
+previous uniform-fine reference: 113171 shell elements
+```
+
+Coverage:
+
+```text
+flat: sample_000025, sample_000026, sample_000027, sample_000028
+bent: sample_000029, sample_000030, sample_000031, sample_000032
+families: SM_FLAT_PANEL, SM_SINGLE_FLANGE, SM_L_BRACKET, SM_U_CHANNEL, SM_HAT_CHANNEL
 ```
 
 ## Next Task
@@ -96,35 +82,27 @@ face segmentation training accuracy: about 0.956
 Implement:
 
 ```text
-T-817_SEGMENTATION_AND_SIZE_EFFICIENCY_IMPROVEMENT
+T-818_SCALE_ENTITY_DATA_AND_SEGMENTATION_GENERALIZATION
 ```
 
 ## Required Work
 
-1. Improve edge segmentation fidelity.
-   - Add class-balanced loss or weighted sampling for rare classes.
-   - Report per-class edge confusion/F1, not only aggregate accuracy.
-   - Specifically inspect why flat samples receive `BEND_EDGE` predictions.
-2. Improve size-field efficiency.
-   - Add an efficiency-aware training term or label-selection penalty using shell element
-     count/BDF size and h-min fraction.
-   - Keep hard-fail and local boundary error penalties dominant.
-   - Do not let the model pass by setting almost every edge to `h_min`.
-3. Increase usable quality evidence without broad sample-count expansion.
-   - Run targeted sweeps on skipped train samples.
-   - Preserve failed/near-fail evidence; do not hide it.
-4. Re-run the primary workflow:
-   - `amg-entity-size-field-gate`
-   - same 8-sample test split
-   - real ANSA required
-5. Acceptance should require:
-   - `valid_mesh_count == attempted_count`
-   - zero hard failed elements
-   - all entity-local metrics available
-   - lower h-min fraction than T-816
-   - higher edge-size variance than T-816
-   - improved per-class edge segmentation metrics
+1. Scale the compact v2 dataset without changing the primary objective.
+   - Keep user-controlled sample counts.
+   - Preserve case-stratified train/test coverage.
+   - Add more clean variations for holes, slots, cutouts, bends, flanges, thickness,
+     clearances, and part dimensions.
+2. Strengthen edge segmentation generalization.
+   - Improve rare-class coverage for `SLOT_BOUNDARY`, `OUTER_BOUNDARY`, and `FREE_EDGE`.
+   - Keep per-class confusion/F1 metrics as hard evidence.
+3. Preserve T-817 efficiency criteria.
+   - Hole divisions should remain in the practical range.
+   - Far-field size should remain coarse enough for efficient analysis.
+   - Edge-size fields must not collapse to uniform h-min.
+4. Run a real ANSA gate on a larger but still development-sized held-out split.
+   - Count success only with real execution reports, real quality reports, non-empty BDF,
+     zero hard failed elements, and available entity-local metrics.
 
-If real ANSA still succeeds only through heavy over-refinement, keep T-817 `IN_PROGRESS`
-and record exact sample-level size distributions and reports rather than claiming a
-quality improvement.
+If the larger gate fails, keep T-818 `IN_PROGRESS` and record exact sample ids, semantic
+confusions, size-field distributions, ANSA report paths, and failure reasons. Do not hide
+failure with baseline meshes or deterministic fallbacks.

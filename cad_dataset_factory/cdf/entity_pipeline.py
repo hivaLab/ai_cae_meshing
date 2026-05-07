@@ -263,11 +263,29 @@ def _label_for_edge(
     return EdgeSemanticLabel.OUTER_BOUNDARY if edge_index % 2 == 0 else EdgeSemanticLabel.FREE_EDGE
 
 
-def _target_size_for_edge(label: EdgeSemanticLabel, mesh: GlobalMeshPolicy) -> float:
+def _clamp(value: float, lower: float, upper: float) -> float:
+    return max(lower, min(upper, value))
+
+
+def _mesh_policy_for_graph(graph: EntityBrepGraph) -> GlobalMeshPolicy:
+    part = graph.arrays["part_features"][0]
+    bbox_x = abs(float(part[4])) if part.shape[0] > 4 else 0.0
+    bbox_y = abs(float(part[5])) if part.shape[0] > 5 else 0.0
+    planar = [value for value in (bbox_x, bbox_y) if value > 1.0e-6]
+    far_field = _clamp((min(planar) / 20.0) if planar else 3.0, 3.0, 6.0)
+    return GlobalMeshPolicy(h0_mm=far_field, h_min_mm=0.5, h_max_mm=8.0, growth_rate=1.25, quality_profile="AMG_QA_SHELL_V2")
+
+
+def _target_size_for_edge(label: EdgeSemanticLabel, mesh: GlobalMeshPolicy, edge_fingerprint: dict[str, Any]) -> float:
+    length = float(edge_fingerprint.get("length_mm", mesh.h0_mm))
+    curve_type = int(edge_fingerprint.get("curve_type_id", 0))
     if label in {EdgeSemanticLabel.HOLE_BOUNDARY, EdgeSemanticLabel.SLOT_BOUNDARY, EdgeSemanticLabel.CUTOUT_BOUNDARY}:
-        return max(mesh.h_min_mm, mesh.h0_mm * 0.35)
+        if label == EdgeSemanticLabel.HOLE_BOUNDARY and curve_type in {2, 3} and length > 0:
+            return _clamp(length / 32.0, mesh.h_min_mm, 1.5)
+        return _clamp(length / 24.0 if length > 0 else mesh.h0_mm * 0.35, 0.8, 1.5)
     if label == EdgeSemanticLabel.BEND_EDGE:
-        return max(mesh.h_min_mm, mesh.h0_mm * 0.45)
+        thickness_like = abs(float(edge_fingerprint.get("bbox_mm", [0.0, 0.0, mesh.h_min_mm])[2])) if isinstance(edge_fingerprint.get("bbox_mm"), list) else mesh.h_min_mm
+        return max(mesh.h_min_mm, min(mesh.h0_mm * 0.5, max(thickness_like, mesh.h_min_mm)))
     return mesh.h0_mm
 
 
@@ -283,7 +301,7 @@ def _is_size_control_edge(label: EdgeSemanticLabel) -> bool:
 
 
 def _write_entity_labels(sample_dir: Path, sample_id: str, graph: EntityBrepGraph, part_class: str, case: str) -> None:
-    mesh = GlobalMeshPolicy(h0_mm=3.0, h_min_mm=0.5, h_max_mm=8.0, growth_rate=1.25, quality_profile="AMG_QA_SHELL_V2")
+    mesh = _mesh_policy_for_graph(graph)
     write_entity_label_json(
         sample_dir / "metadata" / "part_class_label.json",
         PartClassLabelDocument(sample_id=sample_id, part_class=part_class, source="cdf_entity_generator_v2"),
@@ -311,7 +329,7 @@ def _write_entity_labels(sample_dir: Path, sample_id: str, graph: EntityBrepGrap
             size_items.append(
                 EdgeSizeRecord(
                     edge_signature_id=record["signature_id"],
-                    target_size_mm=_target_size_for_edge(semantic, mesh),
+                    target_size_mm=_target_size_for_edge(semantic, mesh, fingerprint),
                     source="cdf_entity_generator_v2",
                 )
             )

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 import sys
 from pathlib import Path
 from typing import Sequence
@@ -32,6 +33,34 @@ def _load_torch():
     return torch, F
 
 
+def _class_weights(counts: np.ndarray) -> np.ndarray:
+    weights = np.asarray([1.0 / math.sqrt(float(count) + 1.0) for count in counts], dtype=np.float32)
+    return weights / max(float(weights.mean()), 1.0e-12)
+
+
+def _segmentation_stats(confusion: np.ndarray, classes: tuple[str, ...]) -> dict:
+    per_class = {}
+    true_histogram = {}
+    predicted_histogram = {}
+    for index, label in enumerate(classes):
+        tp = int(confusion[index, index])
+        fp = int(confusion[:, index].sum() - tp)
+        fn = int(confusion[index, :].sum() - tp)
+        precision = tp / max(tp + fp, 1)
+        recall = tp / max(tp + fn, 1)
+        f1 = 2.0 * precision * recall / max(precision + recall, 1.0e-12)
+        per_class[label] = {"precision": precision, "recall": recall, "f1": f1, "support": int(confusion[index, :].sum())}
+        true_histogram[label] = int(confusion[index, :].sum())
+        predicted_histogram[label] = int(confusion[:, index].sum())
+    return {
+        "classes": list(classes),
+        "confusion_matrix": confusion.astype(int).tolist(),
+        "per_class": per_class,
+        "true_histogram": true_histogram,
+        "predicted_histogram": predicted_histogram,
+    }
+
+
 def train_entity_segmentation_from_dataset(
     dataset_root: str | Path,
     output_dir: str | Path,
@@ -41,6 +70,7 @@ def train_entity_segmentation_from_dataset(
     hidden_dim: int = 64,
     lr: float = 1e-3,
     seed: int = 1,
+    edge_loss_multiplier: float = 2.0,
 ) -> dict:
     torch, F = _load_torch()
     torch.manual_seed(seed)
@@ -48,6 +78,14 @@ def train_entity_segmentation_from_dataset(
     first = build_entity_graph_tensors(samples[0])
     model = BrepSegmentationModel(first.face_features.shape[1], first.edge_features.shape[1], hidden_dim=hidden_dim)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    face_counts = np.zeros((len(FACE_SEGMENTATION_CLASSES),), dtype=np.int64)
+    edge_counts = np.zeros((len(EDGE_SEGMENTATION_CLASSES),), dtype=np.int64)
+    for sample in samples:
+        targets = build_segmentation_targets(sample)
+        face_counts += np.bincount(targets.face_labels.numpy(), minlength=len(FACE_SEGMENTATION_CLASSES))
+        edge_counts += np.bincount(targets.edge_labels.numpy(), minlength=len(EDGE_SEGMENTATION_CLASSES))
+    face_weights = torch.as_tensor(_class_weights(face_counts), dtype=torch.float32)
+    edge_weights = torch.as_tensor(_class_weights(edge_counts), dtype=torch.float32)
     losses: list[float] = []
     for _ in range(epochs):
         epoch_loss = 0.0
@@ -55,7 +93,11 @@ def train_entity_segmentation_from_dataset(
             tensors = build_entity_graph_tensors(sample)
             targets = build_segmentation_targets(sample)
             output = model(tensors)
-            loss = F.cross_entropy(output.face_logits, targets.face_labels) + F.cross_entropy(output.edge_logits, targets.edge_labels)
+            loss = F.cross_entropy(output.face_logits, targets.face_labels, weight=face_weights) + edge_loss_multiplier * F.cross_entropy(
+                output.edge_logits,
+                targets.edge_labels,
+                weight=edge_weights,
+            )
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -63,6 +105,8 @@ def train_entity_segmentation_from_dataset(
         losses.append(epoch_loss / len(samples))
 
     face_total = edge_total = face_correct = edge_correct = 0
+    face_confusion = np.zeros((len(FACE_SEGMENTATION_CLASSES), len(FACE_SEGMENTATION_CLASSES)), dtype=np.int64)
+    edge_confusion = np.zeros((len(EDGE_SEGMENTATION_CLASSES), len(EDGE_SEGMENTATION_CLASSES)), dtype=np.int64)
     with torch.no_grad():
         for sample in samples:
             tensors = build_entity_graph_tensors(sample)
@@ -74,6 +118,10 @@ def train_entity_segmentation_from_dataset(
             edge_correct += int((edge_pred == targets.edge_labels).sum().item())
             face_total += int(targets.face_labels.numel())
             edge_total += int(targets.edge_labels.numel())
+            for target, prediction in zip(targets.face_labels.cpu().numpy(), face_pred.cpu().numpy(), strict=True):
+                face_confusion[int(target), int(prediction)] += 1
+            for target, prediction in zip(targets.edge_labels.cpu().numpy(), edge_pred.cpu().numpy(), strict=True):
+                edge_confusion[int(target), int(prediction)] += 1
 
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -100,6 +148,11 @@ def train_entity_segmentation_from_dataset(
         "edge_accuracy": float(edge_correct / max(edge_total, 1)),
         "face_classes": list(FACE_SEGMENTATION_CLASSES),
         "edge_classes": list(EDGE_SEGMENTATION_CLASSES),
+        "face_class_weights": {label: float(face_weights[index].item()) for index, label in enumerate(FACE_SEGMENTATION_CLASSES)},
+        "edge_class_weights": {label: float(edge_weights[index].item()) for index, label in enumerate(EDGE_SEGMENTATION_CLASSES)},
+        "edge_loss_multiplier": edge_loss_multiplier,
+        "face_metrics": _segmentation_stats(face_confusion, FACE_SEGMENTATION_CLASSES),
+        "edge_metrics": _segmentation_stats(edge_confusion, EDGE_SEGMENTATION_CLASSES),
         "model_path": (out / "model.pt").as_posix(),
     }
     if not np.isfinite(metrics["final_loss"]):
@@ -117,13 +170,23 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--hidden-dim", type=int, default=64)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--seed", type=int, default=1)
+    parser.add_argument("--edge-loss-multiplier", type=float, default=2.0)
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        metrics = train_entity_segmentation_from_dataset(args.dataset, args.out, split=args.split, epochs=args.epochs, hidden_dim=args.hidden_dim, lr=args.lr, seed=args.seed)
+        metrics = train_entity_segmentation_from_dataset(
+            args.dataset,
+            args.out,
+            split=args.split,
+            epochs=args.epochs,
+            hidden_dim=args.hidden_dim,
+            lr=args.lr,
+            seed=args.seed,
+            edge_loss_multiplier=args.edge_loss_multiplier,
+        )
     except Exception as exc:  # noqa: BLE001 - CLI boundary.
         print({"status": "FAILED", "message": str(exc)})
         return 1

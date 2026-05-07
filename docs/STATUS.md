@@ -2,8 +2,9 @@
 
 ## Current State
 
-The active project is now a B-rep entity AI meshing tool. Feature-manifest,
-recommendation/ranker, and baseline-selection paths are not active success paths.
+The active project is a B-rep entity AI meshing tool. Feature-action manifests,
+recommendation/ranker loops, baseline mesh selection, mock reports, and fabricated
+quality metrics are not active success paths.
 
 Primary path:
 
@@ -20,17 +21,18 @@ clean STEP CAD
 
 ## Latest Completed Work
 
-`T-813` through `T-816` are complete.
+`T-817_SEGMENTATION_AND_SIZE_EFFICIENCY_IMPROVEMENT` is complete.
 
 What changed:
 
-- Slot arc entity matching now uses endpoint-pair, radius, curve-plane, and length
-  descriptors instead of unstable arc center matching.
-- Flat slot sweep samples `sample_000002`, `sample_000010`, and `sample_000018` no
-  longer block with `entity_matching_failed`.
-- Quality-aware size-field training records target-size statistics and fails visibly
-  when the target signal collapses.
-- Added `amg-entity-size-field-gate`, the primary end-to-end runner.
+- Added efficiency-aware CDF size labeling and `local_efficiency_v1` sweep variants.
+- Added class-balanced segmentation training with per-class confusion/F1 metrics.
+- Trained size-field models with predicted part/segmentation context, matching inference.
+- Added geometry-aware size-field projection so feature-local edges are refined while
+  global far-field edges use the global size instead of explicit fine edge controls.
+- Filtered unmeasurable midsurface duplicate curves out of ANSA edge controls.
+- Added efficiency gate reporting for far-field size, hole divisions, shell element
+  count, h-min fraction, and semantic size statistics.
 
 Regression:
 
@@ -46,73 +48,64 @@ Result:
 
 ## Real ANSA Evidence
 
-Slot sweep repair:
+Workflow:
 
 ```text
-dataset: runs/t812_diverse_entity_validation/dataset
-samples repaired: sample_000002, sample_000010, sample_000018
-per sample sweep: 4 attempted, 3 completed, 1 mesh-quality failed, 0 blocked
+runs/t817_efficiency_validation/workflow_v7/workflow_report.json
 ```
 
-Quality-aware training after repair:
+Summary:
 
 ```text
-output: runs/t813_entity_matching_closure/size_field
-split: train
-sample_count: 24
-trained_sample_count: 8
-skipped_sample_count: 16
-edge target count: 110
-edge target min/mean/max/std: 0.7875 / 3.1177 / 8.0 / 2.1553 mm
-h_min edge fraction: 0.0
-learning_signal_status: SUCCESS
-```
-
-Full held-out AI-to-ANSA gate:
-
-```text
-workflow: runs/t816_entity_ai_meshing_gate_v2/workflow_report.json
 attempted_count: 8
 valid_mesh_count: 8
-status: SUCCESS
-families: SM_FLAT_PANEL, SM_SINGLE_FLANGE, SM_L_BRACKET, SM_U_CHANNEL, SM_HAT_CHANNEL
+success_count: 8
+status_counts: SUCCESS=8
 num_hard_failed_elements: 0 for every sample
 entity-local metrics: available for every controlled entity
-BDF outputs: non-empty for every sample
+h_min_edge_fraction_max: 0.0
+edge_size_std_mean: 0.02807221164244637
 ```
 
-Learning signal in the final workflow:
+Flat-hole efficiency evidence:
 
 ```text
-size-field trained samples: 8 / 24 train samples
-target size std: 2.1553154324235733
-target h_min fraction: 0.0
-predicted edge size std min/mean on test split: 0.000531993286870984 / 0.03425069807954155
-max predicted h_min edge fraction: 0.9615384615384616
+sample: sample_000025
+status: SUCCESS
+hole boundary divisions: 32
+far-field edge mean: 3.0 mm
+shell element count: 1191
+previous uniform-fine reference: 113171 shell elements
+```
+
+Coverage:
+
+```text
+flat: sample_000025, sample_000026, sample_000027, sample_000028
+bent: sample_000029, sample_000030, sample_000031, sample_000032
+families: SM_FLAT_PANEL, SM_SINGLE_FLANGE, SM_L_BRACKET, SM_U_CHANNEL, SM_HAT_CHANNEL
 ```
 
 ## Active Task
 
-`T-817_SEGMENTATION_AND_SIZE_EFFICIENCY_IMPROVEMENT`
+`T-818_SCALE_ENTITY_DATA_AND_SEGMENTATION_GENERALIZATION`
 
 Why:
 
-- The first compact end-to-end AI meshing tool now works on the full 8-sample held-out
-  split with real ANSA.
-- The next bottleneck is no longer basic functionality; it is mesh efficiency and
-  semantic fidelity.
-- Edge segmentation train accuracy is only about `0.70`.
-- Several held-out predictions are still heavily conservative near `h_min`, especially
-  the flat combo case with `h_min_edge_fraction=0.9615`.
+- The compact end-to-end AI meshing tool now works on 8 held-out samples with real ANSA.
+- T-817 fixed the most visible uniform fine-mesh collapse for the simple flat-hole case.
+- The next bottleneck is broader generalization, not another fallback or benchmark wrapper.
+- Edge segmentation still has weak rare-class coverage, especially slot/free/outer
+  distinctions in mixed flat features.
 
 ## Known Gaps
 
-1. The model is compact and not yet production generalization evidence.
-2. Size predictions pass ANSA but remain too conservative.
-3. Edge segmentation confuses some flat boundaries with bend/internal classes.
-4. Quality evidence coverage improved from 5 to 8 train samples, but 16 train samples
-   are still skipped because their sweep evidence is incomplete or unusable.
-5. Face controls remain optional; edge controls are the current required success path.
+1. The proof is compact; it is not yet production-scale generalization.
+2. Face size controls remain optional; edge controls are the required path.
+3. Rare edge classes still need more data and stronger validation.
+4. Some semantic labels for slot/cutout side edges are still imperfect, although the
+   efficiency gate no longer lets those labels corrupt far-field metrics.
+5. The system assumes clean constant-thickness sheet-metal CAD; defeaturing remains out of scope.
 
 ## Verified ANSA Path
 

@@ -93,7 +93,8 @@ def _aggregate_gate_reports(reports: list[dict[str, Any]]) -> dict[str, Any]:
     h_min_fractions = [float(report["edge_target_size_stats"]["h_min_edge_fraction"]) for report in reports if isinstance(report.get("edge_target_size_stats"), dict)]
     return {
         "attempted_count": len(reports),
-        "valid_mesh_count": sum(1 for report in reports if report.get("status") == "SUCCESS"),
+        "valid_mesh_count": sum(int(report.get("valid_mesh_count", 0)) for report in reports),
+        "success_count": sum(1 for report in reports if report.get("status") == "SUCCESS"),
         "status_counts": _counter_from_reports(reports, "status"),
         "failure_reason_counts": _counter_from_reports(reports, "failure_reason"),
         "edge_size_std_min": min(edge_std_values) if edge_std_values else None,
@@ -141,6 +142,7 @@ def run_entity_size_field_gate_workflow(
     growth_rate: float = 1.25,
     timeout_sec: int = 300,
     limit: int | None = None,
+    require_efficiency: bool = False,
 ) -> dict[str, Any]:
     dataset_root = Path(dataset)
     output_root = Path(out)
@@ -156,7 +158,17 @@ def run_entity_size_field_gate_workflow(
     size_dir = output_root / "size_field"
     part_metrics = train_part_classifier_from_dataset(dataset_root, part_dir, split=train_split, seed=seed, uncertainty_threshold=0.0)
     segmentation_metrics = train_entity_segmentation_from_dataset(dataset_root, seg_dir, split=train_split, epochs=epochs_segmentation, seed=seed)
-    size_metrics = train_size_field_model(dataset_root, size_dir, split=train_split, epochs=epochs_size_field, seed=seed, prefer_quality_evidence=True)
+    size_metrics = train_size_field_model(
+        dataset_root,
+        size_dir,
+        split=train_split,
+        epochs=epochs_size_field,
+        seed=seed,
+        prefer_quality_evidence=True,
+        part_classifier_path=part_dir / "model.pkl",
+        segmentation_checkpoint_path=seg_dir / "model.pt",
+        use_predicted_context=True,
+    )
 
     sample_reports: list[dict[str, Any]] = []
     subprocess_records: list[dict[str, Any]] = []
@@ -201,6 +213,7 @@ def run_entity_size_field_gate_workflow(
                 size_field_checkpoint_path=size_dir / "model.pt",
                 predicted_size_field_path=size_field_path,
                 ansa_eval_dir=eval_dir,
+                require_efficiency=require_efficiency,
             )
             write_ai_size_field_gate_report(output_root / "gate_reports" / f"{sample_id}.json", report)
         except (AiSizeFieldGateError, EntitySizeFieldWorkflowError, ValueError, OSError, subprocess.SubprocessError) as exc:
@@ -215,7 +228,11 @@ def run_entity_size_field_gate_workflow(
         sample_reports.append(report)
 
     aggregate = _aggregate_gate_reports(sample_reports)
-    status = "SUCCESS" if aggregate["valid_mesh_count"] == aggregate["attempted_count"] and size_metrics.get("learning_signal_status") == "SUCCESS" else "FAILED"
+    status = (
+        "SUCCESS"
+        if aggregate["success_count"] == aggregate["attempted_count"] and size_metrics.get("learning_signal_status") == "SUCCESS"
+        else "FAILED"
+    )
     workflow_report = {
         "schema": "AMG_ENTITY_SIZE_FIELD_WORKFLOW_REPORT_V1",
         "status": status,
@@ -229,6 +246,7 @@ def run_entity_size_field_gate_workflow(
             "size_field": size_metrics,
         },
         "gate": aggregate,
+        "require_efficiency": require_efficiency,
         "sample_reports": sample_reports,
         "subprocess_records": subprocess_records,
     }
@@ -252,6 +270,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--growth-rate", type=float, default=1.25)
     parser.add_argument("--timeout-sec", type=int, default=300)
     parser.add_argument("--limit", type=int)
+    parser.add_argument("--require-efficiency", action="store_true")
     args = parser.parse_args(argv)
     try:
         report = run_entity_size_field_gate_workflow(
@@ -269,6 +288,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             growth_rate=args.growth_rate,
             timeout_sec=args.timeout_sec,
             limit=args.limit,
+            require_efficiency=args.require_efficiency,
         )
     except (EntitySizeFieldWorkflowError, ValueError, OSError) as exc:
         print({"status": "FAILED", "message": str(exc)})

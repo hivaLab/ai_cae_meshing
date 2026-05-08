@@ -12,18 +12,9 @@ from pydantic import Field
 
 from cad_dataset_factory.cdf.domain import (
     CdfBaseModel,
-    CutoutTruth,
-    FeatureRole,
-    FeatureTruthDocument,
     FeatureType,
-    HoleTruth,
     PartClass,
-    PartParams,
-    SlotTruth,
 )
-
-PATCH_MAIN_ID = "PATCH_MAIN_0001"
-AXIS_SOURCE = "flat_panel_reference_normal"
 
 
 class FlatPanelBuildError(ValueError):
@@ -39,7 +30,6 @@ class FlatPanelBuildError(ValueError):
 class FlatPanelFeatureSpec(CdfBaseModel):
     feature_id: str
     type: FeatureType
-    role: FeatureRole
     center_uv_mm: tuple[float, float]
     radius_mm: float | None = Field(default=None, gt=0)
     width_mm: float | None = Field(default=None, gt=0)
@@ -65,8 +55,6 @@ class FlatPanelSpec(CdfBaseModel):
 class GeneratedFlatPanel:
     spec: FlatPanelSpec
     solid_shape: Any
-    reference_midsurface_shape: Any
-    feature_truth: FeatureTruthDocument
     generator_params: dict[str, Any]
 
 
@@ -168,70 +156,10 @@ def _validate_spec(spec: FlatPanelSpec) -> tuple[float, float]:
     return width, height
 
 
-def _truth_for_feature(feature: FlatPanelFeatureSpec) -> HoleTruth | SlotTruth | CutoutTruth:
-    if feature.type == FeatureType.HOLE:
-        return HoleTruth(
-            feature_id=feature.feature_id,
-            role=feature.role,
-            created_by="cadgen.flat_panel.hole_cut",
-            center_uv_mm=feature.center_uv_mm,
-            center_mm=(feature.center_uv_mm[0], feature.center_uv_mm[1], 0.0),
-            axis=(0.0, 0.0, 1.0),
-            radius_mm=feature.radius_mm,
-            patch_id=PATCH_MAIN_ID,
-            axis_source=AXIS_SOURCE,
-        )
-
-    if feature.type == FeatureType.SLOT:
-        return SlotTruth(
-            feature_id=feature.feature_id,
-            role=feature.role,
-            created_by="cadgen.flat_panel.slot_cut",
-            center_uv_mm=feature.center_uv_mm,
-            width_mm=feature.width_mm,
-            length_mm=feature.length_mm,
-            angle_deg=0.0,
-            patch_id=PATCH_MAIN_ID,
-            axis_source=AXIS_SOURCE,
-        )
-
-    if feature.type == FeatureType.CUTOUT:
-        return CutoutTruth(
-            feature_id=feature.feature_id,
-            role=feature.role,
-            created_by="cadgen.flat_panel.cutout_cut",
-            center_uv_mm=feature.center_uv_mm,
-            width_mm=feature.width_mm,
-            height_mm=feature.height_mm,
-            corner_radius_mm=0.0,
-            angle_deg=0.0,
-            patch_id=PATCH_MAIN_ID,
-            axis_source=AXIS_SOURCE,
-        )
-
-    raise FlatPanelBuildError("unsupported_feature_type", "T-201 supports HOLE, SLOT, and CUTOUT only", feature.feature_id)
-
-
-def _build_feature_truth(spec: FlatPanelSpec) -> FeatureTruthDocument:
-    return FeatureTruthDocument(
-        sample_id=spec.sample_id,
-        part=PartParams(
-            part_name=spec.part_name,
-            part_class=PartClass.SM_FLAT_PANEL,
-            thickness_mm=spec.thickness_mm,
-            width_mm=spec.width_mm,
-            height_mm=spec.height_mm,
-            corner_radius_mm=0.0,
-        ),
-        features=[_truth_for_feature(feature) for feature in spec.features],
-    )
-
-
 def _feature_params(feature: FlatPanelFeatureSpec) -> dict[str, Any]:
     data = {
         "feature_id": feature.feature_id,
         "type": feature.type.value,
-        "role": feature.role.value,
         "center_uv_mm": list(feature.center_uv_mm),
     }
     for key in ("radius_mm", "width_mm", "height_mm", "length_mm"):
@@ -267,23 +195,10 @@ def _cutter_for_feature(cq: Any, feature: FlatPanelFeatureSpec, through_depth_mm
     raise FlatPanelBuildError("unsupported_feature_type", "T-201 supports HOLE, SLOT, and CUTOUT only", feature.feature_id)
 
 
-def _inner_wire_for_feature(cq: Any, feature: FlatPanelFeatureSpec) -> Any:
-    u, v = feature.center_uv_mm
-    workplane = cq.Workplane("XY").center(u, v)
-    if feature.type == FeatureType.HOLE:
-        return workplane.circle(feature.radius_mm).val()
-    if feature.type == FeatureType.SLOT:
-        return workplane.slot2D(feature.length_mm, feature.width_mm, 0.0).val()
-    if feature.type == FeatureType.CUTOUT:
-        return workplane.rect(feature.width_mm, feature.height_mm).val()
-    raise FlatPanelBuildError("unsupported_feature_type", "T-201 supports HOLE, SLOT, and CUTOUT only", feature.feature_id)
-
-
 def build_flat_panel_part(spec: FlatPanelSpec) -> GeneratedFlatPanel:
-    """Build a flat-panel solid, reference midsurface, and feature truth."""
+    """Build a flat-panel solid for the entity-label dataset."""
 
     width, height = _validate_spec(spec)
-    feature_truth = _build_feature_truth(spec)
     generator_params = _generator_params(spec)
 
     cq = _load_cadquery()
@@ -292,16 +207,9 @@ def build_flat_panel_part(spec: FlatPanelSpec) -> GeneratedFlatPanel:
     for feature in spec.features:
         solid = solid.cut(_cutter_for_feature(cq, feature, through_depth))
 
-    outer_wire = cq.Workplane("XY").rect(width, height, centered=False).val()
-    inner_wires = [_inner_wire_for_feature(cq, feature) for feature in spec.features]
-    midsurface_face = cq.Face.makeFromWires(outer_wire, inner_wires)
-    reference_midsurface = cq.Workplane("XY").newObject([midsurface_face])
-
     return GeneratedFlatPanel(
         spec=spec,
         solid_shape=solid,
-        reference_midsurface_shape=reference_midsurface,
-        feature_truth=feature_truth,
         generator_params=generator_params,
     )
 
@@ -324,22 +232,16 @@ def _write_json(path: Path, document: dict[str, Any]) -> None:
 
 
 def write_flat_panel_outputs(sample_root: str | Path, generated: GeneratedFlatPanel) -> dict[str, str]:
-    """Write T-201 CAD and metadata outputs below a sample directory."""
+    """Write flat-panel CAD and generator metadata below a sample directory."""
 
     root = Path(sample_root)
     input_step = root / "cad" / "input.step"
-    midsurface_step = root / "cad" / "reference_midsurface.step"
-    feature_truth_json = root / "metadata" / "feature_truth.json"
     generator_params_json = root / "metadata" / "generator_params.json"
 
     export_step(generated.solid_shape, input_step, generated.spec.part_name)
-    export_step(generated.reference_midsurface_shape, midsurface_step, generated.spec.part_name)
-    _write_json(feature_truth_json, generated.feature_truth.model_dump(mode="json"))
     _write_json(generator_params_json, generated.generator_params)
 
     return {
         "input_step": input_step.as_posix(),
-        "reference_midsurface_step": midsurface_step.as_posix(),
-        "feature_truth": feature_truth_json.as_posix(),
         "generator_params": generator_params_json.as_posix(),
     }

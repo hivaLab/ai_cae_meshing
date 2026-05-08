@@ -3,8 +3,8 @@
 ## Policy
 
 Tasks are complete only when they advance the real CAD-native AI meshing objective.
-Do not count mock meshes, reference meshes, baseline selection, hidden deterministic
-fallbacks, or fabricated quality metrics as success.
+Do not count mock meshes, reference artifacts, hidden deterministic substitutions, or
+fabricated quality metrics as success.
 
 ## M8 B-rep Entity AI Meshing Rebuild
 
@@ -347,7 +347,7 @@ Use the T-818 learning-balanced dataset for the real size-field gate. The goal i
 verify that improved part classification and segmentation accuracy translate into better
 AI-predicted edge sizes and real ANSA meshes, while preserving T-817 efficiency criteria:
 
-- no baseline/reference mesh success path
+- no reference-artifact success path
 - real ANSA reports and non-empty BDFs
 - all controlled entities have local metrics
 - hole divisions and far-field efficiency remain bounded
@@ -378,10 +378,10 @@ size-field trained samples: 26/26
 size-field target std: 3.0309552440652308 mm
 h_min_edge_fraction_max: 0.0
 hole divisions on flat-hole/combo samples: 32 practical divisions
-pytest: 75 passed
+pytest: 72 passed
 ```
 
-No baseline/reference mesh, label-size substitution, fabricated metric, or mock ANSA
+No reference artifact, label-size substitution, fabricated metric, or mock ANSA
 output is counted as success.
 
 ### T-820_PRODUCTION_PART_CLASSIFIER_AND_BREPNET_SEGMENTATION_UPGRADE
@@ -417,7 +417,7 @@ HOLE_BOUNDARY F1: 1.0
 SLOT_BOUNDARY F1: 0.888888888888889
 CUTOUT_BOUNDARY F1: 0.8571428571428571
 FREE_EDGE F1: 1.0
-pytest: 75 passed
+pytest: 72 passed
 ```
 
 Downstream real ANSA smoke evidence:

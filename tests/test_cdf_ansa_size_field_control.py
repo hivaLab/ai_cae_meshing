@@ -334,7 +334,7 @@ def test_runner_does_not_treat_zero_process_return_as_success_when_reports_rejec
         out_dir=out_dir,
     )
 
-    def fake_run(command, capture_output, text, timeout, check):  # noqa: ANN001
+    def fake_run(command, capture_output, text, timeout, check, **_kwargs):  # noqa: ANN001
         payload = build_size_field_payload(request)
         Path(payload["diagnostics"]).parent.mkdir(parents=True, exist_ok=True)
         Path(payload["diagnostics"]).write_text(json.dumps({"status": "BLOCKED", "error_code": "entity_matching_failed"}), encoding="utf-8")
@@ -396,7 +396,7 @@ def test_runner_does_not_treat_zero_process_return_as_success_when_reports_rejec
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr("cad_dataset_factory.cdf.oracle.ansa_size_field.subprocess.run", fake_run)
-    result = run_ansa_size_field_evaluation(request, execute=True)
+    result = run_ansa_size_field_evaluation(request)
     assert result.status == "BLOCKED"
     assert result.returncode == 0
     assert result.error_code == "entity_matching_failed"

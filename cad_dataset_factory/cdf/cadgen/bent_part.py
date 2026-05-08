@@ -10,15 +10,7 @@ from typing import Any
 
 from pydantic import Field
 
-from cad_dataset_factory.cdf.domain import (
-    BendTruth,
-    CdfBaseModel,
-    FeatureRole,
-    FeatureTruthDocument,
-    FlangeTruth,
-    PartClass,
-    PartParams,
-)
+from cad_dataset_factory.cdf.domain import CdfBaseModel, PartClass
 
 SUPPORTED_PART_CLASSES = {
     PartClass.SM_SINGLE_FLANGE,
@@ -56,8 +48,6 @@ class BentPartSpec(CdfBaseModel):
 class GeneratedBentPart:
     spec: BentPartSpec
     solid_shape: Any
-    reference_midsurface_shape: Any
-    feature_truth: FeatureTruthDocument
     generator_params: dict[str, Any]
 
 
@@ -146,139 +136,6 @@ def _cross_section_points(spec: BentPartSpec) -> list[tuple[float, float]]:
     raise BentPartBuildError("unsupported_part_class", "T-202 supports bent sheet-metal part classes only")
 
 
-def _centerline_points(spec: BentPartSpec) -> list[tuple[float, float]]:
-    t = spec.thickness_mm
-    half_t = t / 2.0
-    web = spec.web_width_mm
-    flange = spec.flange_width_mm
-
-    if spec.part_class in {PartClass.SM_SINGLE_FLANGE, PartClass.SM_L_BRACKET}:
-        return [
-            (0.0, half_t),
-            (web - half_t, half_t),
-            (web - half_t, flange - half_t),
-        ]
-
-    if spec.part_class == PartClass.SM_U_CHANNEL:
-        return [
-            (half_t, flange - half_t),
-            (half_t, half_t),
-            (web - half_t, half_t),
-            (web - half_t, flange - half_t),
-        ]
-
-    if spec.part_class == PartClass.SM_HAT_CHANNEL:
-        side = _hat_side_wall_width(spec)
-        total_y = flange + web + flange
-        return [
-            (0.0, half_t),
-            (flange + half_t, half_t),
-            (flange + half_t, side + half_t),
-            (flange + web - half_t, side + half_t),
-            (flange + web - half_t, half_t),
-            (total_y, half_t),
-        ]
-
-    raise BentPartBuildError("unsupported_part_class", "T-202 supports bent sheet-metal part classes only")
-
-
-def _bend_adjacencies(spec: BentPartSpec) -> list[tuple[str, str]]:
-    if spec.part_class in {PartClass.SM_SINGLE_FLANGE, PartClass.SM_L_BRACKET}:
-        return [("PATCH_WEB_0001", "PATCH_FLANGE_0001")]
-    if spec.part_class == PartClass.SM_U_CHANNEL:
-        return [
-            ("PATCH_FLANGE_0001", "PATCH_WEB_0001"),
-            ("PATCH_WEB_0001", "PATCH_FLANGE_0002"),
-        ]
-    if spec.part_class == PartClass.SM_HAT_CHANNEL:
-        return [
-            ("PATCH_FLANGE_0001", "PATCH_SIDEWALL_0001"),
-            ("PATCH_SIDEWALL_0001", "PATCH_WEB_0001"),
-            ("PATCH_WEB_0001", "PATCH_SIDEWALL_0002"),
-            ("PATCH_SIDEWALL_0002", "PATCH_FLANGE_0002"),
-        ]
-    raise BentPartBuildError("unsupported_part_class", "T-202 supports bent sheet-metal part classes only")
-
-
-def _flange_records(spec: BentPartSpec, bend_ids: list[str]) -> list[FlangeTruth]:
-    if spec.part_class in {PartClass.SM_SINGLE_FLANGE, PartClass.SM_L_BRACKET}:
-        return [
-            FlangeTruth(
-                feature_id="FLANGE_STRUCTURAL_0001",
-                role=FeatureRole.STRUCTURAL,
-                created_by="cadgen.bent_part.flange",
-                width_mm=spec.flange_width_mm,
-                free_edge_id="EDGE_FLANGE_FREE_0001",
-                bend_id=bend_ids[0],
-            )
-        ]
-
-    if spec.part_class == PartClass.SM_U_CHANNEL:
-        return [
-            FlangeTruth(
-                feature_id="FLANGE_STRUCTURAL_0001",
-                role=FeatureRole.STRUCTURAL,
-                created_by="cadgen.bent_part.flange",
-                width_mm=spec.flange_width_mm,
-                free_edge_id="EDGE_FLANGE_FREE_0001",
-                bend_id=bend_ids[0],
-            ),
-            FlangeTruth(
-                feature_id="FLANGE_STRUCTURAL_0002",
-                role=FeatureRole.STRUCTURAL,
-                created_by="cadgen.bent_part.flange",
-                width_mm=spec.flange_width_mm,
-                free_edge_id="EDGE_FLANGE_FREE_0002",
-                bend_id=bend_ids[1],
-            ),
-        ]
-
-    if spec.part_class == PartClass.SM_HAT_CHANNEL:
-        side = _hat_side_wall_width(spec)
-        return [
-            FlangeTruth(
-                feature_id=f"FLANGE_STRUCTURAL_{index:04d}",
-                role=FeatureRole.STRUCTURAL,
-                created_by="cadgen.bent_part.flange",
-                width_mm=side,
-                free_edge_id=f"EDGE_FLANGE_FREE_{index:04d}",
-                bend_id=bend_id,
-            )
-            for index, bend_id in enumerate(bend_ids, start=1)
-        ]
-
-    raise BentPartBuildError("unsupported_part_class", "T-202 supports bent sheet-metal part classes only")
-
-
-def _build_feature_truth(spec: BentPartSpec) -> FeatureTruthDocument:
-    bend_adjacencies = _bend_adjacencies(spec)
-    bend_ids = [f"BEND_STRUCTURAL_{index:04d}" for index in range(1, len(bend_adjacencies) + 1)]
-    bends = [
-        BendTruth(
-            feature_id=bend_id,
-            role=FeatureRole.STRUCTURAL,
-            created_by="cadgen.bent_part.bend",
-            inner_radius_mm=spec.inner_radius_mm,
-            angle_deg=spec.bend_angle_deg,
-            thickness_mm=spec.thickness_mm,
-            adjacent_patch_ids=adjacency,
-        )
-        for bend_id, adjacency in zip(bend_ids, bend_adjacencies, strict=True)
-    ]
-    flanges = _flange_records(spec, bend_ids)
-    return FeatureTruthDocument(
-        sample_id=spec.sample_id,
-        part=PartParams(
-            part_name=spec.part_name,
-            part_class=spec.part_class,
-            thickness_mm=spec.thickness_mm,
-            width_mm=spec.length_mm,
-            height_mm=spec.web_width_mm,
-        ),
-        features=[*bends, *flanges],
-    )
-
-
 def _generator_params(spec: BentPartSpec) -> dict[str, Any]:
     return {
         "schema": "CDF_GENERATOR_PARAMS_SM_V1",
@@ -296,22 +153,17 @@ def _generator_params(spec: BentPartSpec) -> dict[str, Any]:
 
 
 def build_bent_part(spec: BentPartSpec) -> GeneratedBentPart:
-    """Build a deterministic bent sheet-metal part and its truth records."""
+    """Build a deterministic bent sheet-metal solid for the entity-label dataset."""
 
     _validate_spec(spec)
-    feature_truth = _build_feature_truth(spec)
     generator_params = _generator_params(spec)
     cq = _load_cadquery()
 
     solid = cq.Workplane("YZ").polyline(_cross_section_points(spec)).close().extrude(spec.length_mm)
-    centerline = cq.Workplane("YZ").polyline(_centerline_points(spec)).val()
-    reference_midsurface = cq.Workplane("YZ").newObject([centerline])
 
     return GeneratedBentPart(
         spec=spec,
         solid_shape=solid,
-        reference_midsurface_shape=reference_midsurface,
-        feature_truth=feature_truth,
         generator_params=generator_params,
     )
 
@@ -331,22 +183,16 @@ def _write_json(path: Path, document: dict[str, Any]) -> None:
 
 
 def write_bent_part_outputs(sample_root: str | Path, generated: GeneratedBentPart) -> dict[str, str]:
-    """Write T-202 CAD and metadata outputs below a sample directory."""
+    """Write bent-part CAD and generator metadata below a sample directory."""
 
     root = Path(sample_root)
     input_step = root / "cad" / "input.step"
-    midsurface_step = root / "cad" / "reference_midsurface.step"
-    feature_truth_json = root / "metadata" / "feature_truth.json"
     generator_params_json = root / "metadata" / "generator_params.json"
 
     _export_step(generated.solid_shape, input_step)
-    _export_step(generated.reference_midsurface_shape, midsurface_step)
-    _write_json(feature_truth_json, generated.feature_truth.model_dump(mode="json"))
     _write_json(generator_params_json, generated.generator_params)
 
     return {
         "input_step": input_step.as_posix(),
-        "reference_midsurface_step": midsurface_step.as_posix(),
-        "feature_truth": feature_truth_json.as_posix(),
         "generator_params": generator_params_json.as_posix(),
     }

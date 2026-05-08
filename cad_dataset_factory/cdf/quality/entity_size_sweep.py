@@ -197,7 +197,6 @@ def run_entity_size_sweep(
     preset: str = "local_quality_v1",
     limit: int | None = None,
     timeout_sec: int = 300,
-    execute: bool = True,
 ) -> EntitySizeSweepResult:
     root = Path(dataset_root)
     sample_dirs = _dataset_sample_dirs(root, split, sample_id)
@@ -222,8 +221,7 @@ def run_entity_size_sweep(
                     diagnostics_path=eval_dir / "reports" / "ansa_size_field_diagnostics.json",
                     evaluation_id=variant.evaluation_id,
                     timeout_sec=timeout_sec,
-                ),
-                execute=execute,
+                )
             )
             if result.status == "COMPLETED":
                 completed += 1

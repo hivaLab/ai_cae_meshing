@@ -17,14 +17,11 @@ STEP clean CAD
   -> real mesh and quality report
 ```
 
-The old feature-manifest, quality-ranker, baseline recommendation, and surrogate
-optimizer paths are not primary architecture.
-
 ## Non-Negotiable Rules
 
 1. Do not claim success from synthetic messages, mock ANSA, placeholder meshes, or
-   baseline/reference selection.
-2. Do not hide model weakness with a baseline guard or deterministic rule fallback.
+   reference artifacts.
+2. Do not hide model weakness with deterministic rule substitution.
 3. Defeaturing is out of scope for the next architecture. Assume clean CAD and preserve
    geometric boundaries.
 4. The primary ANSA payload is a mesh sizing field: global size policy, user-adjustable

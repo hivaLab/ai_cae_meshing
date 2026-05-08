@@ -7,6 +7,7 @@ import math
 from pathlib import Path
 from typing import Sequence
 
+import numpy as np
 import torch
 from torch import nn
 
@@ -126,8 +127,8 @@ def train_size_field_model(
         "model": "BrepSizeFieldModel",
         "prefer_quality_evidence": prefer_quality_evidence,
         "context_source": "predicted_part_classifier_and_brepnet_segmentation",
-        "part_classifier_path": Path(part_classifier_path).as_posix() if part_classifier_path is not None else None,
-        "segmentation_checkpoint_path": Path(segmentation_checkpoint_path).as_posix() if segmentation_checkpoint_path is not None else None,
+        "part_classifier_path": Path(part_classifier_path).as_posix(),
+        "segmentation_checkpoint_path": Path(segmentation_checkpoint_path).as_posix(),
         "edge_target_size_stats": edge_target_stats,
     }
     write_json(out / "metrics.json", metrics)
@@ -136,9 +137,7 @@ def train_size_field_model(
 
 def _graph_tensors_for_training(sample, *, part_model, segmentation_model):  # noqa: ANN001
     part_prediction = predict_part_class(part_model, sample, uncertainty_threshold=0.0)
-    part_probabilities = torch.zeros((len(PART_CLASS_ORDER),), dtype=torch.float32).numpy()
-    for index, label in enumerate(PART_CLASS_ORDER):
-        part_probabilities[index] = float(part_prediction.probabilities[label])
+    part_probabilities = np.asarray([part_prediction.probabilities[label] for label in PART_CLASS_ORDER], dtype=np.float32)
     face_probs, edge_probs = predict_entity_segmentation_probabilities(sample, segmentation_model)
     return build_size_field_graph_tensors(
         sample,

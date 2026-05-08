@@ -31,9 +31,8 @@ def _write_smoke_step() -> Path:
             thickness_mm=1.2,
             features=[
                 FlatPanelFeatureSpec(
-                    feature_id="HOLE_BOLT_0001",
+                    feature_id="HOLE_0001",
                     type="HOLE",
-                    role="BOLT",
                     center_uv_mm=(40.0, 32.0),
                     radius_mm=5.0,
                 )

@@ -2,9 +2,8 @@
 
 ## Current State
 
-The active project is a B-rep entity AI meshing tool. Feature-action manifests,
-recommendation/ranker loops, baseline mesh selection, mock reports, and fabricated
-quality metrics are not active success paths.
+The active project is a B-rep entity AI meshing tool. Meshing success requires an
+AI-predicted size field evaluated through real ANSA with measurable quality evidence.
 
 Primary path:
 
@@ -50,7 +49,7 @@ python -m pytest
 Result:
 
 ```text
-75 passed
+72 passed
 ```
 
 ## T-820 Evidence

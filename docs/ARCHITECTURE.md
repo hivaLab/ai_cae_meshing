@@ -2,8 +2,7 @@
 
 ## Core Principle
 
-The AI model should predict a mesh sizing field over exact CAD entities. It should not
-primarily choose from a small list of feature manifest actions.
+The AI model should predict a mesh sizing field over exact CAD entities.
 
 For clean sheet-metal CAD, the practical minimum ANSA control is:
 
@@ -28,8 +27,8 @@ meshing engine.
 
 The paper supports using AI as a controller around established meshers. For this project,
 the controller should predict entity-local mesh sizes directly, then ANSA remains the
-real meshing engine. Local quality evidence is still required, but it is used to train
-and validate the size predictor rather than to hide failures behind a baseline selector.
+real meshing engine. Local quality evidence is still required, and it is used to train
+and validate the size predictor.
 
 The resulting model stack is:
 
@@ -231,19 +230,9 @@ Minimal payload:
 The user must be able to change `growth_rate`. The model may recommend local sizes, but
 the projection must respect the user growth-rate limit.
 
-## What Is Removed From Primary Design
+## Active API Boundary
 
-The following ideas are no longer primary architecture:
-
-- AI selecting a baseline/reference mesh
-- success based on baseline comparison
-- small feature suppression as the main path
-- deterministic feature action rules as the model target
-- manifest action classification as the primary model output
-- synthetic zero feature boundary errors
-- graph target columns
-- reference midsurface as model input
-
-Code paths for these ideas should not remain on the active API or CLI surface. If a
-future experiment needs one of them, it must be introduced as an explicitly scoped
-research artifact and cannot count as pipeline success.
+The active API and CLI surface should expose only the entity graph, part classifier,
+BRepNet segmentation model, direct size-field model, and real ANSA evaluation path.
+Graph arrays must remain label-free: no target size, target class, quality, or action
+columns are allowed.

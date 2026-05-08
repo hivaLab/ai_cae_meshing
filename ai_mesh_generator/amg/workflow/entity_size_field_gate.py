@@ -76,7 +76,15 @@ def _run_ansa_size_field_evaluation(
         ansa_executable=ansa_executable,
         timeout_sec=timeout_sec,
     )
-    return subprocess.run(command, capture_output=True, text=True, timeout=timeout_sec + 30, check=False)
+    return subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=timeout_sec + 30,
+        check=False,
+    )
 
 
 def _counter_from_reports(reports: list[dict[str, Any]], key: str) -> dict[str, int]:

@@ -91,9 +91,9 @@ def export_execution_report(path): ...
 def export_quality_report(path): ...
 ```
 
-Operations such as hole fill, small-feature suppression, washer generation, or baseline
-selection are not primary success paths. They may be revisited only after the size-field
-pipeline works.
+Operations such as hole fill, small-feature suppression, or washer generation are not
+part of the active size-field success path. They may be revisited only after the
+edge/face size-field pipeline is reliable.
 
 ## Quality Report Requirements
 

@@ -92,7 +92,7 @@ def test_primary_training_and_direct_size_field_commands_write_artifacts() -> No
     assert size_metrics["learning_signal_status"] in {"SUCCESS", "FAILED_LEARNING_SIGNAL"}
     assert (out / "size_field_model" / "model.pt").is_file()
     size_field_path = out / "size_field.json"
-    with pytest.raises(ValueError):
+    with pytest.raises(TypeError):
         infer_size_field_document(
             sample_dir=dataset / "samples" / "sample_000004",
             checkpoint_path=out / "size_field_model" / "model.pt",
@@ -330,7 +330,7 @@ def test_entity_size_field_workflow_uses_file_contract_for_ansa(monkeypatch) -> 
     out = _tmp("workflow_out")
     calls: list[list[str]] = []
 
-    def fake_run(command, capture_output, text, timeout, check):  # noqa: ANN001
+    def fake_run(command, capture_output, text, timeout, check, **_kwargs):  # noqa: ANN001
         calls.append(list(command))
         out_dir = Path(command[command.index("--out") + 1])
         size_field_path = Path(command[command.index("--size-field") + 1])
@@ -390,7 +390,7 @@ def test_entity_size_field_workflow_prefers_purpose_specific_splits(monkeypatch)
         (dataset / "splits" / f"{split_name}.txt").write_text((dataset / "splits" / f"{source}.txt").read_text(encoding="utf-8"), encoding="utf-8")
     out = _tmp("workflow_out_purpose_splits")
 
-    def fake_run(command, capture_output, text, timeout, check):  # noqa: ANN001
+    def fake_run(command, capture_output, text, timeout, check, **_kwargs):  # noqa: ANN001
         out_dir = Path(command[command.index("--out") + 1])
         size_field = json.loads(Path(command[command.index("--size-field") + 1]).read_text(encoding="utf-8"))
         first_edge = size_field["edge_sizes"][0]

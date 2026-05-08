@@ -7,7 +7,7 @@ evidence.
 
 Tests must prevent these failures:
 
-- hidden baseline success
+- hidden reference-artifact success
 - mock or placeholder mesh counted as success
 - fabricated zero quality metric
 - target leakage in graph input
@@ -28,7 +28,7 @@ Required checks:
 - AMG code does not import CDF code.
 - ANSA API imports appear only under ANSA script directories.
 - graph input arrays do not contain target labels or quality scores.
-- `reference_midsurface.step` is never used as model input.
+- `cad/input.step` is the only CAD file consumed by AMG model loaders.
 
 ## Contract Tests
 
@@ -97,6 +97,6 @@ Never count these as success:
 - unavailable ANSA
 - controlled failure report
 - placeholder BDF
-- baseline mesh selected instead of AI output
+- reference artifact selected instead of AI output
 - local metric placeholder
 - schema-valid but behaviorally fake report

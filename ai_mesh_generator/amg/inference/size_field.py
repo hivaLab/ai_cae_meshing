@@ -91,8 +91,8 @@ def infer_size_field_document(
     *,
     sample_dir: str | Path,
     checkpoint_path: str | Path,
-    part_classifier_path: str | Path | None = None,
-    segmentation_checkpoint_path: str | Path | None = None,
+    part_classifier_path: str | Path,
+    segmentation_checkpoint_path: str | Path,
     h0_mm: float,
     h_min_mm: float,
     h_max_mm: float,
@@ -101,10 +101,6 @@ def infer_size_field_document(
 ) -> dict:
     sample = load_entity_dataset_sample(sample_dir)
     model = load_size_field_model(checkpoint_path)
-    if part_classifier_path is None:
-        raise SizeFieldInferenceError("missing_part_classifier", "part classifier checkpoint is required for AI size-field inference")
-    if segmentation_checkpoint_path is None:
-        raise SizeFieldInferenceError("missing_segmentation_checkpoint", "segmentation checkpoint is required for AI size-field inference")
     context = build_ai_size_field_context(
         sample=sample,
         part_classifier_path=part_classifier_path,
@@ -137,8 +133,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="amg-infer-size-field")
     parser.add_argument("--sample-dir", required=True)
     parser.add_argument("--checkpoint", required=True)
-    parser.add_argument("--part-classifier")
-    parser.add_argument("--segmentation-checkpoint")
+    parser.add_argument("--part-classifier", required=True)
+    parser.add_argument("--segmentation-checkpoint", required=True)
     parser.add_argument("--out", required=True)
     parser.add_argument("--h0-mm", type=float, default=3.0)
     parser.add_argument("--h-min-mm", type=float, default=0.5)

@@ -1,4 +1,4 @@
-"""Pure sizing formulas for CDF AMG-compatible labels."""
+"""Pure sizing formulas for CDF entity size labels."""
 
 from __future__ import annotations
 

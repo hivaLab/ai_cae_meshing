@@ -32,36 +32,24 @@ def bent_spec(part_class: PartClass = PartClass.SM_L_BRACKET) -> BentPartSpec:
 
 
 @pytest.mark.parametrize(
-    ("part_class", "expected_bends", "expected_flanges"),
+    "part_class",
     [
-        (PartClass.SM_SINGLE_FLANGE, 1, 1),
-        (PartClass.SM_L_BRACKET, 1, 1),
-        (PartClass.SM_U_CHANNEL, 2, 2),
-        (PartClass.SM_HAT_CHANNEL, 4, 4),
+        PartClass.SM_SINGLE_FLANGE,
+        PartClass.SM_L_BRACKET,
+        PartClass.SM_U_CHANNEL,
+        PartClass.SM_HAT_CHANNEL,
     ],
 )
-def test_bent_part_generates_truth_for_all_supported_classes(
-    part_class: PartClass,
-    expected_bends: int,
-    expected_flanges: int,
-) -> None:
+def test_bent_part_generates_solid_for_all_supported_classes(part_class: PartClass) -> None:
     pytest.importorskip("cadquery")
 
     generated = build_bent_part(bent_spec(part_class))
-    data = generated.feature_truth.model_dump(mode="json")
+    data = generated.generator_params
     json.dumps(data)
 
-    assert data["schema_version"] == "CDF_FEATURE_TRUTH_SM_V1"
-    assert data["part"]["part_class"] == part_class.value
-    bends = [feature for feature in data["features"] if feature["type"] == "BEND"]
-    flanges = [feature for feature in data["features"] if feature["type"] == "FLANGE"]
-    assert len(bends) == expected_bends
-    assert len(flanges) == expected_flanges
-    assert all(feature["role"] == "STRUCTURAL" for feature in data["features"])
-    assert all(feature["created_by"] == "cadgen.bent_part.bend" for feature in bends)
-    assert all(feature["created_by"] == "cadgen.bent_part.flange" for feature in flanges)
-    assert bends[0]["feature_id"] == "BEND_STRUCTURAL_0001"
-    assert flanges[0]["feature_id"] == "FLANGE_STRUCTURAL_0001"
+    assert generated.solid_shape is not None
+    assert data["schema"] == "CDF_GENERATOR_PARAMS_SM_V1"
+    assert data["part_class"] == part_class.value
 
 
 def test_invalid_part_class_raises_bent_part_build_error() -> None:
@@ -105,13 +93,12 @@ def test_cadquery_step_smoke_exports_and_reimports_l_bracket() -> None:
     paths = write_bent_part_outputs(sample_root, generated)
 
     input_step = Path(paths["input_step"])
-    midsurface_step = Path(paths["reference_midsurface_step"])
-    feature_truth = Path(paths["feature_truth"])
     generator_params = Path(paths["generator_params"])
 
-    for path in (input_step, midsurface_step, feature_truth, generator_params):
+    for path in (input_step, generator_params):
         assert path.is_file()
         assert path.stat().st_size > 0
+    assert not any("midsurface" in key or "truth" in key for key in paths)
 
     imported = cq.importers.importStep(str(input_step))
     bbox = imported.val().BoundingBox()
@@ -119,7 +106,5 @@ def test_cadquery_step_smoke_exports_and_reimports_l_bracket() -> None:
     assert bbox.ylen > 40.0
     assert bbox.zlen > 20.0
 
-    truth = json.loads(feature_truth.read_text(encoding="utf-8"))
-    assert truth["features"][0]["type"] == "BEND"
     params = json.loads(generator_params.read_text(encoding="utf-8"))
     assert params["schema"] == "CDF_GENERATOR_PARAMS_SM_V1"

@@ -15,8 +15,8 @@ clean STEP CAD
   -> BDF + real entity-local quality metrics
 ```
 
-Do not revive feature-action manifests, recommendation/ranker selection, baseline mesh
-selection, quality-surrogate optimizer success, mock reports, or fabricated metrics.
+Only count an AI-predicted `AMG_SIZE_FIELD_SM_V2` evaluated through real ANSA as
+meshing success. Mock reports, reference artifacts, and fabricated metrics are invalid.
 
 ## Current State
 
@@ -33,7 +33,7 @@ python -m pytest
 ```
 
 ```text
-75 passed
+72 passed
 ```
 
 ## Real Evidence To Preserve
@@ -96,7 +96,7 @@ T-821_RARE_FEATURE_SEGMENTATION_AND_FACE_SIZE_CONTROL_HARDENING
    - Face controls may be added only for simple flat panels and bent webs where ANSA
      entity matching is stable.
 4. Preserve the real ANSA criteria.
-   - No baseline/reference mesh success path.
+   - No reference-artifact success path.
    - No label-size substitution.
    - No fabricated local metrics.
    - Success requires real ANSA execution/quality reports, non-empty BDF, zero hard

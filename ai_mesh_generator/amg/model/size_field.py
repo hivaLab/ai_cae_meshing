@@ -99,10 +99,6 @@ def build_size_field_graph_tensors(
 
     face_count = face_features.shape[0]
     edge_count = edge_features.shape[0]
-    face_probs = np.zeros((face_count, len(FACE_SEGMENTATION_CLASSES)), dtype=np.float32)
-    edge_probs = np.zeros((edge_count, len(EDGE_SEGMENTATION_CLASSES)), dtype=np.float32)
-    part_probs = np.zeros((len(PART_CLASS_ORDER),), dtype=np.float32)
-
     face_probs = np.asarray(face_segmentation_probabilities, dtype=np.float32)
     edge_probs = np.asarray(edge_segmentation_probabilities, dtype=np.float32)
     part_probs = np.asarray(part_probabilities, dtype=np.float32)

@@ -11,10 +11,9 @@ clean sheet-metal CAD
   -> ANSA shell meshing with real quality validation
 ```
 
-The project is not a rule-only manifest demo, not a baseline mesh generator, and not a
-synthetic-data counting exercise. Code is considered useful only when it moves the
-system toward AI-driven mesh control that produces real ANSA meshes with measurable
-local and global quality.
+The project is not a synthetic-data counting exercise. Code is considered useful only
+when it moves the system toward AI-driven mesh control that produces real ANSA meshes
+with measurable local and global quality.
 
 The design follows the practical lesson from Owen et al. (2026): AI should complement
 established CAD kernels and meshing tools. For this project, that means CAD-native

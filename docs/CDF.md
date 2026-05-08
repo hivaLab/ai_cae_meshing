@@ -49,8 +49,6 @@ sample_000001/
     sample_acceptance.json
 ```
 
-`reference_midsurface.step` may exist for debugging, but it is not an AMG model input.
-
 ## Labels
 
 ### Part Classification Label

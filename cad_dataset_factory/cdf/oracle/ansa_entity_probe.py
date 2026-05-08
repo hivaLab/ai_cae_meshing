@@ -83,7 +83,7 @@ def build_ansa_entity_probe_command(request: AnsaEntityProbeRequest) -> list[str
     return build_ansa_script_command(executable=executable, script_path=script_path, payload=payload)
 
 
-def run_ansa_entity_probe(request: AnsaEntityProbeRequest, *, execute: bool = True) -> AnsaEntityProbeResult:
+def run_ansa_entity_probe(request: AnsaEntityProbeRequest) -> AnsaEntityProbeResult:
     root = request.repo_root or _repo_root()
     output_path = _resolve(request.out, root)
     executable = resolve_ansa_executable(request.ansa_executable, request.env)
@@ -98,10 +98,16 @@ def run_ansa_entity_probe(request: AnsaEntityProbeRequest, *, execute: bool = Tr
         output_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         return AnsaEntityProbeResult("FAILED", output_path, [], error_code="ansa_executable_not_found", report=report)
     command = build_ansa_entity_probe_command(request)
-    if not execute:
-        return AnsaEntityProbeResult("DRY_RUN", output_path, command)
     try:
-        completed = subprocess.run(command, capture_output=True, text=True, timeout=request.timeout_sec, check=False)
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=request.timeout_sec,
+            check=False,
+        )
     except subprocess.TimeoutExpired as exc:
         report = {
             "schema": "CDF_ANSA_ENTITY_DESCRIPTOR_PROBE_V1",

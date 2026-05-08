@@ -209,7 +209,7 @@ BRepMeshSizeNet: segmentation-aware B-rep GNN size-field regressor
 The model predicts per-edge target sizes directly from B-rep entity features,
 coedge topology, part probabilities, segmentation probabilities, mesh policy, and user
 growth-rate constraints. This is the active path because ANSA ultimately needs entity
-controls, not feature-action choices or baseline selection.
+controls.
 
 ### Input Layer
 
@@ -279,7 +279,7 @@ The first real implementation should stay simple:
 5. Run ANSA Batch Mesh.
 6. Parse real quality and local feature-boundary metrics.
 
-Do not add a baseline mesh path as a success condition.
+Do not add a reference-artifact path as a success condition.
 
 ## Quality Objective
 

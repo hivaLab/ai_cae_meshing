@@ -163,10 +163,6 @@ def build_segmentation_targets(sample: Any) -> SegmentationTargets:
     return SegmentationTargets(face_labels=face_targets, edge_labels=edge_targets)
 
 
-def _mlp(input_dim: int, hidden_dim: int, output_dim: int) -> nn.Sequential:
-    return nn.Sequential(nn.Linear(input_dim, hidden_dim), nn.ReLU(), nn.Linear(hidden_dim, output_dim), nn.ReLU())
-
-
 def _pool_max(values: torch.Tensor, indices: torch.Tensor, count: int) -> torch.Tensor:
     if count <= 0:
         return values.new_zeros((0, values.shape[1]))

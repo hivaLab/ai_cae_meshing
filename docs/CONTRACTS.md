@@ -174,7 +174,8 @@ Hard acceptance for `VALID_MESH`:
 - required local metrics are available
 - local boundary error is within configured threshold
 
-## Removed Contracts
+## Active Contract Boundary
 
-Feature-action manifest contracts were removed from the active code path. New code must
-publish graph inputs, entity labels, size fields, and real quality evidence instead.
+New code must publish graph inputs, entity labels, size fields, and real quality evidence.
+Graph arrays remain label-free, and meshing success is judged only from real ANSA
+artifacts and measured quality rows.

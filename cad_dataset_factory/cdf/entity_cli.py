@@ -56,7 +56,6 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate.add_argument("--ansa-executable", required=True)
     evaluate.add_argument("--out", required=True)
     evaluate.add_argument("--timeout-sec", type=int, default=240)
-    evaluate.add_argument("--dry-run", action="store_true")
 
     sweep = subparsers.add_parser("ansa-evaluate-size-sweep", help="Run real ANSA size-field sweep evaluations")
     sweep.add_argument("--dataset", required=True)
@@ -66,7 +65,6 @@ def build_parser() -> argparse.ArgumentParser:
     sweep.add_argument("--limit", type=int)
     sweep.add_argument("--ansa-executable", required=True)
     sweep.add_argument("--timeout-sec", type=int, default=300)
-    sweep.add_argument("--dry-run", action="store_true")
     return parser
 
 
@@ -139,8 +137,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     ansa_executable=args.ansa_executable,
                     out_dir=Path(args.out),
                     timeout_sec=args.timeout_sec,
-                ),
-                execute=not args.dry_run,
+                )
             )
             _print(
                 {
@@ -156,7 +153,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "message": result.message,
                 }
             )
-            if result.status in {"DRY_RUN", "COMPLETED"} and result.returncode in {None, 0}:
+            if result.status == "COMPLETED" and result.returncode in {None, 0}:
                 return 0
             return 2 if result.status in {"BLOCKED", "TIMEOUT"} or result.returncode == 2 else 1
         if args.command == "ansa-evaluate-size-sweep":
@@ -168,7 +165,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 preset=args.preset,
                 limit=args.limit,
                 timeout_sec=args.timeout_sec,
-                execute=not args.dry_run,
             )
             _print(
                 {

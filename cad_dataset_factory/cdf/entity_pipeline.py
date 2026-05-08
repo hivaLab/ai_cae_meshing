@@ -1,7 +1,7 @@
 """Primary CDF v2 entity-dataset publisher.
 
-This module is the replacement for the old feature-manifest dataset path.  It writes
-CAD-native graph inputs and separate part/face/edge/size labels.
+The publisher writes CAD-native graph inputs and separate part, face, edge, and
+size-field labels for the active B-rep entity AI meshing pipeline.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from cad_dataset_factory.cdf.brep import (
 )
 from cad_dataset_factory.cdf.cadgen.bent_part import BentPartSpec, build_bent_part, write_bent_part_outputs
 from cad_dataset_factory.cdf.cadgen.flat_panel import FlatPanelFeatureSpec, FlatPanelSpec, build_flat_panel_part, export_step, write_flat_panel_outputs
-from cad_dataset_factory.cdf.domain import FeatureRole, FeatureType, PartClass
+from cad_dataset_factory.cdf.domain import FeatureType, PartClass
 from cad_dataset_factory.cdf.labels import (
     EdgeSegmentationDocument,
     EdgeSegmentationLabel,
@@ -360,35 +360,32 @@ def _flat_spec(sample_id: str, case: str, rng: random.Random) -> FlatPanelSpec:
     thickness = 1.0 + rng.randint(0, 3) * 0.25
     features: list[FlatPanelFeatureSpec] = []
 
-    def add_hole(index: int, u: float, v: float, radius: float, role: FeatureRole = FeatureRole.UNKNOWN) -> None:
+    def add_hole(index: int, u: float, v: float, radius: float) -> None:
         features.append(
             FlatPanelFeatureSpec(
-                feature_id=f"HOLE_{role.value}_{index:04d}",
+                feature_id=f"HOLE_{index:04d}",
                 type=FeatureType.HOLE,
-                role=role,
                 center_uv_mm=(u, v),
                 radius_mm=radius,
             )
         )
 
-    def add_slot(index: int, u: float, v: float, slot_width: float, length: float, role: FeatureRole = FeatureRole.PASSAGE) -> None:
+    def add_slot(index: int, u: float, v: float, slot_width: float, length: float) -> None:
         features.append(
             FlatPanelFeatureSpec(
-                feature_id=f"SLOT_{role.value}_{index:04d}",
+                feature_id=f"SLOT_{index:04d}",
                 type=FeatureType.SLOT,
-                role=role,
                 center_uv_mm=(u, v),
                 width_mm=slot_width,
                 length_mm=length,
             )
         )
 
-    def add_cutout(index: int, u: float, v: float, cutout_width: float, cutout_height: float, role: FeatureRole = FeatureRole.RELIEF) -> None:
+    def add_cutout(index: int, u: float, v: float, cutout_width: float, cutout_height: float) -> None:
         features.append(
             FlatPanelFeatureSpec(
-                feature_id=f"CUTOUT_{role.value}_{index:04d}",
+                feature_id=f"CUTOUT_{index:04d}",
                 type=FeatureType.CUTOUT,
-                role=role,
                 center_uv_mm=(u, v),
                 width_mm=cutout_width,
                 height_mm=cutout_height,
@@ -398,28 +395,28 @@ def _flat_spec(sample_id: str, case: str, rng: random.Random) -> FlatPanelSpec:
     if case in {"flat_hole", "flat_hole_small"}:
         add_hole(1, width * (0.32 + rng.uniform(-0.04, 0.04)), height * (0.50 + rng.uniform(-0.08, 0.08)), 2.6 + rng.random() * 1.2)
     elif case == "flat_hole_large":
-        add_hole(1, width * (0.38 + rng.uniform(-0.04, 0.04)), height * (0.50 + rng.uniform(-0.08, 0.08)), 5.2 + rng.random() * 1.5, FeatureRole.MOUNT)
+        add_hole(1, width * (0.38 + rng.uniform(-0.04, 0.04)), height * (0.50 + rng.uniform(-0.08, 0.08)), 5.2 + rng.random() * 1.5)
     elif case == "flat_multi_hole":
-        add_hole(1, width * 0.30, height * 0.42, 3.0 + rng.random() * 0.8, FeatureRole.BOLT)
-        add_hole(2, width * 0.70, height * 0.58, 4.0 + rng.random() * 1.0, FeatureRole.MOUNT)
+        add_hole(1, width * 0.30, height * 0.42, 3.0 + rng.random() * 0.8)
+        add_hole(2, width * 0.70, height * 0.58, 4.0 + rng.random() * 1.0)
     elif case in {"flat_slot", "flat_slot_short"}:
-        add_slot(1, width * 0.58, height * (0.48 + rng.uniform(-0.06, 0.06)), 5.5 + rng.random() * 1.0, 17.0 + rng.random() * 4.0, FeatureRole.DRAIN)
+        add_slot(1, width * 0.58, height * (0.48 + rng.uniform(-0.06, 0.06)), 5.5 + rng.random() * 1.0, 17.0 + rng.random() * 4.0)
     elif case == "flat_slot_long":
-        add_slot(1, width * 0.58, height * (0.50 + rng.uniform(-0.05, 0.05)), 6.5 + rng.random() * 1.2, 30.0 + rng.random() * 8.0, FeatureRole.PASSAGE)
+        add_slot(1, width * 0.58, height * (0.50 + rng.uniform(-0.05, 0.05)), 6.5 + rng.random() * 1.2, 30.0 + rng.random() * 8.0)
     elif case in {"flat_cutout", "flat_cutout_square"}:
         side = 13.0 + rng.random() * 4.0
-        add_cutout(1, width * 0.55, height * 0.45, side, side, FeatureRole.RELIEF)
+        add_cutout(1, width * 0.55, height * 0.45, side, side)
     elif case == "flat_cutout_rect":
-        add_cutout(1, width * 0.55, height * 0.45, 22.0 + rng.random() * 5.0, 10.0 + rng.random() * 4.0, FeatureRole.RELIEF)
+        add_cutout(1, width * 0.55, height * 0.45, 22.0 + rng.random() * 5.0, 10.0 + rng.random() * 4.0)
     elif case in {"flat_combo", "flat_combo_sparse"}:
-        add_hole(1, width * 0.28, height * 0.58, 3.0 + rng.random(), FeatureRole.BOLT)
-        add_slot(1, width * 0.70, height * 0.62, 5.5 + rng.random(), 20.0 + rng.random() * 4.0, FeatureRole.PASSAGE)
-        add_cutout(1, width * 0.52, height * 0.26, 15.0 + rng.random() * 3.0, 9.0 + rng.random() * 3.0, FeatureRole.RELIEF)
+        add_hole(1, width * 0.28, height * 0.58, 3.0 + rng.random())
+        add_slot(1, width * 0.70, height * 0.62, 5.5 + rng.random(), 20.0 + rng.random() * 4.0)
+        add_cutout(1, width * 0.52, height * 0.26, 15.0 + rng.random() * 3.0, 9.0 + rng.random() * 3.0)
     elif case == "flat_combo_dense":
-        add_hole(1, width * 0.30, height * 0.62, 2.8 + rng.random() * 0.8, FeatureRole.BOLT)
-        add_hole(2, width * 0.46, height * 0.56, 2.5 + rng.random() * 0.7, FeatureRole.UNKNOWN)
-        add_slot(1, width * 0.70, height * 0.58, 5.0 + rng.random(), 18.0 + rng.random() * 4.0, FeatureRole.DRAIN)
-        add_cutout(1, width * 0.50, height * 0.25, 12.0 + rng.random() * 3.0, 8.0 + rng.random() * 2.0, FeatureRole.RELIEF)
+        add_hole(1, width * 0.30, height * 0.62, 2.8 + rng.random() * 0.8)
+        add_hole(2, width * 0.46, height * 0.56, 2.5 + rng.random() * 0.7)
+        add_slot(1, width * 0.70, height * 0.58, 5.0 + rng.random(), 18.0 + rng.random() * 4.0)
+        add_cutout(1, width * 0.50, height * 0.25, 12.0 + rng.random() * 3.0, 8.0 + rng.random() * 2.0)
     elif case == "flat_plain":
         pass
     else:

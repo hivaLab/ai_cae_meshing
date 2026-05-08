@@ -39,7 +39,7 @@ def test_probe_launches_ansa_script_command_and_reads_report(monkeypatch) -> Non
         stdout = "ok"
         stderr = ""
 
-    def fake_run(command, capture_output, text, timeout, check):  # type: ignore[no-untyped-def]
+    def fake_run(command, capture_output, text, timeout, check, **_kwargs):  # type: ignore[no-untyped-def]
         captured["command"] = command
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text('{"schema":"CDF_ANSA_RUNTIME_PROBE_SM_V1","status":"OK"}\n', encoding="utf-8")

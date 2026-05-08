@@ -3,7 +3,6 @@
 ## Purpose
 
 The dataset exists to train and validate AI models for CAD-native meshing decisions.
-It is not a collection of accepted baseline meshes.
 
 The dataset must answer:
 
@@ -42,15 +41,6 @@ sample_000001/
   meshes/
     ansa_mesh.bdf
 ```
-
-Optional debug files:
-
-```text
-cad/reference_midsurface.step
-visualization/*
-```
-
-Debug files are not model inputs.
 
 ## Dataset Index
 

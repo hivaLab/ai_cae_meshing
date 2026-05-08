@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import pickle
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -65,6 +66,7 @@ class PartClassPrediction:
 
 
 def _load_sklearn() -> dict[str, Any]:
+    os.environ.setdefault("LOKY_MAX_CPU_COUNT", "1")
     try:
         from sklearn.calibration import CalibratedClassifierCV
         from sklearn.ensemble import ExtraTreesClassifier, HistGradientBoostingClassifier, RandomForestClassifier
@@ -186,8 +188,8 @@ def _safe_feature_importances(model: Any, width: int) -> np.ndarray:
 
 def _candidate_estimators(constructors: dict[str, Any], *, seed: int, n_estimators: int) -> dict[str, Any]:
     return {
-        "RandomForest": constructors["RandomForest"](n_estimators=n_estimators, random_state=seed, class_weight="balanced"),
-        "ExtraTrees": constructors["ExtraTrees"](n_estimators=n_estimators, random_state=seed, class_weight="balanced"),
+        "RandomForest": constructors["RandomForest"](n_estimators=n_estimators, random_state=seed, class_weight="balanced", n_jobs=1),
+        "ExtraTrees": constructors["ExtraTrees"](n_estimators=n_estimators, random_state=seed, class_weight="balanced", n_jobs=1),
         "HistGradientBoosting": constructors["HistGradientBoosting"](random_state=seed, learning_rate=0.06, max_iter=max(100, n_estimators // 2), l2_regularization=0.01),
     }
 

@@ -226,7 +226,7 @@ def _classify_outputs(paths: Mapping[str, Path]) -> tuple[str, str | None, str |
     return status, code, f"ANSA size-field output did not satisfy real success criteria: {code}"
 
 
-def run_ansa_size_field_evaluation(request: AnsaSizeFieldEvaluationRequest, *, execute: bool = True) -> AnsaSizeFieldEvaluationResult:
+def run_ansa_size_field_evaluation(request: AnsaSizeFieldEvaluationRequest) -> AnsaSizeFieldEvaluationResult:
     paths = resolve_size_field_paths(request)
     try:
         executable = resolve_ansa_executable(request.ansa_executable, request.env)
@@ -236,20 +236,16 @@ def run_ansa_size_field_evaluation(request: AnsaSizeFieldEvaluationRequest, *, e
     except AnsaRunnerError as exc:
         raise AnsaSizeFieldEvaluationError(exc.code, str(exc)) from exc
 
-    if not execute:
-        return AnsaSizeFieldEvaluationResult(
-            status="DRY_RUN",
-            command=command,
-            returncode=None,
-            output_dir=paths["out_dir"],
-            execution_report_path=paths["execution_report"],
-            quality_report_path=paths["quality_report"],
-            entity_quality_path=paths["entity_quality"],
-            mesh_path=paths["mesh_path"],
-            diagnostics_path=paths["diagnostics"],
-        )
     try:
-        completed = subprocess.run(command, capture_output=True, text=True, timeout=request.timeout_sec, check=False)
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=request.timeout_sec,
+            check=False,
+        )
     except subprocess.TimeoutExpired as exc:
         return AnsaSizeFieldEvaluationResult(
             status="TIMEOUT",

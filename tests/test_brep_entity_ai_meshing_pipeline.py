@@ -13,12 +13,14 @@ from ai_mesh_generator.amg.dataset.entity_loader import (
     load_entity_dataset_sample,
 )
 from ai_mesh_generator.amg.model.part_classifier import (
+    PART_CLASS_ORDER,
     predict_part_class,
     train_part_classifier,
 )
 from ai_mesh_generator.amg.model.segmentation import (
     BRepNetSegmentationModel,
-    BrepSegmentationModel,
+    EDGE_SEGMENTATION_CLASSES,
+    FACE_SEGMENTATION_CLASSES,
     build_entity_graph_tensors,
     build_segmentation_targets,
 )
@@ -125,14 +127,12 @@ def _graph(scale: float = 1.0) -> EntityBrepGraph:
                 "signature_id": "FACE_SIG_000001_BASE",
                 "entity_type": "FACE",
                 "fingerprint": {"entity_type": "FACE", "area_mm2": 100.0 * scale, "center_mm": [5.0, 5.0, 0.0], "bbox_mm": [10.0, 10.0, 0.0]},
-                "debug_row_hash": "DEBUG_FACE_0001",
             },
             {
                 "index": 1,
                 "signature_id": "FACE_SIG_000002_HOLE",
                 "entity_type": "FACE",
                 "fingerprint": {"entity_type": "FACE", "area_mm2": 20.0 * scale, "center_mm": [2.0, 5.0, 0.0], "bbox_mm": [4.0, 5.0, 0.0]},
-                "debug_row_hash": "DEBUG_FACE_0002",
             },
         ],
         "edges": [
@@ -141,21 +141,18 @@ def _graph(scale: float = 1.0) -> EntityBrepGraph:
                 "signature_id": "EDGE_SIG_000001_OUTER",
                 "entity_type": "EDGE",
                 "fingerprint": {"entity_type": "EDGE", "curve_type_id": 1, "length_mm": 10.0 * scale, "center_mm": [5.0, 0.0, 0.0], "bbox_mm": [10.0, 0.0, 0.0]},
-                "debug_row_hash": "DEBUG_EDGE_0001",
             },
             {
                 "index": 1,
                 "signature_id": "EDGE_SIG_000002_HOLE",
                 "entity_type": "EDGE",
                 "fingerprint": {"entity_type": "EDGE", "curve_type_id": 2, "length_mm": 2.0 * scale, "center_mm": [5.0, 5.0, 0.0], "bbox_mm": [2.0, 2.0, 0.0]},
-                "debug_row_hash": "DEBUG_EDGE_0002",
             },
             {
                 "index": 2,
                 "signature_id": "EDGE_SIG_000003_FREE",
                 "entity_type": "EDGE",
                 "fingerprint": {"entity_type": "EDGE", "curve_type_id": 1, "length_mm": 5.0 * scale, "center_mm": [9.0, 5.0, 0.0], "bbox_mm": [5.0, 0.0, 0.0]},
-                "debug_row_hash": "DEBUG_EDGE_0003",
             },
         ],
     }
@@ -243,6 +240,20 @@ def _write_sample(root: Path, sample_id: str, part_class: PartClass, *, scale: f
     return sample_dir
 
 
+def _label_context(sample) -> tuple[np.ndarray, np.ndarray, np.ndarray]:  # noqa: ANN001
+    face_probs = np.zeros((sample.graph.arrays["face_features"].shape[0], len(FACE_SEGMENTATION_CLASSES)), dtype=np.float32)
+    edge_probs = np.zeros((sample.graph.arrays["edge_features"].shape[0], len(EDGE_SEGMENTATION_CLASSES)), dtype=np.float32)
+    part_probs = np.zeros((len(PART_CLASS_ORDER),), dtype=np.float32)
+    part_probs[PART_CLASS_ORDER.index(str(sample.labels.part_class["part_class"]))] = 1.0
+    face_by_sig = {record["signature_id"]: int(record["index"]) for record in sample.graph.entity_signatures["faces"]}
+    edge_by_sig = {record["signature_id"]: int(record["index"]) for record in sample.graph.entity_signatures["edges"]}
+    for item in sample.labels.face_segmentation["labels"]:
+        face_probs[face_by_sig[item["face_signature_id"]], FACE_SEGMENTATION_CLASSES.index(item["semantic_label"])] = 1.0
+    for item in sample.labels.edge_segmentation["labels"]:
+        edge_probs[edge_by_sig[item["edge_signature_id"]], EDGE_SEGMENTATION_CLASSES.index(item["semantic_label"])] = 1.0
+    return face_probs, edge_probs, part_probs
+
+
 def test_new_entity_contract_schemas_validate_examples() -> None:
     for schema_name in (
         "AMG_SIZE_FIELD_SM_V2",
@@ -256,7 +267,6 @@ def test_new_entity_contract_schemas_validate_examples() -> None:
         Draft202012Validator.check_schema(_load_schema(schema_name))
     sample = load_entity_dataset_sample(_write_sample(_workspace_tmp("contracts"), "sample_000001", PartClass.SM_FLAT_PANEL), require_quality=True)
     assert sample.graph.entity_signatures["edges"][0]["fingerprint"]["entity_type"] == "EDGE"
-    assert "debug_row_hash" in sample.graph.entity_signatures["edges"][0]
     Draft202012Validator(_load_schema("CDF_MESH_SIZE_FIELD_SM_V2")).validate(sample.labels.mesh_size_field)
     Draft202012Validator(_load_schema("CDF_ENTITY_QUALITY_EVALUATION_SM_V2")).validate(sample.labels.quality_evaluations[0])
 
@@ -310,10 +320,6 @@ def test_part_classifier_segmentation_and_direct_size_field_model() -> None:
 
     tensors = build_entity_graph_tensors(samples[0])
     targets = build_segmentation_targets(samples[0])
-    model = BrepSegmentationModel(tensors.face_features.shape[1], tensors.edge_features.shape[1], hidden_dim=16)
-    output = model(tensors)
-    assert output.face_logits.shape == (2, 7)
-    assert output.edge_logits.shape == (3, 8)
     brepnet = BRepNetSegmentationModel(tensors.face_features.shape[1], tensors.edge_features.shape[1], tensors.coedge_features.shape[1], hidden_dim=16, num_layers=2)
     brepnet_output = brepnet(tensors)
     assert brepnet_output.face_logits.shape == (2, 7)
@@ -321,7 +327,13 @@ def test_part_classifier_segmentation_and_direct_size_field_model() -> None:
     assert targets.face_labels.shape == (2,)
     assert targets.edge_labels.shape == (3,)
 
-    size_tensors = build_size_field_graph_tensors(samples[0])
+    face_probs, edge_probs, part_probs = _label_context(samples[0])
+    size_tensors = build_size_field_graph_tensors(
+        samples[0],
+        face_segmentation_probabilities=face_probs,
+        edge_segmentation_probabilities=edge_probs,
+        part_probabilities=part_probs,
+    )
     size_targets = build_size_field_targets(samples[0])
     size_model = BrepSizeFieldModel(size_tensors.face_inputs.shape[1], size_tensors.edge_inputs.shape[1], hidden_dim=16)
     size_output = size_model(size_tensors)

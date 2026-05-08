@@ -49,23 +49,16 @@ def train_size_field_model(
     seed: int = 1,
     hidden_dim: int = 64,
     prefer_quality_evidence: bool = False,
-    part_classifier_path: str | Path | None = None,
-    segmentation_checkpoint_path: str | Path | None = None,
-    use_predicted_context: bool = False,
+    part_classifier_path: str | Path,
+    segmentation_checkpoint_path: str | Path,
 ) -> dict:
     if epochs <= 0:
         raise SizeFieldTrainingError("invalid_epochs", "epochs must be positive")
     torch.manual_seed(seed)
     samples = load_entity_samples(dataset_root, split=split, require_quality=False)
-    part_model = segmentation_model = None
-    if use_predicted_context:
-        if part_classifier_path is None:
-            raise SizeFieldTrainingError("missing_part_classifier", "predicted-context size training requires --part-classifier")
-        if segmentation_checkpoint_path is None:
-            raise SizeFieldTrainingError("missing_segmentation_checkpoint", "predicted-context size training requires --segmentation-checkpoint")
-        part_model, _metadata = load_part_classifier(part_classifier_path)
-        segmentation_model = load_segmentation_model(segmentation_checkpoint_path)
-    first_tensors = _graph_tensors_for_training(samples[0], part_model=part_model, segmentation_model=segmentation_model, use_predicted_context=use_predicted_context)
+    part_model, _metadata = load_part_classifier(part_classifier_path)
+    segmentation_model = load_segmentation_model(segmentation_checkpoint_path)
+    first_tensors = _graph_tensors_for_training(samples[0], part_model=part_model, segmentation_model=segmentation_model)
     model = BrepSizeFieldModel(first_tensors.face_inputs.shape[1], first_tensors.edge_inputs.shape[1], hidden_dim=hidden_dim)
     optimizer = torch.optim.Adam(model.parameters(), lr=1.0e-3)
     last_loss = None
@@ -77,7 +70,7 @@ def train_size_field_model(
         total = torch.tensor(0.0)
         count = 0
         for sample in samples:
-            tensors = _graph_tensors_for_training(sample, part_model=part_model, segmentation_model=segmentation_model, use_predicted_context=use_predicted_context)
+            tensors = _graph_tensors_for_training(sample, part_model=part_model, segmentation_model=segmentation_model)
             try:
                 targets = build_size_field_targets(sample, prefer_quality_evidence=prefer_quality_evidence)
             except SizeFieldModelError as exc:
@@ -132,7 +125,7 @@ def train_size_field_model(
         "checkpoint": (out / "model.pt").as_posix(),
         "model": "BrepSizeFieldModel",
         "prefer_quality_evidence": prefer_quality_evidence,
-        "use_predicted_context": use_predicted_context,
+        "context_source": "predicted_part_classifier_and_brepnet_segmentation",
         "part_classifier_path": Path(part_classifier_path).as_posix() if part_classifier_path is not None else None,
         "segmentation_checkpoint_path": Path(segmentation_checkpoint_path).as_posix() if segmentation_checkpoint_path is not None else None,
         "edge_target_size_stats": edge_target_stats,
@@ -141,9 +134,7 @@ def train_size_field_model(
     return metrics
 
 
-def _graph_tensors_for_training(sample, *, part_model, segmentation_model, use_predicted_context: bool):  # noqa: ANN001
-    if not use_predicted_context:
-        return build_size_field_graph_tensors(sample)
+def _graph_tensors_for_training(sample, *, part_model, segmentation_model):  # noqa: ANN001
     part_prediction = predict_part_class(part_model, sample, uncertainty_threshold=0.0)
     part_probabilities = torch.zeros((len(PART_CLASS_ORDER),), dtype=torch.float32).numpy()
     for index, label in enumerate(PART_CLASS_ORDER):
@@ -154,7 +145,6 @@ def _graph_tensors_for_training(sample, *, part_model, segmentation_model, use_p
         face_segmentation_probabilities=face_probs,
         edge_segmentation_probabilities=edge_probs,
         part_probabilities=part_probabilities,
-        use_label_segmentation=False,
     )
 
 
@@ -186,9 +176,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--hidden-dim", type=int, default=64)
     parser.add_argument("--prefer-quality-evidence", action="store_true")
-    parser.add_argument("--part-classifier")
-    parser.add_argument("--segmentation-checkpoint")
-    parser.add_argument("--use-predicted-context", action="store_true")
+    parser.add_argument("--part-classifier", required=True)
+    parser.add_argument("--segmentation-checkpoint", required=True)
     args = parser.parse_args(argv)
     try:
         metrics = train_size_field_model(
@@ -201,7 +190,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             prefer_quality_evidence=args.prefer_quality_evidence,
             part_classifier_path=args.part_classifier,
             segmentation_checkpoint_path=args.segmentation_checkpoint,
-            use_predicted_context=args.use_predicted_context,
         )
     except (SizeFieldTrainingError, SizeFieldModelError, ValueError) as exc:
         print({"status": "FAILED", "message": str(exc)})

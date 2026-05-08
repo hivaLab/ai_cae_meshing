@@ -47,13 +47,6 @@ class SizeFieldOutput:
     face_uncertainty: torch.Tensor
 
 
-def _one_hot(index: int, width: int) -> np.ndarray:
-    out = np.zeros((width,), dtype=np.float32)
-    if 0 <= index < width:
-        out[index] = 1.0
-    return out
-
-
 def _sample_graph(sample: Any) -> Any:
     return sample.graph if hasattr(sample, "graph") else sample
 
@@ -86,12 +79,15 @@ def _edge_fingerprints(sample: Any) -> dict[str, dict[str, Any]]:
 def build_size_field_graph_tensors(
     sample: Any,
     *,
-    face_segmentation_probabilities: np.ndarray | None = None,
-    edge_segmentation_probabilities: np.ndarray | None = None,
-    part_probabilities: np.ndarray | None = None,
-    use_label_segmentation: bool = True,
+    face_segmentation_probabilities: np.ndarray,
+    edge_segmentation_probabilities: np.ndarray,
+    part_probabilities: np.ndarray,
 ) -> SizeFieldGraphTensors:
-    """Build segmentation-aware model inputs without adding target columns to the graph."""
+    """Build size-field inputs from AI part and segmentation probabilities.
+
+    Label one-hot shortcuts are intentionally not supported here: primary size-field
+    training and inference must see the same model-predicted context.
+    """
 
     graph = _sample_graph(sample)
     arrays = graph.arrays if hasattr(graph, "arrays") else graph["arrays"]
@@ -107,30 +103,9 @@ def build_size_field_graph_tensors(
     edge_probs = np.zeros((edge_count, len(EDGE_SEGMENTATION_CLASSES)), dtype=np.float32)
     part_probs = np.zeros((len(PART_CLASS_ORDER),), dtype=np.float32)
 
-    if face_segmentation_probabilities is not None:
-        face_probs = np.asarray(face_segmentation_probabilities, dtype=np.float32)
-    elif use_label_segmentation and hasattr(sample, "labels"):
-        face_by_sig = {record["signature_id"]: int(record["index"]) for record in graph.entity_signatures["faces"]}
-        for item in sample.labels.face_segmentation["labels"]:
-            index = face_by_sig.get(item["face_signature_id"])
-            if index is not None and item["semantic_label"] in FACE_SEGMENTATION_CLASSES:
-                face_probs[index] = _one_hot(FACE_SEGMENTATION_CLASSES.index(item["semantic_label"]), len(FACE_SEGMENTATION_CLASSES))
-
-    if edge_segmentation_probabilities is not None:
-        edge_probs = np.asarray(edge_segmentation_probabilities, dtype=np.float32)
-    elif use_label_segmentation and hasattr(sample, "labels"):
-        edge_by_sig = {record["signature_id"]: int(record["index"]) for record in graph.entity_signatures["edges"]}
-        for item in sample.labels.edge_segmentation["labels"]:
-            index = edge_by_sig.get(item["edge_signature_id"])
-            if index is not None and item["semantic_label"] in EDGE_SEGMENTATION_CLASSES:
-                edge_probs[index] = _one_hot(EDGE_SEGMENTATION_CLASSES.index(item["semantic_label"]), len(EDGE_SEGMENTATION_CLASSES))
-
-    if part_probabilities is not None:
-        part_probs = np.asarray(part_probabilities, dtype=np.float32)
-    elif use_label_segmentation and hasattr(sample, "labels"):
-        part_class = str(sample.labels.part_class["part_class"])
-        if part_class in PART_CLASS_ORDER:
-            part_probs = _one_hot(PART_CLASS_ORDER.index(part_class), len(PART_CLASS_ORDER))
+    face_probs = np.asarray(face_segmentation_probabilities, dtype=np.float32)
+    edge_probs = np.asarray(edge_segmentation_probabilities, dtype=np.float32)
+    part_probs = np.asarray(part_probabilities, dtype=np.float32)
 
     if face_probs.shape != (face_count, len(FACE_SEGMENTATION_CLASSES)):
         raise SizeFieldModelError("malformed_face_segmentation_probabilities", "face segmentation probabilities have the wrong shape")

@@ -315,7 +315,7 @@ Implemented:
 - New CDF profile `sm_entity_v2_learning_balanced_v1`.
 - 112 samples with flat feature-rich cases, bent-family cases, and clean `OTHER` examples.
 - Purpose-specific splits: `part_train`, `part_test`, `segmentation_train`,
-  `segmentation_test`, plus compatibility `train`/`test`.
+  `segmentation_test`, plus workflow `train`/`test`.
 - `label_coverage_report.json` with part/face/edge support by split.
 - `--eval-split` for `amg-train-part-classifier` and `amg-train-entity-segmentation`.
 - CAD-native summary features for the RandomForest part classifier.

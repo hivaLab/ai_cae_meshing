@@ -76,7 +76,16 @@ def test_primary_training_and_direct_size_field_commands_write_artifacts() -> No
     assert (out / "segmentation" / "model.pt").is_file()
     assert (out / "segmentation" / "eval_metrics.json").is_file()
 
-    size_metrics = train_size_field_model(dataset, out / "size_field_model", split="train", epochs=5, hidden_dim=16, seed=11)
+    size_metrics = train_size_field_model(
+        dataset,
+        out / "size_field_model",
+        split="train",
+        epochs=5,
+        hidden_dim=16,
+        seed=11,
+        part_classifier_path=out / "part_classifier" / "model.pkl",
+        segmentation_checkpoint_path=out / "segmentation" / "model.pt",
+    )
     assert size_metrics["target_row_count"] >= 4
     assert size_metrics["edge_target_size_stats"]["count"] > 0
     assert "h_min_edge_fraction" in size_metrics["edge_target_size_stats"]

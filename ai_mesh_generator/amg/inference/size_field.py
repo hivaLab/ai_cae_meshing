@@ -98,32 +98,24 @@ def infer_size_field_document(
     h_max_mm: float,
     growth_rate: float,
     quality_profile: str = "AMG_QA_SHELL_V2",
-    allow_unconditioned_debug: bool = False,
 ) -> dict:
     sample = load_entity_dataset_sample(sample_dir)
     model = load_size_field_model(checkpoint_path)
-    if allow_unconditioned_debug:
-        context = None
-        tensors = build_size_field_graph_tensors(sample, use_label_segmentation=False)
-        edge_probs = None
-    else:
-        if part_classifier_path is None:
-            raise SizeFieldInferenceError("missing_part_classifier", "part classifier checkpoint is required for AI size-field inference")
-        if segmentation_checkpoint_path is None:
-            raise SizeFieldInferenceError("missing_segmentation_checkpoint", "segmentation checkpoint is required for AI size-field inference")
-        context = build_ai_size_field_context(
-            sample=sample,
-            part_classifier_path=part_classifier_path,
-            segmentation_checkpoint_path=segmentation_checkpoint_path,
-        )
-        tensors = build_size_field_graph_tensors(
-            sample,
-            face_segmentation_probabilities=context.face_segmentation_probabilities,
-            edge_segmentation_probabilities=context.edge_segmentation_probabilities,
-            part_probabilities=context.part_probabilities,
-            use_label_segmentation=False,
-        )
-        edge_probs = context.edge_segmentation_probabilities
+    if part_classifier_path is None:
+        raise SizeFieldInferenceError("missing_part_classifier", "part classifier checkpoint is required for AI size-field inference")
+    if segmentation_checkpoint_path is None:
+        raise SizeFieldInferenceError("missing_segmentation_checkpoint", "segmentation checkpoint is required for AI size-field inference")
+    context = build_ai_size_field_context(
+        sample=sample,
+        part_classifier_path=part_classifier_path,
+        segmentation_checkpoint_path=segmentation_checkpoint_path,
+    )
+    tensors = build_size_field_graph_tensors(
+        sample,
+        face_segmentation_probabilities=context.face_segmentation_probabilities,
+        edge_segmentation_probabilities=context.edge_segmentation_probabilities,
+        part_probabilities=context.part_probabilities,
+    )
     if tensors.face_inputs.shape[1] != model.face_encoder[0].in_features or tensors.edge_inputs.shape[1] != model.edge_encoder[0].in_features:
         raise SizeFieldInferenceError("input_dimension_mismatch", "sample tensor dimensions do not match checkpoint")
     with torch.no_grad():
@@ -137,7 +129,7 @@ def infer_size_field_document(
         growth_rate=growth_rate,
         quality_profile=quality_profile,
         include_face_sizes=False,
-        edge_segmentation_probabilities=edge_probs,
+        edge_segmentation_probabilities=context.edge_segmentation_probabilities,
     )
 
 
@@ -153,7 +145,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--h-max-mm", type=float, default=8.0)
     parser.add_argument("--growth-rate", type=float, default=1.25)
     parser.add_argument("--quality-profile", default="AMG_QA_SHELL_V2")
-    parser.add_argument("--allow-unconditioned-debug", action="store_true")
     args = parser.parse_args(argv)
     try:
         document = infer_size_field_document(
@@ -166,31 +157,29 @@ def main(argv: Sequence[str] | None = None) -> int:
             h_max_mm=args.h_max_mm,
             growth_rate=args.growth_rate,
             quality_profile=args.quality_profile,
-            allow_unconditioned_debug=args.allow_unconditioned_debug,
         )
         write_size_field_document(args.out, document)
-        if not args.allow_unconditioned_debug:
-            sample = load_entity_dataset_sample(args.sample_dir)
-            context = build_ai_size_field_context(
-                sample=sample,
-                part_classifier_path=args.part_classifier,
-                segmentation_checkpoint_path=args.segmentation_checkpoint,
+        sample = load_entity_dataset_sample(args.sample_dir)
+        context = build_ai_size_field_context(
+            sample=sample,
+            part_classifier_path=args.part_classifier,
+            segmentation_checkpoint_path=args.segmentation_checkpoint,
+        )
+        context_path = Path(args.out).with_name("ai_size_field_context.json")
+        context_path.write_text(
+            json.dumps(
+                {
+                    "schema": "AMG_AI_SIZE_FIELD_CONTEXT_V1",
+                    "part_prediction": context.part_prediction,
+                    "face_segmentation_histogram": _probability_histogram(context.face_segmentation_probabilities, FACE_SEGMENTATION_CLASSES),
+                    "edge_segmentation_histogram": _probability_histogram(context.edge_segmentation_probabilities, EDGE_SEGMENTATION_CLASSES),
+                },
+                indent=2,
+                sort_keys=True,
             )
-            context_path = Path(args.out).with_name("ai_size_field_context.json")
-            context_path.write_text(
-                json.dumps(
-                    {
-                        "schema": "AMG_AI_SIZE_FIELD_CONTEXT_V1",
-                        "part_prediction": context.part_prediction,
-                        "face_segmentation_histogram": _probability_histogram(context.face_segmentation_probabilities, FACE_SEGMENTATION_CLASSES),
-                        "edge_segmentation_histogram": _probability_histogram(context.edge_segmentation_probabilities, EDGE_SEGMENTATION_CLASSES),
-                    },
-                    indent=2,
-                    sort_keys=True,
-                )
-                + "\n",
-                encoding="utf-8",
-            )
+            + "\n",
+            encoding="utf-8",
+        )
     except (SizeFieldInferenceError, SizeFieldModelError, ValueError) as exc:
         print({"status": "FAILED", "message": str(exc)})
         return 1

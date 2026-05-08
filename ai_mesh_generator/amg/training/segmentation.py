@@ -14,7 +14,6 @@ from ai_mesh_generator.amg.model.segmentation import (
     EDGE_SEGMENTATION_CLASSES,
     FACE_SEGMENTATION_CLASSES,
     BRepNetSegmentationModel,
-    BrepSegmentationModel,
     build_entity_graph_tensors,
     build_segmentation_targets,
 )
@@ -124,7 +123,6 @@ def train_entity_segmentation_from_dataset(
     lr: float = 1e-3,
     seed: int = 1,
     edge_loss_multiplier: float = 2.0,
-    model_type: str = "brepnet",
     num_layers: int = 3,
     class_weight_power: float = 0.75,
 ) -> dict:
@@ -132,18 +130,13 @@ def train_entity_segmentation_from_dataset(
     torch.manual_seed(seed)
     samples = load_entity_samples(dataset_root, split=split)
     first = build_entity_graph_tensors(samples[0])
-    if model_type == "brepnet":
-        model = BRepNetSegmentationModel(
-            first.face_features.shape[1],
-            first.edge_features.shape[1],
-            first.coedge_features.shape[1],
-            hidden_dim=hidden_dim,
-            num_layers=num_layers,
-        )
-    elif model_type == "compact-debug":
-        model = BrepSegmentationModel(first.face_features.shape[1], first.edge_features.shape[1], hidden_dim=hidden_dim, coedge_feature_dim=first.coedge_features.shape[1])
-    else:
-        raise SegmentationTrainingError(f"unsupported segmentation model type: {model_type}")
+    model = BRepNetSegmentationModel(
+        first.face_features.shape[1],
+        first.edge_features.shape[1],
+        first.coedge_features.shape[1],
+        hidden_dim=hidden_dim,
+        num_layers=num_layers,
+    )
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     face_counts = np.zeros((len(FACE_SEGMENTATION_CLASSES),), dtype=np.int64)
     edge_counts = np.zeros((len(EDGE_SEGMENTATION_CLASSES),), dtype=np.int64)
@@ -187,7 +180,7 @@ def train_entity_segmentation_from_dataset(
             "coedge_feature_dim": first.coedge_features.shape[1],
             "hidden_dim": hidden_dim,
             "num_layers": num_layers,
-            "model_type": model_type,
+            "model_type": "brepnet",
             "face_classes": FACE_SEGMENTATION_CLASSES,
             "edge_classes": EDGE_SEGMENTATION_CLASSES,
         },
@@ -199,7 +192,7 @@ def train_entity_segmentation_from_dataset(
         "split": split,
         "sample_count": len(samples),
         "epochs": epochs,
-        "model_type": model_type,
+        "model_type": "brepnet",
         "num_layers": num_layers,
         "loss_history": losses,
         "final_loss": losses[-1] if losses else None,
@@ -241,7 +234,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--eval-split")
     parser.add_argument("--epochs", type=int, default=5)
     parser.add_argument("--hidden-dim", type=int, default=64)
-    parser.add_argument("--model", choices=("brepnet", "compact-debug"), default="brepnet")
     parser.add_argument("--num-layers", type=int, default=3)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--seed", type=int, default=1)
@@ -263,7 +255,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             lr=args.lr,
             seed=args.seed,
             edge_loss_multiplier=args.edge_loss_multiplier,
-            model_type=args.model,
             num_layers=args.num_layers,
             class_weight_power=args.class_weight_power,
         )

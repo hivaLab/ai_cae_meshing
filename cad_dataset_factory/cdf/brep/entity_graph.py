@@ -57,12 +57,6 @@ def entity_graph_schema_document() -> dict[str, Any]:
     }
 
 
-def _hash_row(row: np.ndarray) -> str:
-    rounded = np.round(np.asarray(row, dtype=np.float64), decimals=6)
-    digest = hashlib.sha1(rounded.tobytes()).hexdigest()
-    return digest[:10].upper()
-
-
 def _stable_hash(document: dict[str, Any]) -> str:
     encoded = json.dumps(document, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
     return hashlib.sha1(encoded).hexdigest()[:12].upper()
@@ -191,7 +185,7 @@ def _face_fingerprint(index: int, arrays: dict[str, np.ndarray], adjacency: dict
 def _signature_records(prefix: str, arrays: dict[str, np.ndarray], adjacency: dict[str, np.ndarray]) -> list[dict[str, Any]]:
     rows = arrays["edge_features"] if prefix == "EDGE" else arrays["face_features"]
     records: list[dict[str, Any]] = []
-    for index, row in enumerate(rows):
+    for index in range(rows.shape[0]):
         fingerprint = _edge_fingerprint(index, arrays, adjacency) if prefix == "EDGE" else _face_fingerprint(index, arrays, adjacency)
         fingerprint_hash = _stable_hash(fingerprint)
         records.append(
@@ -200,7 +194,6 @@ def _signature_records(prefix: str, arrays: dict[str, np.ndarray], adjacency: di
                 "signature_id": f"{prefix}_SIG_{index + 1:06d}_{fingerprint_hash}",
                 "entity_type": prefix,
                 "fingerprint": fingerprint,
-                "debug_row_hash": _hash_row(row),
             }
         )
     return records
@@ -255,8 +248,8 @@ def validate_entity_brep_graph_structure(graph: EntityBrepGraph) -> None:
         raise BrepGraphBuildError("invalid_edge_signatures", "edge signature count must match edge rows")
     for collection, required_type in (("faces", "FACE"), ("edges", "EDGE")):
         for record in graph.entity_signatures.get(collection, []):
-            if "signature_id" not in record or "fingerprint" not in record or "debug_row_hash" not in record:
-                raise BrepGraphBuildError("invalid_entity_signature", f"{collection} records require signature_id, fingerprint, and debug_row_hash")
+            if "signature_id" not in record or "fingerprint" not in record:
+                raise BrepGraphBuildError("invalid_entity_signature", f"{collection} records require signature_id and fingerprint")
             if record.get("entity_type") != required_type:
                 raise BrepGraphBuildError("invalid_entity_signature", f"{collection} record entity_type must be {required_type}")
 

@@ -175,7 +175,6 @@ def run_entity_size_field_gate_workflow(
         prefer_quality_evidence=True,
         part_classifier_path=part_dir / "model.pkl",
         segmentation_checkpoint_path=seg_dir / "model.pt",
-        use_predicted_context=True,
     )
 
     sample_reports: list[dict[str, Any]] = []

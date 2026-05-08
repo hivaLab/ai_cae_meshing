@@ -178,49 +178,6 @@ def _pool_max(values: torch.Tensor, indices: torch.Tensor, count: int) -> torch.
     return pooled
 
 
-class BrepSegmentationModel(nn.Module):
-    """Compact debug model retained only for ablation/debug CLI use."""
-
-    model_type = "compact-debug"
-
-    def __init__(self, face_feature_dim: int, edge_feature_dim: int, hidden_dim: int = 64, coedge_feature_dim: int = 3) -> None:
-        super().__init__()
-        self.face_encoder = nn.Sequential(nn.Linear(face_feature_dim, hidden_dim), nn.ReLU())
-        self.edge_encoder = nn.Sequential(nn.Linear(edge_feature_dim, hidden_dim), nn.ReLU())
-        self.face_head = nn.Linear(hidden_dim * 2, len(FACE_SEGMENTATION_CLASSES))
-        self.edge_head = nn.Linear(hidden_dim * 2, len(EDGE_SEGMENTATION_CLASSES))
-        self.coedge_feature_dim = coedge_feature_dim
-
-    def forward(self, tensors: EntityGraphTensors) -> SegmentationOutput:
-        face_hidden = self.face_encoder(tensors.face_features)
-        edge_hidden = self.edge_encoder(tensors.edge_features)
-        device = face_hidden.device
-        coedge = tensors.coedge_features.to(device=device)
-        face_indices = coedge[:, 0].round().to(dtype=torch.long)
-        edge_indices = coedge[:, 1].round().to(dtype=torch.long)
-        if torch.any(face_indices < 0) or torch.any(face_indices >= face_hidden.shape[0]):
-            raise SegmentationModelError("invalid_coedge_face_index", "coedge parent face index is out of bounds")
-        if torch.any(edge_indices < 0) or torch.any(edge_indices >= edge_hidden.shape[0]):
-            raise SegmentationModelError("invalid_coedge_edge_index", "coedge parent edge index is out of bounds")
-
-        face_edge_context = torch.zeros_like(face_hidden)
-        face_counts = torch.zeros((face_hidden.shape[0], 1), dtype=face_hidden.dtype, device=device)
-        face_edge_context.index_add_(0, face_indices, edge_hidden[edge_indices])
-        face_counts.index_add_(0, face_indices, torch.ones((face_indices.shape[0], 1), dtype=face_hidden.dtype, device=device))
-        face_edge_context = face_edge_context / face_counts.clamp_min(1.0)
-
-        edge_face_context = torch.zeros_like(edge_hidden)
-        edge_counts = torch.zeros((edge_hidden.shape[0], 1), dtype=edge_hidden.dtype, device=device)
-        edge_face_context.index_add_(0, edge_indices, face_hidden[face_indices])
-        edge_counts.index_add_(0, edge_indices, torch.ones((edge_indices.shape[0], 1), dtype=edge_hidden.dtype, device=device))
-        edge_face_context = edge_face_context / edge_counts.clamp_min(1.0)
-
-        return SegmentationOutput(
-            face_logits=self.face_head(torch.cat([face_hidden, face_edge_context], dim=-1)),
-            edge_logits=self.edge_head(torch.cat([edge_hidden, edge_face_context], dim=-1)),
-        )
-
-
 class BRepNetBlock(nn.Module):
     """Winged-edge coedge kernel block inspired by Lambourne et al.'s BRepNet."""
 
@@ -316,27 +273,20 @@ class BRepNetSegmentationModel(nn.Module):
 
 
 def _model_from_checkpoint(checkpoint: dict[str, Any]) -> nn.Module:
-    model_type = str(checkpoint.get("model_type", "compact-debug"))
+    model_type = str(checkpoint.get("model_type", ""))
     required = ("face_feature_dim", "edge_feature_dim", "hidden_dim")
     if any(key not in checkpoint for key in required):
         raise SegmentationModelError("malformed_segmentation_checkpoint", "segmentation checkpoint is missing model metadata")
     coedge_dim = int(checkpoint.get("coedge_feature_dim", 3))
-    if model_type == "brepnet":
-        return BRepNetSegmentationModel(
-            int(checkpoint["face_feature_dim"]),
-            int(checkpoint["edge_feature_dim"]),
-            coedge_dim,
-            hidden_dim=int(checkpoint["hidden_dim"]),
-            num_layers=int(checkpoint.get("num_layers", 3)),
-        )
-    if model_type == "compact-debug":
-        return BrepSegmentationModel(
-            int(checkpoint["face_feature_dim"]),
-            int(checkpoint["edge_feature_dim"]),
-            hidden_dim=int(checkpoint["hidden_dim"]),
-            coedge_feature_dim=coedge_dim,
-        )
-    raise SegmentationModelError("unsupported_segmentation_model_type", f"unsupported segmentation model_type: {model_type}")
+    if model_type != "brepnet":
+        raise SegmentationModelError("unsupported_segmentation_model_type", f"segmentation checkpoints must be brepnet, got: {model_type or '<missing>'}")
+    return BRepNetSegmentationModel(
+        int(checkpoint["face_feature_dim"]),
+        int(checkpoint["edge_feature_dim"]),
+        coedge_dim,
+        hidden_dim=int(checkpoint["hidden_dim"]),
+        num_layers=int(checkpoint.get("num_layers", 3)),
+    )
 
 
 def load_segmentation_model(checkpoint_path: str | Path) -> nn.Module:

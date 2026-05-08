@@ -19,7 +19,9 @@ Required:
 
 ```text
 cad/input.step
-amg_config.json
+graph/brep_graph.npz
+graph/graph_schema.json
+graph/entity_signatures.json
 ```
 
 Optional:
@@ -36,7 +38,7 @@ roles, but AMG must still be able to run without them.
 Primary prediction output:
 
 ```text
-labels/amg_size_field.json
+amg_size_field_ai.json
 ```
 
 Primary execution outputs:
@@ -52,7 +54,7 @@ reports/amg_inference_report.json
 
 ### Model
 
-Production baseline:
+Production model:
 
 ```text
 CAD-native tabular ensemble: RandomForest, ExtraTrees, HistGradientBoosting
